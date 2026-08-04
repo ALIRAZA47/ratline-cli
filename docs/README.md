@@ -21,10 +21,11 @@ ratline cert issue api.example.com --email admin@example.com
 serving over HTTPS, in four pages.
 
 **Something is broken?** [operations/troubleshooting.md](operations/troubleshooting.md),
-or on the server itself:
+or on the server itself — this works on a site, a tenant, a key, a certificate,
+nginx, sshd, or the host:
 
 ```bash
-sudo ratline site troubleshoot app.example.com
+sudo ratline troubleshoot app.example.com
 ```
 
 **Looking a flag up?** [reference/commands.md](reference/commands.md).

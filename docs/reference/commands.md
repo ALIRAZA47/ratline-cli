@@ -129,34 +129,35 @@ Usage:
   ratline [command]
 
 USERS
-  user        Create and manage tenant accounts
+  user         Create and manage tenant accounts
 
 SSH KEYS
-  key         Add, inspect and revoke SSH keys across the three scopes
+  key          Add, inspect and revoke SSH keys across the three scopes
 
 SITES
-  site        Create and manage sites
+  site         Create and manage sites
 
 CERTIFICATES
-  cert        Issue, attach, renew and import TLS certificates
+  cert         Issue, attach, renew and import TLS certificates
 
 RUNTIMES
-  runtime     Install and select managed Node and Python versions
+  runtime      Install and select managed Node and Python versions
 
 OPERATIONS
-  init        Set up this server: configuration, directories and defaults
-  backup      Archive a user's home or a single site
-  doctor      Check the server and pinpoint anything wrong
-  status      Show everything on this server on one screen
-  explain     Explain how part of ratline works
-  reconcile   Report or repair drift between state and the system
-  export      Dump the full state as JSON, for migration
-  version     Print the version, the host and the available runtimes
-  man         Write man pages for every command
+  init         Set up this server: configuration, directories and defaults
+  backup       Archive a user's home or a single site
+  doctor       Check the server, or diagnose one thing on it
+  status       Show everything on this server on one screen
+  troubleshoot Find why something is broken, in the order things depend on each other
+  explain      Explain how part of ratline works
+  reconcile    Report or repair drift between state and the system
+  export       Dump the full state as JSON, for migration
+  version      Print the version, the host and the available runtimes
+  man          Write man pages for every command
 
 OTHER
-  completion  Generate the autocompletion script for the specified shell
-  help        Help about any command
+  completion   Generate the autocompletion script for the specified shell
+  help         Help about any command
 
 Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
@@ -456,17 +457,25 @@ Examples:
 ### `ratline doctor`
 
 ```
-Runs every check ratline knows how to run: the nginx configuration, failed
-services, dead sockets, certificate expiry, orphaned configuration, drift between
-state and the filesystem, permission anomalies, allocated but unused ports, and
-the SSH key audit.
+With no argument, runs every check ratline knows how to run: the nginx
+configuration, failed services, dead sockets, certificate expiry, orphaned
+configuration, drift between state and the filesystem, permission anomalies,
+allocated but unused ports, and the SSH key audit. Exit code 0 means healthy,
+which makes it usable from cron.
 
-Exit code 0 means healthy.
+With a subject — a domain, a tenant, a key fingerprint, a certificate, or
+'nginx', 'ssh' or 'server' — it diagnoses that one thing instead, walking its
+preconditions in order and stopping at the first failure. That is the same as
+'ratline troubleshoot <subject>', which is the explicit spelling.
+
+The difference is worth knowing: the sweep tells you what is wrong across the
+server, and the walk tells you why one thing is.
 
 Usage:
-  ratline doctor [flags]
+  ratline doctor [subject] [flags]
 
 Flags:
+      --all    With a subject: show every step, not only the ones that need attention
   -h, --help   help for doctor
 
 Global Flags:
@@ -478,6 +487,11 @@ Global Flags:
   -q, --quiet           Errors only
   -v, --verbose         Debug logging
   -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline doctor                       # everything, as a cron job would
+  ratline doctor app.example.com       # why is this site broken
+  ratline doctor ssh                   # including the lockout guard
 ```
 
 ### `ratline status`
@@ -509,6 +523,51 @@ Global Flags:
 Examples:
   ratline status
   ratline status --json | jq '.sites_detail[] | select(.needs_attention)'
+```
+
+### `ratline troubleshoot`
+
+```
+Diagnoses anything ratline manages. The subject is worked out from the
+argument — a domain is a site, a name is a tenant, SHA256:… is a key — and
+'nginx', 'ssh' and 'server' name the subsystems. With no argument it
+diagnoses the server.
+
+Checks run in dependency order and stop at the first failure, so the first
+failure is the cause: a socket nginx cannot open explains the 502, and the
+502 is not reported as a second problem. Steps that depended on it are
+marked as not checked rather than guessed at.
+
+Read-only. It never takes the lock, so it is safe against a site that is
+currently on fire.
+
+Usage:
+  ratline troubleshoot [subject] [flags]
+
+Flags:
+      --all                      Show every step, not only the ones that need attention
+  -h, --help                     help for troubleshoot
+      --kind string              Say what the subject is when the name is ambiguous: server, site, user, key, certificate, nginx, ssh
+      --probe-timeout duration   How long any single network probe may take (default 3s)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline troubleshoot                          # the server
+  ratline troubleshoot app.example.com          # one site's request path
+  ratline troubleshoot acme                     # a tenant: account, home, keys, sites
+  ratline troubleshoot SHA256:AbC…              # can this key log in, and to what
+  ratline troubleshoot nginx
+  ratline troubleshoot ssh                      # including the lockout guard
+  ratline troubleshoot app.example.com --json | jq -r .data.likely_cause
 ```
 
 ### `ratline explain`
@@ -1660,20 +1719,13 @@ Use "ratline site deploy-key [command] --help" for more information about a comm
 #### `ratline site troubleshoot`
 
 ```
-Follows a request from nginx to the application and reports the first step that
-fails, which is the cause — everything after it is a consequence.
-
-Checks, in order: the site is in state, nginx has a configuration for it and
-accepts it, the directories exist, the unit is installed and running, the socket
-exists and has the permissions nginx needs, the application answers a real HTTP
-request, nginx serves it end to end, and TLS is present and current.
-
-Changes nothing.
+The site-scoped spelling of 'ratline troubleshoot', which diagnoses anything.
 
 Usage:
   ratline site troubleshoot <domain> [flags]
 
 Flags:
+      --all    Show every step, not only the ones that need attention
   -h, --help   help for troubleshoot
 
 Global Flags:
@@ -1688,7 +1740,6 @@ Global Flags:
 
 Examples:
   ratline site troubleshoot app.example.com
-  ratline site troubleshoot app.example.com --json
 ```
 
 #### `ratline cert issue`

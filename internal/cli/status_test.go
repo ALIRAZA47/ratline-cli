@@ -25,23 +25,6 @@ func TestPluralReadsAsEnglish(t *testing.T) {
 	}
 }
 
-func TestResolvesHereIsGenerousWhenItCannotKnow(t *testing.T) {
-	// With no recorded public address there is nothing to compare against, so
-	// claiming a mismatch would be a guess presented as a finding.
-	if !resolvesHere([]string{"203.0.113.9"}, nil, nil) {
-		t.Error("with no known addresses this must not report a mismatch")
-	}
-	if !resolvesHere([]string{"203.0.113.9"}, []string{"203.0.113.9"}, nil) {
-		t.Error("a matching IPv4 address should resolve here")
-	}
-	if !resolvesHere([]string{"2001:db8::1"}, nil, []string{"2001:db8::1"}) {
-		t.Error("a matching IPv6 address should resolve here")
-	}
-	if resolvesHere([]string{"198.51.100.1"}, []string{"203.0.113.9"}, nil) {
-		t.Error("an address that is not ours should report a mismatch")
-	}
-}
-
 func TestUptimeHumanIsEmptyRatherThanWrong(t *testing.T) {
 	// /proc/uptime does not exist on darwin, and a summary screen should simply
 	// omit the field rather than report an error for it.

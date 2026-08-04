@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/buildinfo"
+	"github.com/ALIRAZA47/ratline-cli/internal/diag"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -30,20 +31,54 @@ type Finding struct {
 }
 
 func newDoctorCommand(g *Globals) *cobra.Command {
+	var all bool
 	cmd := &cobra.Command{
-		Use:     "doctor",
-		Short:   "Check the server and pinpoint anything wrong",
+		Use:     "doctor [subject]",
+		Short:   "Check the server, or diagnose one thing on it",
 		GroupID: GroupOps,
-		Args:    cobra.NoArgs,
-		Long: "Runs every check ratline knows how to run: the nginx configuration, failed\n" +
-			"services, dead sockets, certificate expiry, orphaned configuration, drift between\n" +
-			"state and the filesystem, permission anomalies, allocated but unused ports, and\n" +
-			"the SSH key audit.\n\n" +
-			"Exit code 0 means healthy.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:    cobra.MaximumNArgs(1),
+		Long: "With no argument, runs every check ratline knows how to run: the nginx\n" +
+			"configuration, failed services, dead sockets, certificate expiry, orphaned\n" +
+			"configuration, drift between state and the filesystem, permission anomalies,\n" +
+			"allocated but unused ports, and the SSH key audit. Exit code 0 means healthy,\n" +
+			"which makes it usable from cron.\n\n" +
+			"With a subject — a domain, a tenant, a key fingerprint, a certificate, or\n" +
+			"'nginx', 'ssh' or 'server' — it diagnoses that one thing instead, walking its\n" +
+			"preconditions in order and stopping at the first failure. That is the same as\n" +
+			"'ratline troubleshoot <subject>', which is the explicit spelling.\n\n" +
+			"The difference is worth knowing: the sweep tells you what is wrong across the\n" +
+			"server, and the walk tells you why one thing is.",
+		Example: "  ratline doctor                       # everything, as a cron job would\n" +
+			"  ratline doctor app.example.com       # why is this site broken\n" +
+			"  ratline doctor ssh                   # including the lockout guard",
+		ValidArgsFunction: g.completeSubjects,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// A named subject is the causal walk rather than the sweep. Same engine as
+			// `troubleshoot`, because two diagnostics that could disagree about the
+			// same server would be worse than one.
+			if len(args) == 1 {
+				env, err := g.diagEnv(cmd.Context())
+				if err != nil {
+					return err
+				}
+				subject, err := diag.Resolve(cmd.Context(), env, args[0])
+				if err != nil {
+					return err
+				}
+				report, err := diag.Diagnose(cmd.Context(), env, subject)
+				if err != nil {
+					return err
+				}
+				if g.JSON {
+					return g.EmitJSON(report)
+				}
+				return g.printDiagnosis(report, all)
+			}
 			return runDoctor(cmd.Context(), g, doctorOptions{})
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false,
+		"With a subject: show every step, not only the ones that need attention")
 	return cmd
 }
 

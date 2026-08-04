@@ -55,15 +55,27 @@ key audit. Exit 0 means healthy, which makes it a usable cron job:
 The problem count in `status` comes from `doctor` itself rather than a second
 implementation, so the two can never disagree about whether the server is healthy.
 
-## One site
+## `ratline troubleshoot <subject>` — why one thing is broken
 
 ```bash
-sudo ratline site status app.example.com
-sudo ratline site troubleshoot app.example.com
+sudo ratline troubleshoot app.example.com    # a site's request path
+sudo ratline troubleshoot acme               # a tenant
+sudo ratline troubleshoot SHA256:AbC…        # a key
+sudo ratline troubleshoot nginx
+sudo ratline troubleshoot ssh
+sudo ratline troubleshoot                    # the host
 ```
 
-`site status` is the unit's state. `site troubleshoot` walks the whole request path and
-finds where it breaks — see [troubleshooting.md](troubleshooting.md).
+The third command, and the one worth understanding. `doctor` sweeps and reports
+findings; `troubleshoot` takes one subject and walks its preconditions in the order
+they depend on each other, stopping at the first failure. Because the order is a
+dependency order, the first failure **is** the cause — and the steps it broke are
+reported as not-checked rather than as more problems to rank.
+
+`ratline doctor <subject>` runs the same walk, for when that is the spelling that
+comes to mind. Both are read-only and neither takes the lock.
+
+See [troubleshooting.md](troubleshooting.md) for what each walk checks.
 
 ## Restart counts under PM2
 

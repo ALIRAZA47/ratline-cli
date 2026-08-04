@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
@@ -184,7 +185,46 @@ func runDoctor(ctx context.Context, g *Globals, opts doctorOptions) error {
 			g.Printf("  %s: %s\n", f.Check, f.Fix)
 		}
 	}
+
+	// The sweep names what is wrong; it does not rank it. When the findings point at
+	// one resource, say which command explains *why* — otherwise an operator with a
+	// list of five findings has to guess which is the cause and which are its
+	// consequences.
+	if subject := dominantSubject(findings); subject != "" {
+		g.Printf("\nMost of that is about %s. For the cause rather than the symptoms:\n"+
+			"  ratline troubleshoot %s\n", subject, subject)
+	}
 	return nil
+}
+
+// dominantSubject finds the one resource most of the findings concern.
+//
+// Reported only when it is genuinely dominant: on a server with problems spread
+// across three tenants there is no single cause to point at, and offering one would
+// be a guess dressed up as a diagnosis.
+func dominantSubject(findings []Finding) string {
+	counts := map[string]int{}
+	total := 0
+	for _, f := range findings {
+		if f.Severity != "problem" || f.Subject == "" {
+			continue
+		}
+		// A path is not a subject anything can be troubleshooted by name.
+		if strings.HasPrefix(f.Subject, "/") {
+			continue
+		}
+		counts[f.Subject]++
+		total++
+	}
+	if total < 2 {
+		return ""
+	}
+	for subject, n := range counts {
+		if n*2 > total {
+			return subject
+		}
+	}
+	return ""
 }
 
 func versionString() string {

@@ -3,8 +3,12 @@
 Start here:
 
 ```bash
-sudo ratline site troubleshoot app.example.com
+sudo ratline troubleshoot app.example.com
 ```
+
+It works on anything, not only a site — `troubleshoot acme` for a tenant,
+`troubleshoot SHA256:…` for a key, `troubleshoot nginx`, `troubleshoot ssh`, or no
+argument at all for the host. The subject is worked out from the argument.
 
 It follows a request the way a request travels — nginx configuration, then the
 directories, then the unit, then the process manager, then the socket, then the
@@ -79,6 +83,7 @@ A certificate on disk that nginx never loaded passes every check except a handsh
 ## Nothing above matched
 
 ```bash
+sudo ratline troubleshoot                  # the host: clock, disk, tooling, state
 sudo ratline doctor                        # every check, across the server
 sudo ratline status                        # the inventory
 sudo ratline site show <domain>            # every setting for this site

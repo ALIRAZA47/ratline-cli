@@ -90,7 +90,7 @@ Certificates needing attention:
         </p>
       </div>
 
-      <CodeBlock lang="shell" prompt code={`ratline site troubleshoot api.example.com`} />
+      <CodeBlock lang="shell" prompt code={`ratline troubleshoot api.example.com`} />
 
       <Terminal title="root@web-1">{`api.example.com
 
@@ -131,9 +131,42 @@ Try:          ratline site restart api.example.com; the full story is in
       <CodeBlock
         lang="shell"
         prompt
-        code={`ratline site troubleshoot api.example.com --json | jq -r '.data.likely_cause'
-ratline site troubleshoot api.example.com --json | jq '.data.steps[] | select(.verdict=="failed")'`}
+        code={`ratline troubleshoot api.example.com --json | jq -r '.data.likely_cause'
+ratline troubleshoot api.example.com --json | jq '.data.steps[] | select(.verdict=="failed")'`}
       />
+
+      <div className="prose">
+        <H3>It works on anything, not only a site</H3>
+        <p>
+          A site, a tenant, an SSH key, a certificate, nginx, sshd, or the host itself. The subject is
+          worked out from the argument, so there is nothing to remember — and each one is the same
+          shape of question: an ordered chain of preconditions where the first broken link explains
+          the rest.
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        prompt
+        code={`ratline troubleshoot acme                 # a tenant: account, home mode, keys, its sites
+ratline troubleshoot SHA256:AbC...       # can this key log in, and to what
+ratline troubleshoot blog.example.org    # a certificate, if that is not also a site
+ratline troubleshoot nginx
+ratline troubleshoot ssh                 # including the lockout guard
+ratline troubleshoot                     # the host: clock, disk, tooling, state`}
+      />
+
+      <div className="prose">
+        <p>
+          The host walk is the one to run when several things are wrong at once. A skewed clock, a
+          full disk or a missing binary explains a dozen unrelated symptoms, and diagnosing any one
+          of those symptoms first is wasted work.
+        </p>
+        <p>
+          <code>ratline doctor &lt;subject&gt;</code> runs the same walk, for when that is the
+          spelling that comes to mind.
+        </p>
+      </div>
 
       <div className="prose">
         <H2 id="explain">4 · Why it was built this way</H2>

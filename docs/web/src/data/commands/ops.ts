@@ -12,6 +12,92 @@ export const ops: CommandGroup = {
   ],
   commands: [
     {
+      id: 'troubleshoot',
+      name: 'ratline troubleshoot',
+      args: '[subject]',
+      status: 'built',
+      summary: 'Diagnose anything ratline manages, stopping at the first failure — which is the cause.',
+      description: [
+        'The causal half of the diagnostics. doctor sweeps the server and reports what is wrong, in whatever order its checks happen to run; that is right for a cron job and it leaves a human with a list of five findings to rank themselves.',
+        'This takes one subject and walks its preconditions in the order they depend on each other. Because the order is a dependency order, the first failure *is* the cause — and the steps it broke are reported as not-checked, naming the step that has to pass first, rather than appearing as more problems competing for attention.',
+        'The subject is worked out from the argument: a domain is a site, a bare name is a tenant, SHA256:… is a key, and "nginx", "ssh" and "server" name the subsystems. With no argument it diagnoses the host, which is the right first question when several things are wrong at once — a skewed clock, a full disk or a missing binary explains a dozen downstream symptoms. A name that is genuinely ambiguous is reported as such rather than guessed at.',
+        'Every subject is the same shape of question, which is why one engine covers all of them. A site: nginx, directories, unit, workers, socket, the application, nginx end to end, TLS, DNS. A tenant: account, home mode, ownership, shell, authorized_keys, key sync, its sites, quota. A key: revoked, expired, scope target, installed, file permissions, revocation list, whether sshd reads that file, and what the key can actually do. A certificate: files, permissions, parse, validity, renewal history, attachment, and whether it is the certificate actually being served.',
+        'Read-only, and it never takes the lock — so it is safe against a site that is currently on fire.',
+      ],
+      flags: [
+        {
+          name: '--all',
+          type: 'bool',
+          default: 'false',
+          description: 'Show every step, not only the ones that need attention.',
+          note: 'Passing steps are folded into a count by default, because on a broken subject the answer is the last line and a dozen ok rows push it off the screen.',
+        },
+        {
+          name: '--kind',
+          arg: '<server|site|user|key|certificate|nginx|ssh>',
+          type: 'enum',
+          description: 'Say what the subject is when the name is ambiguous.',
+          note: 'Needed only when a name is both a tenant and a certificate lineage. A certificate named after its own site resolves to the site, because the certificate is one of that site’s checks.',
+        },
+        {
+          name: '--probe-timeout',
+          arg: '<duration>',
+          type: 'duration',
+          default: '3s',
+          description: 'How long any single network probe may take.',
+          note: 'One knob for the DNS lookup, the request to the application, the request through nginx and the TLS handshake — because what matters is how long the whole diagnosis takes, and a dozen independent five-second waits turns it into a minute of silence on exactly the broken host where somebody is waiting.',
+        },
+      ],
+      exits: [
+        { code: 0, reason: 'The walk completed, whether or not it found a failure. The verdict is in the output.' },
+        { code: 2, reason: 'The subject is ambiguous, or --kind was not one of the seven.' },
+        { code: 3, reason: 'Not root, or nothing on this server goes by that name.' },
+      ],
+      examples: [
+        { lang: 'shell', code: 'ratline troubleshoot app.example.com' },
+        {
+          title: 'The silent 502, found and named',
+          lang: 'text',
+          code: `app.example.com  —  node, owned by acme
+
+  FAIL  the application is listening where nginx expects  —  the socket is mode
+        0640; nginx needs 0660 to connect, so every request is a 502
+  --    the application answers a request  —  not checked: listening has to pass first
+  warn  a current certificate is attached  —  6 days left
+  ok    5 checks passed
+
+Likely cause: the socket is mode 0640; nginx needs 0660 to connect, so every
+              request is a 502
+Try:          ratline site restart app.example.com
+Background:   ratline explain sockets`,
+        },
+        {
+          title: 'Anything, not only a site',
+          lang: 'shell',
+          code: `ratline troubleshoot acme                 # a tenant
+ratline troubleshoot SHA256:AbC...       # can this key log in, and to what
+ratline troubleshoot nginx
+ratline troubleshoot ssh                 # including the lockout guard
+ratline troubleshoot                     # the host`,
+        },
+        {
+          title: 'Just the cause, for a script',
+          lang: 'shell',
+          code: `ratline troubleshoot app.example.com --json | jq -r '.data.likely_cause'
+ratline troubleshoot app.example.com --json | jq '.data.steps[] | select(.verdict=="failed")'`,
+        },
+      ],
+      seeAlso: [
+        { label: 'ratline doctor', to: '/reference/ops#doctor' },
+        { label: 'ratline status', to: '/reference/ops#status' },
+      ],
+      keywords: [
+        '502', 'bad gateway', 'broken', 'down', 'debug', 'diagnose', 'why', 'cause',
+        'root cause', 'socket', 'eacces', 'permission denied publickey', 'lockout',
+        'dependency order', 'first failure',
+      ],
+    },
+    {
       id: 'status',
       name: 'ratline status',
       status: 'built',
@@ -217,13 +303,23 @@ ratline completion zsh  > "\${fpath[1]}/_ratline"`,
     {
       id: 'doctor',
       name: 'ratline doctor',
+      args: '[subject]',
       status: 'built',
       summary:
-        'nginx -t, failed units, dead sockets, certificate expiry, orphaned configs, state-vs-filesystem drift, permission anomalies, and ports allocated but unused.',
+        'The sweep: nginx -t, failed units, dead sockets, certificate expiry, orphaned configs, drift, permission anomalies, unused ports. With a subject, the causal walk instead.',
       description: [
         'The read-only sweep. It changes nothing, and it is the first thing to run when something is wrong and the second thing to run after anything unusual — a manual edit, a reboot, a restore from backup.',
         'Two of its checks matter more than the rest. State-vs-filesystem drift catches the vhost someone edited by hand and the unit someone disabled with systemctl; it is what turns "mysteriously different behaviour" into a line of output. Permission anomalies catch the home that became 0755 and the .env that became 0644 — both of which are silent until they are not.',
         'A degraded certificate — one whose last renewal failed — surfaces here too.',
+        'Given a subject, it runs the dependency-ordered walk instead — the same engine as `ratline troubleshoot`, so the two can never disagree about the same server. The sweep says what is wrong across the box; the walk says why one thing is. When the sweep’s findings are mostly about one resource, it says so and names the walk to run next.',
+      ],
+      flags: [
+        {
+          name: '--all',
+          type: 'bool',
+          default: 'false',
+          description: 'With a subject: show every step, not only the ones that need attention.',
+        },
       ],
       exits: [
         { code: 0, reason: 'No findings, or findings reported. A finding is information, not a failure.' },
