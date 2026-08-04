@@ -135,7 +135,17 @@ const searchKeywords: Record<string, string[]> = {
   ],
   '/guides/debug-502': [
     '502', '504', '413', '403', 'bad gateway', 'upstream', 'socket', 'permission denied', 'oom',
-    'protecthome', 'curl unix-socket', 'journalctl',
+    'protecthome', 'curl unix-socket', 'journalctl', 'troubleshoot', 'eacces', 'empty log',
+  ],
+  '/guides/node': [
+    'pm2', 'cluster mode', 'graceful reload', 'zero downtime', 'daemon', 'direct', 'ecosystem',
+    'pm2_home', 'wait_ready', 'instances', 'restart count', 'node_env', 'type=forking',
+    'memorydenywriteexecute', 'jit', 'with-pm2', 'app.log',
+  ],
+  '/guides/inherited-server': [
+    'status', 'explain', 'troubleshoot', 'doctor', 'inventory', 'what is on this server',
+    'took over', 'handover', 'first look', 'overview', 'completion', 'tab completion',
+    'read-only', 'dry-run',
   ],
 };
 
@@ -238,8 +248,13 @@ const rawNav: NavSection[] = [
     ],
   },
   {
-    title: 'Guides',
+    title: 'Guides — running sites',
     items: [
+      {
+        label: 'Node sites and PM2',
+        to: '/guides/node',
+        blurb: 'Why PM2 supervises by default, what it costs, and how to turn it off.',
+      },
       {
         label: 'FastAPI behind Gunicorn',
         to: '/guides/fastapi',
@@ -255,6 +270,11 @@ const rawNav: NavSection[] = [
         to: '/guides/astro',
         blurb: 'No unit, no socket, nothing running.',
       },
+    ],
+  },
+  {
+    title: 'Guides — access and TLS',
+    items: [
       {
         label: 'Contractor on one site',
         to: '/guides/contractor-access',
@@ -280,6 +300,21 @@ const rawNav: NavSection[] = [
         to: '/guides/cloudflare',
         blurb: 'Why HTTP-01 fails behind a proxy, and the three ways out.',
       },
+    ],
+  },
+  {
+    title: 'Runbooks — when it breaks',
+    items: [
+      {
+        label: 'A server you did not set up',
+        to: '/guides/inherited-server',
+        blurb: 'status, doctor, troubleshoot, explain — in that order, changing nothing.',
+      },
+      {
+        label: 'Debugging a 502',
+        to: '/guides/debug-502',
+        blurb: 'Six causes, in order of likelihood.',
+      },
       {
         label: 'My cert didn’t renew',
         to: '/guides/renewal-runbook',
@@ -289,11 +324,6 @@ const rawNav: NavSection[] = [
         label: 'I’m locked out of SSH',
         to: '/guides/ssh-lockout',
         blurb: 'Console-only recovery. Read before you need it.',
-      },
-      {
-        label: 'Debugging a 502',
-        to: '/guides/debug-502',
-        blurb: 'Six causes, in order of likelihood.',
       },
     ],
   },

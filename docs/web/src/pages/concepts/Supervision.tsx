@@ -9,7 +9,10 @@ const directives = [
   { d: 'WorkingDirectory', why: 'The application directory, so relative paths in the app resolve.' },
   { d: 'EnvironmentFile', why: 'Reads .env as root, before privileges are dropped — which is why the file can be 0600.' },
   { d: 'RuntimeDirectory', why: 'Creates /run/ratline/<slug>/ with the right owner and mode, and removes it on stop. /run is a tmpfs, so a hand-made directory would not survive a reboot.' },
-  { d: 'UMask=0027', why: 'Anything the app writes lands at 0640/0750 rather than world-readable.' },
+  {
+    d: 'UMask',
+    why: '0027 normally, so anything the app writes lands at 0640/0750 rather than world-readable — but 0007 on a socket site, because connect(2) needs write permission on the socket inode and at 0027 the socket lands 0640 and nginx gets EACCES.',
+  },
   { d: 'Restart=always', why: 'With RestartSec from defaults.restart_sec (3s).' },
   { d: 'MemoryMax / MemoryHigh', why: 'MemoryHigh is 0.875 of MemoryMax, so the kernel starts reclaiming before it starts killing.' },
   { d: 'CPUQuota / TasksMax / LimitNOFILE', why: 'Defaults 100%, 256 and 8192. Over 100% CPUQuota means more than one core.' },
@@ -26,6 +29,13 @@ const directives = [
   { d: 'RestrictSUIDSGID', why: 'The service cannot create setuid files.' },
   { d: 'LockPersonality', why: 'No personality(2) changes.' },
   { d: 'SystemCallFilter=@system-service', why: 'A seccomp allowlist for the syscalls a service legitimately needs.' },
+  { d: 'SystemCallArchitectures=native', why: 'No 32-bit syscall entry point, which is a way around a filter aimed at the native ABI.' },
+  { d: 'RestrictAddressFamilies', why: 'AF_UNIX, AF_INET and AF_INET6 only. No packet sockets, no netlink.' },
+  {
+    d: 'MemoryDenyWriteExecute',
+    why: 'Refuses writable-executable pages. On by default, and relaxed for every node site because V8’s JIT requires them — the generated unit records that in a comment rather than leaving the next reader to wonder.',
+  },
+  { d: 'ReadWritePaths', why: 'The exceptions to ProtectSystem=strict: the site’s logs and tmp, plus PM2’s own directory on a PM2 site.' },
 ];
 
 export function ConceptSupervision() {
@@ -40,15 +50,30 @@ export function ConceptSupervision() {
       <div className="prose">
         <p>
           A <code>static</code> site has no unit. For <code>node</code> and <code>python</code> sites the
-          unit is <code>ratline-&lt;slug&gt;.service</code>, and with{' '}
-          <code>--instances &gt; 1</code> it becomes a template unit —{' '}
-          <code>ratline-&lt;slug&gt;@1.service</code> — with an nginx upstream pool across the instance
-          sockets.
+          unit is <code>ratline-&lt;slug&gt;.service</code>, and there is exactly one of them per site
+          binding exactly one socket. Concurrency lives <em>inside</em> the unit — PM2 cluster workers or
+          gunicorn workers, sharing that one listening handle — so there is never an nginx upstream pool
+          to balance across.
         </p>
         <p>
           A <code>ratline.target</code> lets an operator{' '}
           <code>systemctl stop ratline.target</code> to stop every managed site at once, which is what
           you want before a kernel upgrade or a disk operation.
+        </p>
+
+        <H2 id="type">Type=exec, and Type=forking under PM2</H2>
+        <p>
+          Neither gunicorn nor a plain node server implements <code>sd_notify</code>, so{' '}
+          <code>Type=notify</code> would hang until the start timeout and then be reported as a failure.{' '}
+          <code>Type=exec</code> it is — and ratline proves the service is genuinely up by making an HTTP
+          request through its socket afterwards, which is a stronger check than a readiness ping anyway.
+        </p>
+        <p>
+          A node site supervised by PM2 is <code>Type=forking</code> instead, because PM2 daemonises. It
+          carries a <code>PIDFile</code> so systemd follows the right process after the fork, and an{' '}
+          <code>ExecStop</code> that runs <code>pm2 kill</code> so the daemon does not outlive the unit.
+          The cgroup still contains every worker, which is what keeps <code>MemoryMax</code> enforceable
+          across the extra layer — <Link to="/guides/node">the node guide</Link> has that trade in full.
         </p>
       </div>
 
@@ -101,8 +126,9 @@ export function ConceptSupervision() {
           so the decision is explicit and recorded.
         </p>
         <p>
-          The command surface states the mechanism but not which verb carries the flag, so this page
-          does not claim one.
+          The flag is on <code>site add</code> at creation and on <code>site runtime</code> afterwards,
+          and the generated unit records which directives are off in a comment — so the next person to
+          read it knows without having to diff against a default.
         </p>
       </div>
 
@@ -131,6 +157,11 @@ export function ConceptSupervision() {
           <Link to="/reference/exit-codes#code-7">exit 7</Link> exists as its own code rather than being
           folded into 4.
         </p>
+        <p>
+          It matters more under PM2, not less. PM2 will report a worker as started and then restart it
+          ten times without systemd’s counter moving, so the request is the only thing that distinguishes
+          “running” from “working”.
+        </p>
 
         <H3>And the logs come to you</H3>
         <p>
@@ -145,51 +176,107 @@ export function ConceptSupervision() {
 
       <CodeBlock
         lang="systemd"
-        filename="/etc/systemd/system/ratline-acme-app_example_com.service (shape)"
-        code={`[Unit]
-Description=ratline site app.example.com (acme)
+        filename="/etc/systemd/system/ratline-acme-app_example_com.service"
+        tag="real output"
+        code={`# managed-by: ratline
+# site: app.example.com
+# generated: 2026-08-04T17:23:27Z
+[Unit]
+Description=ratline site app.example.com (node) owned by acme
+Documentation=man:ratline(8)
 After=network-online.target
+Wants=network-online.target
 PartOf=ratline.target
 
 [Service]
-Type=simple
+Type=forking
+PIDFile=/home/acme/app.example.com/.pm2/pm2.pid
 User=acme
 Group=acme
 WorkingDirectory=/home/acme/app.example.com/app
-EnvironmentFile=/home/acme/app.example.com/.env
+EnvironmentFile=-/home/acme/app.example.com/.env
+Environment=PM2_HOME=/home/acme/app.example.com/.pm2
+Environment=NODE_ENV=production
+Environment=PM2_DISCRETE_MODE=true
+Environment=TMPDIR=/home/acme/app.example.com/tmp
 RuntimeDirectory=ratline/acme-app_example_com
 RuntimeDirectoryMode=0750
-UMask=0027
-
-ExecStart=/opt/ratline/runtimes/node/22/bin/node server.js
-
+UMask=0007
+ExecStart=/opt/ratline/runtimes/node/22/bin/pm2 start /home/acme/app.example.com/.ratline/ecosystem.config.json
+ExecStartPost=+/bin/sh -c 'for i in $(seq 1 100); do if [ -S /run/ratline/acme-app_example_com/app.sock ]; then chmod 0660 /run/ratline/acme-app_example_com/app.sock; exit 0; fi; sleep 0.1; done; exit 0'
+ExecReload=/opt/ratline/runtimes/node/22/bin/pm2 reload /home/acme/app.example.com/.ratline/ecosystem.config.json --update-env
+ExecStop=/opt/ratline/runtimes/node/22/bin/pm2 kill
 Restart=always
 RestartSec=3s
+StartLimitBurst=5
+StartLimitIntervalSec=60
+KillSignal=SIGTERM
+KillMode=mixed
 TimeoutStopSec=30s
+SyslogIdentifier=ratline-acme-app_example_com
 
 MemoryMax=512M
 MemoryHigh=448M
+MemoryAccounting=true
 CPUQuota=100%
+CPUAccounting=true
 TasksMax=256
 LimitNOFILE=8192
+OOMPolicy=continue
 
-NoNewPrivileges=yes
-PrivateTmp=yes
-PrivateDevices=yes
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindPaths=/home/acme/app.example.com
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-RestrictNamespaces=yes
-RestrictSUIDSGID=yes
-LockPersonality=yes
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+# MemoryDenyWriteExecute=true — relaxed for this site
 SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+BindPaths=/home/acme/app.example.com
+ReadWritePaths=/home/acme/app.example.com/logs /home/acme/app.example.com/tmp
+ReadWritePaths=/home/acme/app.example.com/.pm2
+
+#
+# Relaxed for this site: MemoryDenyWriteExecute
 
 [Install]
 WantedBy=multi-user.target`}
       />
+
+      <div className="prose">
+        <p>
+          That is a real render, with the explanatory comments ratline writes into the file stripped for
+          length. Three lines are worth pointing at.
+        </p>
+        <p>
+          <code>UMask=0007</code> rather than the <code>0027</code> used everywhere else, because{' '}
+          <code>connect(2)</code> on a Unix socket needs <em>write</em> permission on the socket inode. At{' '}
+          <code>0027</code> the socket lands <code>0640</code>, nginx gets <code>EACCES</code>, and every
+          request is a 502 with an empty application log —{' '}
+          <Link to="/guides/debug-502">cause 3</Link>. Files the application creates are group-writable as
+          a result, but the group is the tenant’s own.
+        </p>
+        <p>
+          <code>ExecStartPost</code> runs as root — that is what the <code>+</code> means — waits for the
+          socket to appear, and chmods it. Belt and braces for a framework that chmods the socket itself
+          after binding, and it always exits 0 so it can never be the reason a start fails.
+        </p>
+        <p>
+          <code>EnvironmentFile=-</code> with the dash: a site with no <code>.env</code> yet must still
+          start. Without it, a missing file is a start failure.
+        </p>
+      </div>
 
       <div className="prose">
         <p>
@@ -205,31 +292,46 @@ WantedBy=multi-user.target`}
           for the exact list and the reason.
         </p>
 
-        <H2 id="scaling">Workers and instances are not the same thing</H2>
+        <H2 id="scaling">Workers and instances are both inside the unit</H2>
+        <p>
+          Neither one adds a unit. A site is one unit binding one socket, and both flags set how many
+          processes inside it share that socket:
+        </p>
         <ul>
           <li>
-            <strong><code>--workers</code></strong> is Gunicorn’s worker count, inside one unit. Default{' '}
-            <code>(2 × cores) + 1</code>, capped at <code>defaults.worker_cap</code> (8).
+            <strong><code>--workers</code></strong> is Gunicorn’s worker count. Default{' '}
+            <code>(2 × cores) + 1</code>, capped at <code>defaults.worker_cap</code> (8). The master holds
+            the socket and re-forks to the new count on <code>SIGHUP</code>, so a worker change is a
+            reload and drops nothing.
           </li>
           <li>
-            <strong><code>--instances</code></strong> is a count of <em>units</em>, via a systemd
-            template and an nginx upstream pool. Used for Node, where the process is single-threaded and
-            the way to use more cores is more processes.
+            <strong><code>--instances</code></strong> is PM2’s cluster worker count on a node site. Node’s
+            <code> cluster</code> module shares one listening handle across the workers, which is what
+            makes <code>pm2 reload</code> able to cut over a worker at a time.
           </li>
         </ul>
         <p>
+          So <code>--instances</code> is refused where nothing can act on it: a node site running{' '}
+          <code>--daemon direct</code> is a single process, and a python site scales with{' '}
+          <code>--workers</code>. Each refusal names the flag that does work, rather than accepting the
+          value and quietly ignoring it.
+        </p>
+        <p>
           Both are changed with <code>ratline site scale</code>, which re-renders the unit, verifies it
-          and reloads — rather than being edited by hand, which <code>doctor</code> would then report as
-          drift.
+          and restarts or reloads — rather than being edited by hand, which <code>doctor</code> would then
+          report as drift.
         </p>
       </div>
 
       <CodeBlock
         lang="shell"
         prompt
-        code={`ratline site scale api.example.com --workers 4 --memory-max 1G
-ratline site scale app.example.com --instances 2 --cpu-quota 150%
-ratline site reload api.example.com   # gunicorn replaces workers without dropping the socket`}
+        code={`ratline site scale api.example.com --workers 4          # gunicorn: a reload, nothing dropped
+ratline site scale api.example.com --memory-max 1G     # the cgroup changes, so this restarts
+ratline site scale app.example.com --instances 4       # pm2 cluster workers
+
+ratline site reload api.example.com   # gunicorn SIGHUP: workers cycle, the socket stays open
+ratline site reload app.example.com   # pm2 reload: a replacement worker, then the old one retires`}
       />
 
       <Callout tone="warn" title="cgroup limits are advisory unless configured">

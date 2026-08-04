@@ -11,7 +11,7 @@ export function GuideDebug502() {
       <PageHeader
         eyebrow="Runbook"
         title="Debugging a 502"
-        lede="A 502 means nginx could not get a usable answer from the application. There are six places that can go wrong, and they are worth checking in this order."
+        lede="A 502 means nginx could not get a usable answer from the application. `ratline site troubleshoot` walks the six places that can go wrong and names the first one that failed — this page is what it found, explained."
       />
 
       <div className="prose">
@@ -27,7 +27,42 @@ export function GuideDebug502() {
       <RequestPath />
 
       <div className="prose">
-        <H2 id="triage">0 · Two commands first</H2>
+        <H2 id="triage">0 · One command first</H2>
+        <p>
+          This walks the whole path below in order and stops at the first failure, which — because the
+          order is the order a request travels — <em>is</em> the cause. Read the rest of this page when
+          you want to understand what it found, or when the cause is one it cannot name.
+        </p>
+      </div>
+
+      <CodeBlock lang="shell" prompt code={`ratline site troubleshoot api.example.com`} />
+
+      <Terminal title="root@server">{`api.example.com
+
+  ok    enabled
+  ok    nginx configuration  —  /etc/nginx/sites-available/api.example.com.conf
+  ok    nginx accepts the configuration
+  ok    site directory  —  /home/acme/api.example.com
+  ok    systemd unit  —  active, pid 41822
+  ok    pm2 workers  —  4 online
+  FAIL  socket permissions  —  the socket is mode 0640; nginx needs 0660 to connect,
+        so every request is a 502
+  --    the application answers  —  not checked: an earlier step has to pass first
+
+Likely cause: the socket is mode 0640; nginx needs 0660 to connect, so every
+              request is a 502
+Try:          ratline site restart api.example.com; the full story is in
+              'ratline explain sockets'`}</Terminal>
+
+      <div className="prose">
+        <p>
+          It is read-only, so it is safe against a production site that is currently on fire. Two of its
+          checks are ones you would otherwise have to construct by hand: a real HTTP request straight to
+          the application bypassing nginx, and the same request through nginx with the site’s{' '}
+          <code>Host</code> header. The first one is what splits the problem in half.
+        </p>
+
+        <H2 id="by-hand">By hand, if you want the raw output</H2>
       </div>
 
       <CodeBlock
@@ -67,12 +102,11 @@ ratline site logs api.example.com --error --lines 50`}
             b: 'Overwhelmingly the most common. The unit crashed, was stopped by hand, or never came back after a reboot. Restart=always retries with RestartSec (3s) — so a unit that is still down has failed repeatedly, and the journal has the reason.',
             cmd: `ratline site status api.example.com
 ratline site logs api.example.com --app --lines 50
-systemctl status ratline-acme-api_example_com.service
-journalctl -u ratline-acme-api_example_com.service -n 50 --no-pager
+ratline site logs api.example.com --journal      # the unit itself, not the app
 
 # Then, once you know why:
 ratline site restart api.example.com`,
-            note: 'ratline surfaces the last 20 lines of the journal automatically on a failed start, so you often have the answer before you run any of this.',
+            note: 'On a node site under PM2 — the default — the two log flags are not the same thing. PM2 captures worker output into logs/app.log, so the journal holds only PM2\u2019s own messages: --app is the application, --journal is a failed start or an OOM kill. And systemd\u2019s restart counter reads zero on such a site because PM2 does the restarting, which is why site status shows PM2\u2019s count instead.',
           },
           {
             n: 2,
@@ -117,7 +151,7 @@ ratline site env list api.example.com --reveal   # if you suspect a value, not a
           {
             n: 5,
             t: 'It is being killed by a resource limit',
-            b: 'The app works, then stops under load. MemoryMax is 512M by default and it is per-process — four Gunicorn workers each holding 200 MB exceeds it. MemoryHigh at 87.5% means the kernel reclaims before it kills, so you may see slowness first.',
+            b: 'The app works, then stops under load. MemoryMax is 512M by default and it is a total for the whole unit, not a per-process allowance — a cgroup limit covers every process in the service, so four Gunicorn workers holding 200 MB each is 800 MB against a 512 MB ceiling. MemoryHigh at 87.5% means the kernel reclaims before it kills, so you may see slowness first.',
             cmd: `systemctl show ratline-acme-api_example_com.service \\
   -p MemoryMax -p MemoryHigh -p MemoryCurrent -p TasksMax -p CPUQuotaPerSecUSec
 journalctl -u ratline-acme-api_example_com.service | grep -i -e oom -e killed

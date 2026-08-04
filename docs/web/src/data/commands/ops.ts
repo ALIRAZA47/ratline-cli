@@ -63,7 +63,7 @@ Certificates needing attention:
       ],
       seeAlso: [
         { label: 'ratline doctor', to: '/reference/ops#doctor' },
-        { label: 'ratline site troubleshoot', to: '/reference/sites#site-troubleshoot' },
+        { label: 'ratline site troubleshoot', to: '/reference/site#site-troubleshoot' },
       ],
       keywords: ['overview', 'inventory', 'dashboard', 'summary', 'what is on this server', 'uptime'],
     },

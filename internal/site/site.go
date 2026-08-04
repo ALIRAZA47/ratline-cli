@@ -419,13 +419,51 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 			return nil, err
 		}
 	}
-	if site.Instances > 1 && !site.Dynamic() {
-		return nil, rlerr.Usagef("--instances only applies to node and python sites")
+	if err := validateInstances(site, m.Cfg.Runtimes.NodeProcessManager); err != nil {
+		return nil, err
 	}
 	if site.HSTS {
 		m.Log.Warn("HSTS will only be rendered once a trusted certificate is attached")
 	}
 	return site, nil
+}
+
+// validateInstances checks that a request for more than one instance can actually
+// be honoured.
+//
+// A dynamic site is one unit binding one socket, and concurrency lives inside that
+// unit. So --instances means "PM2 cluster workers", and it only has a meaning where
+// PM2 is doing the supervising. Everywhere else it is refused and the flag that
+// does work is named, rather than being accepted and silently ignored — which is
+// how an operator ends up believing a site is running four workers when it is
+// running one.
+//
+// configuredManager is the server-wide default, needed because a site that never
+// chose one follows it. Checking only site.ProcessManager would accept --instances on
+// a server configured for direct supervision, which is precisely the case this
+// refusal exists for.
+func validateInstances(site *state.Site, configuredManager string) error {
+	if site.Instances <= 1 {
+		return nil
+	}
+	if !site.Dynamic() {
+		return rlerr.Usagef("--instances only applies to node and python sites")
+	}
+	if site.Runtime == "python" {
+		return rlerr.Usagef("a python site scales with workers, not instances").
+			WithHint("gunicorn workers share the one socket: ratline site scale %s --workers %d",
+				site.Domain, site.Instances)
+	}
+	manager := site.ProcessManager
+	if manager == "" {
+		manager = configuredManager
+	}
+	if manager == runtime.ProcessManagerDirect {
+		return rlerr.Usagef("a node site running without PM2 is a single process").
+			WithHint("PM2 cluster mode is what fans it out: ratline site runtime %s --daemon pm2",
+				site.Domain)
+	}
+	return nil
 }
 
 // checkPreconditions verifies everything that would otherwise fail part way

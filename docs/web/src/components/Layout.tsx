@@ -195,7 +195,7 @@ export function Layout() {
             ))}
             <p className="mt-8 max-w-[14rem] border-t border-line pt-4 text-xs leading-relaxed text-faint">
               Everything here is derived from{' '}
-              <code className="font-mono">docs/command-surface.md</code>,{' '}
+              <code className="font-mono">docs/reference/command-surface.md</code>,{' '}
               <code className="font-mono">internal/config/defaults.yaml</code> and the validators in{' '}
               <code className="font-mono">internal/validate</code>. Commands marked{' '}
               <span className="text-muted">planned</span> are specified, not yet implemented.

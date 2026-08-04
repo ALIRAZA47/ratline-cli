@@ -204,7 +204,8 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.Listen, "listen", "socket", "node: socket or port")
 	f.StringVar(&opts.ProcessManager, "daemon", "",
 		"node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)")
-	f.IntVar(&opts.Instances, "instances", 1, "Run this many instances behind an nginx upstream pool")
+	f.IntVar(&opts.Instances, "instances", 1,
+		"node: PM2 cluster workers, all sharing the one socket inside the one unit")
 
 	f.StringVar(&opts.AppModule, "app-module", "", "python: import path of the callable, e.g. app.main:app")
 	f.StringVar(&opts.PythonVersion, "python", "", "python: managed Python version, e.g. 3.12")
@@ -517,7 +518,7 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.IntVar(&opts.Workers, "workers", 0, "Worker processes")
-	f.IntVar(&opts.Instances, "instances", 0, "Instances behind the upstream pool")
+	f.IntVar(&opts.Instances, "instances", 0, "node: PM2 cluster workers")
 	f.StringVar(&opts.MemoryMax, "memory-max", "", "Memory ceiling, e.g. 512M")
 	f.StringVar(&opts.CPUQuota, "cpu-quota", "", "CPU ceiling, e.g. 100%")
 	return Mutating(cmd)

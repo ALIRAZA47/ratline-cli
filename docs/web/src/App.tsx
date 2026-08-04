@@ -34,6 +34,8 @@ import { GuideCloudflare } from './pages/guides/Cloudflare';
 import { GuideRenewalRunbook } from './pages/guides/RenewalRunbook';
 import { GuideSshLockout } from './pages/guides/SshLockout';
 import { GuideDebug502 } from './pages/guides/Debug502';
+import { GuideNodePm2 } from './pages/guides/NodePm2';
+import { GuideInheritedServer } from './pages/guides/InheritedServer';
 
 export default function App() {
   return (
@@ -78,6 +80,8 @@ export default function App() {
         <Route path="guides/renewal-runbook" element={<GuideRenewalRunbook />} />
         <Route path="guides/ssh-lockout" element={<GuideSshLockout />} />
         <Route path="guides/debug-502" element={<GuideDebug502 />} />
+        <Route path="guides/node" element={<GuideNodePm2 />} />
+        <Route path="guides/inherited-server" element={<GuideInheritedServer />} />
 
         <Route path="*" element={<NotFound />} />
       </Route>

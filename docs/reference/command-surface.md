@@ -237,7 +237,7 @@ runs under `ratline-<slug>.service`.
     [--listen socket|port]       Default socket; port auto-allocated 20000-29999
     [--install-command "npm ci --omit=dev"]
     [--build-command "npm run build"]
-    [--instances 1]              >1 renders a template unit + nginx upstream pool
+    [--instances 1]              >1 = PM2 cluster workers on one socket (node only)
     [--public public]            Static dir served by nginx, bypassing the app
 ```
 

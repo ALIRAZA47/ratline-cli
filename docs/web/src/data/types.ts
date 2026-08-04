@@ -3,7 +3,7 @@
  *
  * Everything on this site that describes a command, a flag, a default or an
  * exit code is one of these values, derived by hand from
- * `docs/command-surface.md`, `internal/config/defaults.yaml`,
+ * `docs/reference/command-surface.md`, `internal/config/defaults.yaml`,
  * `internal/rlerr/rlerr.go` and `internal/validate/*.go`. Keeping it as typed
  * data rather than prose is what makes cross-linking, anchoring and the search
  * index possible without a build step.

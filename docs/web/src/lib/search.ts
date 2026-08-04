@@ -167,6 +167,49 @@ export function search(query: string, limit = 24): Doc[] {
   return scored.slice(0, limit).map((s) => s.doc);
 }
 
+/**
+ * Rank the index against terms where some are expected to be wrong.
+ *
+ * `search` requires every term to match, which is right for a typed query: in a
+ * reference, a result that matches half of what you asked for is noise. But it is
+ * exactly wrong for guessing at a mistyped URL, where the whole premise is that one
+ * term is not in the index — `/guides/debug-503` has "guides" and "debug" right and
+ * "503" wrong, and requiring all three returns nothing at all.
+ *
+ * So this scores the terms that do hit and ignores the rest, then holds a floor so
+ * that genuine nonsense still returns nothing rather than four arbitrary pages.
+ */
+export function suggest(query: string, limit = 4): Doc[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+
+  const scored: { doc: Doc; score: number; hits: number }[] = [];
+  for (const doc of index) {
+    let score = 0;
+    let hits = 0;
+    for (const term of terms) {
+      let termScore = 0;
+      if (doc.exact.some((e) => e === term)) termScore += 60;
+      else if (doc.exact.some((e) => e.startsWith(term))) termScore += 34;
+      else if (doc.title.toLowerCase().includes(term)) termScore += 20;
+      else if (doc.hay.includes(term)) termScore += 8;
+      if (termScore > 0) {
+        hits++;
+        score += termScore;
+      }
+    }
+    // Two weak hits on one term is what a single stray word produces, and offering
+    // a page on that basis is worse than offering nothing.
+    if (hits === 0 || score < 20) continue;
+    // More of the query accounted for is a better guess than one strong term.
+    score += hits * 12 + kindWeight[doc.kind];
+    scored.push({ doc, score, hits });
+  }
+
+  scored.sort((a, b) => b.hits - a.hits || b.score - a.score);
+  return scored.slice(0, limit).map((s) => s.doc);
+}
+
 export const kindLabel: Record<ResultKind, string> = {
   page: 'Page',
   command: 'Command',

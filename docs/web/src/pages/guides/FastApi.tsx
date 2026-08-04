@@ -190,9 +190,13 @@ ratline site scale api.example.com --workers 8 --memory-max 2G --cpu-quota 400%`
       <Callout tone="note" title="MemoryHigh is 87.5% of MemoryMax">
         <p>
           So the kernel starts <em>reclaiming</em> before it starts <em>killing</em>. A worker that gets
-          slow under memory pressure is recoverable; one that gets OOM-killed mid-request is not. If you
-          are seeing workers vanish, raise <code>--memory-max</code> rather than lowering the worker
-          count first — the arithmetic is per-process.
+          slow under memory pressure is recoverable; one that gets OOM-killed mid-request is not.
+        </p>
+        <p>
+          And the arithmetic is a <em>total</em>, not a per-worker allowance: <code>MemoryMax</code> is a
+          cgroup limit, so it covers every process in the unit at once. Three workers at 200 MB each is
+          600 MB against a 512 MB ceiling. So raising <code>--workers</code> without raising{' '}
+          <code>--memory-max</code> is how a site that was fine starts being OOM-killed under load.
         </p>
       </Callout>
 

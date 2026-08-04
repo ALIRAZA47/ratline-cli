@@ -50,15 +50,32 @@ export function Home() {
         </div>
       </header>
 
-      <Callout tone="warn" title="Under construction, and the docs say so">
-        <p>
-          {built} of {total} documented commands are implemented today; the rest are specified and
-          being built in order. Phase 1 — the skeleton, configuration, logging, safe execution and
-          the validators — is complete. Every command on this site carries a{' '}
-          <StatusBadge status="built" size="xs" /> or <StatusBadge status="planned" size="xs" />{' '}
-          badge, and nothing here describes behaviour that has not been specified.
-        </p>
-      </Callout>
+      {built === total ? (
+        <Callout tone="ok" title="Everything on this site is implemented">
+          <p>
+            All {total} documented commands are built and tested. Every one carries a{' '}
+            <StatusBadge status="built" size="xs" /> badge, and nothing here describes behaviour that
+            does not exist — the command pages are generated from the same surface the binary
+            implements, and the concept pages are the same markdown the binary itself prints with{' '}
+            <code>ratline explain</code>.
+          </p>
+          <p>
+            Two deliberate gaps, named rather than implied: <code>ratline db</code> is a stub behind
+            the <code>features.db_provisioning</code> flag, and the only runtimes are static, node and
+            python. There is no PHP, Go or Ruby — the runtime layer is an interface, so each would be a
+            new file rather than a rewrite.
+          </p>
+        </Callout>
+      ) : (
+        <Callout tone="warn" title="Under construction, and the docs say so">
+          <p>
+            {built} of {total} documented commands are implemented today; the rest are specified and
+            being built in order. Every command on this site carries a{' '}
+            <StatusBadge status="built" size="xs" /> or <StatusBadge status="planned" size="xs" />{' '}
+            badge, and nothing here describes behaviour that has not been specified.
+          </p>
+        </Callout>
+      )}
 
       <div className="prose">
         <H2>What it actually does</H2>

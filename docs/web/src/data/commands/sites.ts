@@ -205,7 +205,7 @@ export const sites: CommandGroup = {
               type: 'int',
               default: '1',
               description: 'Number of application processes.',
-              note: 'Above 1 this renders a systemd template unit — ratline-<slug>@1.service — and an nginx upstream pool across the instance sockets.',
+              note: 'PM2 cluster workers, all sharing the one socket inside the one unit and the one cgroup. Refused on a node site running --daemon direct (a single process) and on a python site (which scales with --workers), rather than accepted and silently ignored.',
             },
             {
               name: '--public',
@@ -542,11 +542,18 @@ done`,
       status: 'built',
       summary: 'Change worker count, instance count or cgroup limits.',
       description: [
-        'This is the command `site add` points you at when you re-run it with different resource parameters. The unit is re-rendered, verified and reloaded rather than rewritten by hand.',
+        'This is the command `site add` points you at when you re-run it with different resource parameters. The unit is re-rendered, verified and restarted rather than rewritten by hand.',
+        'A gunicorn worker change is the one case that costs no requests: the master holds the socket and re-forks to the new count on SIGHUP. Everything else restarts, including any change to the cgroup limits — a reload would not re-read those.',
       ],
       flags: [
         { name: '--workers', arg: '<n>', type: 'int', description: 'Gunicorn worker processes.' },
-        { name: '--instances', arg: '<n>', type: 'int', description: 'Node process count, via a template unit and an nginx upstream pool.' },
+        {
+          name: '--instances',
+          arg: '<n>',
+          type: 'int',
+          description: 'PM2 cluster workers on a node site.',
+          note: 'All the workers share the one socket inside the one unit, so this changes concurrency without adding a unit or an nginx upstream. Refused where nothing can fan out — a direct-supervised node site, or a python site.',
+        },
         {
           name: '--memory-max',
           arg: '<size>',

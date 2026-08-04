@@ -27,7 +27,9 @@ export function ReferenceIndex() {
         }
         meta={
           <p className="text-sm text-muted">
-            {built} built · {total - built} planned · {total} documented
+            {built === total
+              ? `${total} commands, all built`
+              : `${built} built · ${total - built} planned · ${total} documented`}
           </p>
         }
       />

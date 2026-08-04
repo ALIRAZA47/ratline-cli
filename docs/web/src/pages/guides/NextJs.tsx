@@ -243,9 +243,15 @@ ratline site env set app.example.com NODE_ENV=production HOSTNAME=127.0.0.1`}
         <H2 id="instances">More than one process</H2>
         <p>
           Node is single-threaded, so the way to use more cores is more processes.{' '}
-          <code>--instances 2</code> renders a systemd template unit —{' '}
-          <code>ratline-&lt;slug&gt;@1.service</code> — and an nginx upstream pool across the instance
-          sockets.
+          <code>--instances 2</code> sets PM2’s cluster worker count: two workers sharing the one
+          listening socket, inside the one unit and under the one memory ceiling. Not two units, and no
+          nginx upstream pool — node’s <code>cluster</code> module shares the listening handle, which is
+          also what lets <code>pm2 reload</code> cut over one worker at a time.
+        </p>
+        <p>
+          Which means the ceiling is a <em>total</em>. Two workers each holding 400 MB exceed a 512 MB{' '}
+          <code>MemoryMax</code>, because the limit covers the whole cgroup rather than each process —
+          so raise the memory when you raise the worker count.
         </p>
       </div>
 

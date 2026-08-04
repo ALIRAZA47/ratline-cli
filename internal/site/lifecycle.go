@@ -226,7 +226,15 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 		if opts.Instances > 16 {
 			return nil, rlerr.Usagef("%d instances is more than any single site needs", opts.Instances)
 		}
-		site.Instances, changed = opts.Instances, true
+		previous := site.Instances
+		site.Instances = opts.Instances
+		// Checked here as well as at creation, or the rule would only hold for new
+		// sites and `scale` would be a way around it.
+		if err := validateInstances(site, m.Cfg.Runtimes.NodeProcessManager); err != nil {
+			site.Instances = previous
+			return nil, err
+		}
+		changed = true
 	}
 	if opts.MemoryMax != "" {
 		if _, err := validate.Size(opts.MemoryMax); err != nil {
@@ -261,15 +269,19 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 	if err := m.applyUnit(ctx, site, rt, rc, rb); err != nil {
 		return nil, err
 	}
-	// The vhost carries the upstream pool, so an instance change touches it too.
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	if err := m.Nginx.Apply(ctx, site, cert, rb); err != nil {
 		return nil, err
 	}
 
-	// Gunicorn replaces workers one at a time on SIGHUP, so a worker change is a
-	// reload and nothing is dropped. Anything else needs a restart.
-	if site.Runtime == "python" && site.AppServer == "gunicorn" && opts.Instances == 0 {
+	// Gunicorn re-forks to the new worker count on SIGHUP, one worker at a time,
+	// with the master holding the socket — so a worker-only change costs no
+	// requests. Deliberately narrow: whether `pm2 reload` re-reads a changed
+	// instance count is not something this code can prove, and a restart that is
+	// honest beats a reload that may quietly not have scaled. Anything touching the
+	// cgroup restarts too.
+	workersOnly := opts.Instances == 0 && opts.MemoryMax == "" && opts.CPUQuota == ""
+	if workersOnly && site.Runtime == "python" && site.AppServer == "gunicorn" {
 		if err := m.Unit.Control(ctx, site, "reload"); err != nil {
 			return nil, err
 		}

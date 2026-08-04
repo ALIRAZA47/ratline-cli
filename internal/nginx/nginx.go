@@ -66,8 +66,6 @@ type VhostData struct {
 	ProxyPass        string
 	ProxyReadTimeout string
 	ProxyBuffering   bool
-	Upstream         bool
-	UpstreamServers  []string
 	StaticLocations  []StaticLocation
 
 	ClientMaxBodySize string
@@ -188,21 +186,18 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 	return d, nil
 }
 
+// buildProxyTarget points the vhost at the site's one listening endpoint.
+//
+// There is exactly one, always: a dynamic site is one systemd unit binding one
+// socket or one port. Concurrency lives *inside* the unit — PM2 cluster workers or
+// gunicorn workers, which share that one listening handle — so there is nothing for
+// an nginx upstream pool to balance across.
+//
+// An earlier version rendered a pool over app-1.sock … app-N.sock when
+// --instances was above one. Nothing ever created those sockets, so the pool
+// pointed at paths that did not exist and every request to such a site was a 502.
+// `--instances` is now validated where it is set rather than papered over here.
 func (m *Manager) buildProxyTarget(d *VhostData, site *state.Site) error {
-	if site.Instances > 1 {
-		d.Upstream = true
-		for i := 1; i <= site.Instances; i++ {
-			if site.Listen == "port" {
-				d.UpstreamServers = append(d.UpstreamServers,
-					fmt.Sprintf("127.0.0.1:%d", site.Port+i-1))
-				continue
-			}
-			d.UpstreamServers = append(d.UpstreamServers,
-				fmt.Sprintf("unix:%s/app-%d.sock", m.Cfg.RuntimeDir(site.Owner, site.Domain), i))
-		}
-		d.ProxyPass = "http://" + site.Slug
-		return nil
-	}
 	if site.Listen == "port" {
 		if site.Port == 0 {
 			return rlerr.Preconditionf("%s listens on a port but none is allocated", site.Domain).

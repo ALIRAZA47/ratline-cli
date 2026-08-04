@@ -13,16 +13,7 @@ additions belong in the custom include at the bottom, which is never touched.
 # Do not edit. Add your own directives to:
 #   {{ .CustomInclude }}
 
-{{ if .Upstream }}
-upstream {{ .Slug }} {
-    least_conn;
-{{- range .UpstreamServers }}
-    server {{ . }};
-{{- end }}
-    keepalive 16;
-}
-{{ end }}
-{{- if .WWWRedirectFrom }}
+{{ if .WWWRedirectFrom }}
 # Canonical host redirect, before the main server block so it wins.
 server {
     listen 80;

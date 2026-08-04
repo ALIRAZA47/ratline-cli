@@ -84,13 +84,6 @@ func goldenCases() map[string]struct {
 		cert *state.Certificate
 	}{spa, tlsCert(state.CertSourceLetsEncrypt)}
 
-	multi := pySite()
-	multi.Instances = 3
-	cases["python-multi-instance-tls"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{multi, tlsCert(state.CertSourceLetsEncrypt)}
-
 	port := nodeSite()
 	port.Listen = "port"
 	port.Port = 20001

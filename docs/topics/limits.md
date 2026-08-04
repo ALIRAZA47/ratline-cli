@@ -11,6 +11,11 @@ kernel enforces:
     TasksMax=256         the fork-bomb ceiling
     LimitNOFILE=8192
 
+Each is a cgroup limit, so each is a total for the whole unit rather than a
+per-process allowance. Four workers holding 200M each is 800M against a 512M ceiling,
+which is why raising the worker count without raising the memory is how a site that
+was fine starts being OOM-killed under load.
+
     ratline site scale app.example.com --memory-max 1G --cpu-quota 200%
     ratline site scale api.example.com --workers 6
 

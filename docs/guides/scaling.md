@@ -17,6 +17,11 @@ TasksMax=256         the fork-bomb ceiling
 LimitNOFILE=8192
 ```
 
+These are cgroup limits, so each one is a **total for the unit** rather than a
+per-process allowance. Four gunicorn workers holding 200M each is 800M against a 512M
+ceiling — which is why raising `--workers` without raising `--memory-max` is how a
+site that was fine starts being OOM-killed under load.
+
 This is what replaces a PHP-FPM pool's `pm.max_children`. The difference is that the
 kernel enforces it, rather than a process that has to notice first.
 
@@ -25,11 +30,22 @@ starts killing, which turns some OOM kills into a slowdown you can watch coming.
 
 ## Workers versus instances
 
-**Workers** are inside one process group: Gunicorn workers, PM2 cluster workers. They
-share a socket and a cgroup. This is the knob for throughput.
+Both are concurrency *inside* one unit. Neither adds a unit, and there is never an
+nginx upstream pool: a site is one unit binding one socket, and both supervisors share
+that one listening handle across their workers.
 
-**Instances** (`--instances`) put several units behind an nginx upstream pool, for a
-runtime that cannot fan out internally. For a PM2 node site, prefer workers.
+**`--workers`** is Gunicorn's worker count on a python site. The master holds the
+socket and re-forks to the new count on `SIGHUP`, so a worker change is a reload and
+costs no requests.
+
+**`--instances`** is PM2's cluster worker count on a node site. Node's `cluster`
+module shares the listening handle, which is also what lets `pm2 reload` cut over one
+worker at a time.
+
+So `--instances` is refused where nothing can act on it — a node site running
+`--daemon direct` is a single process, and a python site scales with `--workers`. Each
+refusal names the flag that does work, rather than accepting the value and quietly
+ignoring it.
 
 ## Choosing a memory ceiling
 

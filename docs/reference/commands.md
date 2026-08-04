@@ -1159,7 +1159,7 @@ Flags:
       --hsts                          Send Strict-Transport-Security (only with a trusted certificate)
       --index string                  static: index document (default "index.html")
       --install-command string        Dependency install command
-      --instances int                 Run this many instances behind an nginx upstream pool (default 1)
+      --instances int                 node: PM2 cluster workers, all sharing the one socket inside the one unit (default 1)
       --listen string                 node: socket or port (default "socket")
       --manage-py string              python: Django manage.py, enabling --migrate and --collectstatic
       --memory-max string             Memory ceiling, e.g. 512M
@@ -1415,7 +1415,7 @@ Usage:
 Flags:
       --cpu-quota string    CPU ceiling, e.g. 100%
   -h, --help                help for scale
-      --instances int       Instances behind the upstream pool
+      --instances int       node: PM2 cluster workers
       --memory-max string   Memory ceiling, e.g. 512M
       --workers int         Worker processes
 

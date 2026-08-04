@@ -180,8 +180,11 @@ location = /robots.txt {
 }
 
 # A long-running export endpoint that needs more than proxy_read_timeout 60s.
+# The proxy target is the site's own socket — there is no named upstream, because
+# a site is one unit binding one socket.
 location /export/ {
-    proxy_pass         http://ratline_upstream;
+    proxy_pass         http://unix:/run/ratline/acme-api_example_com/app.sock:;
+    include            /etc/nginx/ratline/proxy-params.conf;
     proxy_read_timeout 600s;
 }`}
       />

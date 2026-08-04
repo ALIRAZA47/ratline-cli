@@ -161,24 +161,30 @@ func TestNodePortVhost(t *testing.T) {
 	}
 }
 
-func TestMultiInstanceUpstream(t *testing.T) {
-	site := pythonSite()
-	site.Instances = 3
-	out := render(t, site, nil)
-	if !strings.Contains(out, "upstream alice-api_example_com {") {
-		t.Errorf("no upstream block:\n%s", out)
-	}
-	if !strings.Contains(out, "least_conn;") {
-		t.Error("no load-balancing method")
-	}
-	for i := 1; i <= 3; i++ {
-		want := "app-" + string(rune('0'+i)) + ".sock"
-		if !strings.Contains(out, want) {
-			t.Errorf("instance socket %s is missing", want)
+func TestTheVhostOnlyEverProxiesToASocketThatExists(t *testing.T) {
+	// A dynamic site is one unit binding one socket. Concurrency lives inside the
+	// unit — PM2 cluster workers, gunicorn workers — sharing that one listening
+	// handle, so there is nothing for an upstream pool to balance across.
+	//
+	// This replaces a test that asserted the opposite. The vhost used to render a
+	// pool over app-1.sock … app-N.sock whenever --instances was above one, and
+	// nothing in the codebase ever created those sockets: every request to such a
+	// site was a 502 against a path that did not exist.
+	for _, instances := range []int{1, 3, 16} {
+		site := pythonSite()
+		site.Instances = instances
+		out := render(t, site, nil)
+
+		if strings.Contains(out, "upstream ") {
+			t.Errorf("instances=%d rendered an upstream block:\n%s", instances, out)
 		}
-	}
-	if !strings.Contains(out, "proxy_pass http://alice-api_example_com;") {
-		t.Error("the vhost does not proxy to the upstream pool")
+		if strings.Contains(out, "app-1.sock") || strings.Contains(out, "app-2.sock") {
+			t.Errorf("instances=%d proxies to a socket nothing creates:\n%s", instances, out)
+		}
+		want := "proxy_pass http://unix:/run/ratline/alice-api_example_com/app.sock:;"
+		if !strings.Contains(out, want) {
+			t.Errorf("instances=%d does not proxy to the site's real socket:\n%s", instances, out)
+		}
 	}
 }
 

@@ -68,6 +68,16 @@ changed the supervisor binary under every existing site. Root-owned because a
 supervisor binary a tenant could modify is a way to run arbitrary code from inside
 a service unit.
 
+## Instances are cluster workers, not units
+
+`--instances N` sets PM2's cluster worker count. All N workers share the one listening
+socket, inside one unit and under one memory ceiling — which is what cluster mode is
+for, and what lets `pm2 reload` retire one worker at a time.
+
+There is no nginx upstream pool and no second unit. `--instances` is refused on a node
+site running `--daemon direct`, because that is a single process, and on a python site,
+which scales with `--workers` instead.
+
 ## Cluster mode and non-JavaScript start commands
 
 Cluster mode is node's own `cluster` module, so it can only fan out a JavaScript
