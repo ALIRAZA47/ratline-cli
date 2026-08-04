@@ -4,11 +4,122 @@ export const ops: CommandGroup = {
   id: 'ops',
   title: 'Operations',
   path: '/reference/ops',
-  blurb: 'Version, man pages, completion, doctor, reconcile, backup, export, init.',
+  blurb: 'status, doctor, explain, init, reconcile, backup, export, version, man.',
   intro: [
-    'The commands that are about the server rather than about one tenant. Three of them are built today — `version`, `man` and `completion` — which is also why the output on this page is real output rather than an illustration.',
+    'The commands that are about the server rather than about one tenant.',
+    'Two of them answer questions that look similar and are not. `status` always prints the inventory and marks what needs attention — it says what is here. `doctor` runs every check and prints only what is wrong, so on a healthy server it prints nothing — it says what is broken. doctor is what a cron job runs; status is what a human runs first. The problem count in status comes from doctor itself rather than a second implementation, so the two can never disagree.',
+    '`explain` is the third: longer-form answers than a help page can carry, embedded in the binary so they work over SSH on a server with no browser and no network.',
   ],
   commands: [
+    {
+      id: 'status',
+      name: 'ratline status',
+      status: 'built',
+      summary: 'The whole server on one screen: tenants, sites, their state, certificates and a problem count.',
+      description: [
+        'Written to be the first command you run on a server you have not touched in a month. It always prints, which is the difference between it and doctor: a healthy server still needs an inventory, and doctor on a healthy server prints nothing at all.',
+        'Sites that need attention are marked. A disabled site counts as needing attention, because nginx is not serving it and that is almost never what someone reading this screen expects.',
+        'The restart count shown for a node site is PM2\'s, not systemd\'s. Under PM2 systemd\'s own counter stays at zero because PM2 does the restarting, so reading systemd\'s number would report a crash-looping application as healthy.',
+      ],
+      flags: [
+        {
+          name: '--quiet',
+          type: 'bool',
+          default: 'false',
+          description: 'Only the summary counts, without the per-site table.',
+        },
+      ],
+      exits: [
+        { code: 0, reason: 'Always, whether or not problems were found. The count is in the output; use doctor for a non-zero exit.' },
+        { code: 3, reason: 'Not root. The state database is 0600 and the sockets are not readable otherwise.' },
+      ],
+      examples: [
+        { lang: 'shell', code: 'ratline status' },
+        {
+          title: 'A server with two things wrong',
+          lang: 'text',
+          code: `web-1.example.net — ratline 1.0.0
+Ubuntu 24.04.1 LTS, up 41d 6h
+
+3 tenants, 5 sites, 7 SSH keys, 4 certificates
+
+    DOMAIN                OWNER   RUNTIME  STATE     TLS                 NOTE
+    www.example.com       acme    static   serving   https
+    app.example.com       acme    node     running   https               4 workers
+  ! api.example.com       acme    python   failed    https
+    blog.example.org      beta    static   serving   https (expiring)
+  ! stage.example.org     beta    node     running   http                2 of 4 workers online
+
+Certificates needing attention:
+  blog.example.org                         expiring, 6 days left
+
+2 problems found. See them with 'ratline doctor'.`,
+        },
+        {
+          title: 'Only the sites that need attention',
+          lang: 'shell',
+          code: `ratline status --json | jq '.data.sites_detail[] | select(.needs_attention)'`,
+        },
+      ],
+      seeAlso: [
+        { label: 'ratline doctor', to: '/reference/ops#doctor' },
+        { label: 'ratline site troubleshoot', to: '/reference/sites#site-troubleshoot' },
+      ],
+      keywords: ['overview', 'inventory', 'dashboard', 'summary', 'what is on this server', 'uptime'],
+    },
+    {
+      id: 'explain',
+      name: 'ratline explain',
+      args: '[topic]',
+      status: 'built',
+      summary: 'Longer-form answers than a help page can carry, built into the binary.',
+      description: [
+        'An operator meets ratline over SSH on a server they just built: no browser, no manual pages beyond the one ratline installs, and this site is on a machine they are not looking at. `--help` answers "what are the flags", which is the wrong shape for "why does my socket 502" or "what does PM2 actually buy me".',
+        'The pages are embedded at build time, so this works with no network. They are the same markdown files this site renders, so the binary and the website can never give different answers.',
+        'Run without a topic to list them. A mistyped or approximate name is corrected rather than refused: `explain 502` finds the diagnosis page, `explain cert` finds the TLS page.',
+      ],
+      flags: [
+        {
+          name: '--raw',
+          type: 'bool',
+          default: 'false',
+          description: 'Print the markdown source instead of formatting it for a terminal.',
+        },
+      ],
+      refuses: [
+        'Nothing. It needs neither root nor a configuration file nor a state database, so documentation is readable before `ratline init` has ever run and by a tenant with an account but no privileges.',
+      ],
+      exits: [
+        { code: 0, reason: 'The topic was printed, or the list was printed.' },
+        { code: 2, reason: 'No such topic. The nearest match, or the full list, is in the hint.' },
+      ],
+      examples: [
+        { lang: 'shell', code: 'ratline explain' },
+        { lang: 'shell', code: 'ratline explain sockets' },
+        { lang: 'shell', code: 'ratline explain node | less' },
+        {
+          title: 'The topic list',
+          lang: 'text',
+          code: `TOPIC     WHAT IT COVERS
+deploys   What \`site deploy\` does, in what order, and what happens when a step fails.
+diagnose  The order to check things in, and which command answers each question.
+layout    The filesystem layout: what ratline creates, and where to look for it.
+limits    What stops one site from taking down the server.
+node      How a node site is supervised, why PM2 is the default, and when to turn it off.
+python    Gunicorn, a per-site virtualenv, and the WSGI/ASGI choice.
+safety    What ratline promises about running twice, failing halfway, and what it refuses.
+sockets   Why a node or python site listens on a Unix socket, and the one permission
+          mistake that turns every request into a 502 with nothing in the log.
+ssh       Three scopes, what each one means, and why a key is never trusted as submitted.
+state     What ratline records, where, and how to get it back.
+static    nginx serving files directly, with no process to supervise.
+tls       TLS is a separate resource, on purpose.
+
+Read one with 'ratline explain <topic>'.`,
+        },
+      ],
+      keywords: ['docs', 'documentation', 'help', 'concepts', 'why', 'offline', 'manual', 'topics'],
+    },
     {
       id: 'version',
       name: 'ratline version',

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate docs/COMMANDS.md from the binary's own help output.
+# Generate docs/reference/commands.md from the binary's own help output.
 #
 # Generated rather than hand-written so it cannot drift from the real flags —
 # which is the failure mode of every CLI reference maintained by hand.
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 RL="${1:-./bin/ratline}"
-OUT="${2:-docs/COMMANDS.md}"
+OUT="${2:-docs/reference/commands.md}"
 
 [ -x "$RL" ] || { echo "no binary at $RL — run 'make build' first" >&2; exit 1; }
 
@@ -19,13 +19,21 @@ OUT="${2:-docs/COMMANDS.md}"
 # three runtimes that way — and treating those lines as commands invents entries
 # like "ratline site static", which then produce help for a command that does not
 # exist. Only the region between Usage and Flags holds real subcommands.
+#
+# One space between the name and its description, not two: cobra pads names to the
+# width of the longest one in the group, so the longest name gets exactly one space.
+# Requiring two silently dropped whichever command happened to have the longest name
+# — which is a reference that is wrong in a way nobody notices.
+#
+# `ratline` is excluded because the usage line inside the same region reads
+# "  ratline site [command]", which otherwise parses as a subcommand called ratline.
 subcommands() {
     # shellcheck disable=SC2086
     "$RL" $1 --help 2>&1 \
         | sed -n '/^Usage:/,/^Flags:/p' \
-        | grep -E '^  [a-z][a-z-]*  ' \
+        | grep -E '^  [a-z][a-z0-9-]* +[^ ]' \
         | awk '{print $1}' \
-        | grep -vE '^(help|completion)$' || true
+        | grep -vE '^(help|completion|ratline)$' || true
 }
 
 # Commands are enumerated breadth-first into a worklist rather than by recursive
@@ -71,9 +79,9 @@ render() {
 # Commands
 
 Generated from the binary itself with `make docs-commands`, so it cannot drift
-from the real flags. For *why* each command behaves as it does, read the guides:
-[RUNTIMES.md](RUNTIMES.md), [TLS.md](TLS.md), [SSH.md](SSH.md) and
-[SECURITY.md](SECURITY.md).
+from the real flags. For *why* each command behaves as it does, read the
+[guides](../guides/), the [security notes](../security/), or the concept pages the
+binary itself carries — `ratline explain`.
 
 ## Exit codes
 

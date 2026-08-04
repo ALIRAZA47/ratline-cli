@@ -178,6 +178,14 @@ export const sites: CommandGroup = {
               note: 'A port is auto-allocated from ports.range_start–ports.range_end (20000–29999). Sockets are preferred: there is no port to collide, and the socket’s 0660 <user>:www-data mode is itself the access control.',
             },
             {
+              name: '--daemon',
+              arg: 'pm2|direct',
+              type: 'enum',
+              default: 'pm2',
+              description: 'How the site is supervised.',
+              note: 'PM2 in cluster mode is the default because it is the only way this site can reload without dropping requests: pm2 reload starts a replacement worker, waits for it, and only then retires the old one. systemd cannot do that for node, which is why a site running without PM2 refuses to reload rather than pretend. systemd still owns the cgroup, so MemoryMax and CPUQuota stay kernel-enforced across PM2 and all of its workers. Use direct for a single-process app that is never reloaded in place — one fewer moving part, and systemd sees the application itself.',
+            },
+            {
               name: '--install-command',
               arg: '"<command>"',
               type: 'command',
@@ -652,20 +660,91 @@ ratline cert issue example.com   # aliases become SANs`,
       name: 'ratline site runtime',
       args: '<domain>',
       status: 'built',
-      summary: 'Move a site onto a different managed Node or Python version.',
+      summary: 'Move a site onto a different managed Node or Python version, or a different process manager.',
       description: [
         'The unit’s ExecStart is re-rendered against the new absolute interpreter path, the venv is rebuilt for a Python change, and the app is restarted and health-checked. The version must already be installed — see `ratline runtime install`.',
+        '`--daemon` moves a node site between PM2 and direct systemd supervision. The change is not only a restart: the unit changes shape, because a PM2 unit is Type=forking with a PIDFile and an ExecStop that a direct unit does not have.',
+        'The old supervisor is stopped first, using the unit that is still on disk. Only the PM2 unit carries ExecStop=pm2 kill, so re-rendering before stopping would leave the PM2 daemon and its workers alive until the kill timeout — still holding the socket the replacement is about to bind.',
       ],
       flags: [
         { name: '--node', arg: '<version>', type: 'version', description: 'Target Node version.' },
         { name: '--python', arg: '<version>', type: 'version', description: 'Target Python version.' },
+        {
+          name: '--daemon',
+          arg: '<pm2|direct>',
+          type: 'enum',
+          description: 'node only: move this site to PM2 or to direct systemd supervision.',
+        },
+        {
+          name: '--relax',
+          arg: '<directive>',
+          type: 'string',
+          description: 'Turn off a named systemd hardening directive for this site. Repeatable.',
+        },
       ],
       exits: [
-        { code: 2, reason: 'The version string failed validation.' },
-        { code: 3, reason: 'That runtime version is not installed.' },
+        { code: 2, reason: 'The version string failed validation, --daemon was not pm2 or direct, or --daemon was passed to a site that is not node.' },
+        { code: 3, reason: 'That runtime version is not installed, or PM2 is not installed for it.' },
         { code: 7, reason: 'The app did not become healthy on the new runtime; the previous unit was restored.' },
       ],
-      examples: [{ lang: 'shell', code: 'ratline site runtime app.example.com --node 22' }],
+      examples: [
+        { lang: 'shell', code: 'ratline site runtime app.example.com --node 22' },
+        { lang: 'shell', code: 'ratline site runtime app.example.com --daemon direct' },
+      ],
+      seeAlso: [{ label: 'Node sites and PM2', to: '/guides/node' }],
+    },
+    {
+      id: 'site-troubleshoot',
+      name: 'ratline site troubleshoot',
+      args: '<domain>',
+      status: 'built',
+      summary: 'Walk one site’s request path and stop at the first thing that is broken.',
+      description: [
+        'It exists because doctor answers the wrong question when a specific site is down. doctor sweeps the whole server and reports findings in whatever order its checks run, which leaves you with a list rather than a cause.',
+        'A request arrives at nginx, is proxied to a socket, and is answered by a process — so checking in that order means the first failure *is* the cause, and everything after it is a consequence not worth printing as a separate problem. Steps after the failure are marked as not checked rather than reported as independent findings.',
+        'Two of the checks cannot be done any other way. It makes a real HTTP request straight to the application, bypassing nginx, which distinguishes "the application is broken" from "nginx cannot reach a working application". Then it makes the request a visitor would, over the loopback with the site’s Host header, which is the same path minus the network.',
+        'It changes nothing, so it is safe to run against a production site that is currently on fire.',
+      ],
+      refuses: [
+        'Nothing — but it needs root, because the socket and the unit are not readable otherwise, and a check that silently could not look would be worse than one that refuses.',
+      ],
+      exits: [
+        { code: 0, reason: 'The walk completed, whether or not it found a failure. The verdict is in the output.' },
+        { code: 3, reason: 'Not root, or no such site.' },
+      ],
+      examples: [
+        { lang: 'shell', code: 'ratline site troubleshoot app.example.com' },
+        {
+          title: 'The silent 502, found and named',
+          lang: 'text',
+          code: `app.example.com
+
+  ok    enabled
+  ok    nginx configuration  —  /etc/nginx/sites-available/app.example.com.conf
+  ok    nginx accepts the configuration
+  ok    site directory  —  /home/acme/app.example.com
+  ok    systemd unit  —  active, pid 41822
+  ok    pm2 workers  —  4 online
+  FAIL  socket permissions  —  the socket is mode 0640; nginx needs 0660 to connect,
+        so every request is a 502
+  --    the application answers  —  not checked: an earlier step has to pass first
+
+Likely cause: the socket is mode 0640; nginx needs 0660 to connect, so every
+              request is a 502
+Try:          ratline site restart app.example.com; the full story is in
+              'ratline explain sockets'`,
+        },
+        {
+          title: 'Just the cause, for a script',
+          lang: 'shell',
+          code: `ratline site troubleshoot app.example.com --json | jq -r '.data.likely_cause'`,
+        },
+      ],
+      seeAlso: [
+        { label: 'ratline doctor', to: '/reference/ops#doctor' },
+        { label: 'ratline status', to: '/reference/ops#status' },
+      ],
+      keywords: ['502', 'bad gateway', 'debug', 'broken', 'down', 'diagnose', 'socket', 'eacces', 'why'],
     },
   ],
 };

@@ -208,7 +208,7 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 						// permission on the socket inode.
 						detail = fmt.Sprintf("the socket is mode %04o; nginx needs 0660 to connect, so every request is a 502",
 							fi.Mode().Perm())
-						fix = "ratline site restart " + s.Domain + " (the unit sets UMask=0007 for socket sites)"
+						fix = "ratline site restart " + s.Domain + "; the full story is in 'ratline explain sockets'"
 					}
 					add("problem", "socket", s.Domain, detail, fix)
 				}

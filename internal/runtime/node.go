@@ -304,7 +304,8 @@ func (n Node) Reload(ctx context.Context, c *Context) error {
 	return rlerr.Preconditionf("a Node site running without PM2 cannot reload gracefully").
 		WithHint("switch it to PM2, which reloads with no dropped requests:\n"+
 			"        ratline site runtime %s --daemon pm2\n"+
-			"      or accept a restart: ratline site restart %s", c.Site.Domain, c.Site.Domain)
+			"      or accept a restart: ratline site restart %s\n"+
+			"      the trade-off is in: ratline explain node", c.Site.Domain, c.Site.Domain)
 }
 
 // Teardown removes node_modules, and stops the site's PM2 daemon so it does not

@@ -1,9 +1,9 @@
 # Commands
 
 Generated from the binary itself with `make docs-commands`, so it cannot drift
-from the real flags. For *why* each command behaves as it does, read the guides:
-[RUNTIMES.md](RUNTIMES.md), [TLS.md](TLS.md), [SSH.md](SSH.md) and
-[SECURITY.md](SECURITY.md).
+from the real flags. For *why* each command behaves as it does, read the
+[guides](../guides/), the [security notes](../security/), or the concept pages the
+binary itself carries — `ratline explain`.
 
 ## Exit codes
 
@@ -147,6 +147,8 @@ OPERATIONS
   init        Set up this server: configuration, directories and defaults
   backup      Archive a user's home or a single site
   doctor      Check the server and pinpoint anything wrong
+  status      Show everything on this server on one screen
+  explain     Explain how part of ratline works
   reconcile   Report or repair drift between state and the system
   export      Dump the full state as JSON, for migration
   version     Print the version, the host and the available runtimes
@@ -277,24 +279,25 @@ Usage:
   ratline site [command]
 
 Available Commands:
-  add         Provision a site: directories, vhost, service and TLS
-  list        List sites
-  show        Show a site's runtime, service state, socket, certificate and last deploy
-  enable      Enable a site and start its service
-  disable     Take a site offline, returning 503 while keeping certificate renewal working
-  start       Start a site's service
-  stop        Stop a site's service
-  restart     Restart a site's service
-  reload      Reload a site's workers without dropping requests, where the runtime allows
-  status      Show a site's service state
-  scale       Change workers, instances or resource ceilings
-  delete      Delete a site, its vhost, its service and its logs
-  alias       Add or remove a site's additional server names
-  logs        Show a site's application, access or error log
-  env         Manage a site's environment variables
-  deploy      Pull, install, build, migrate and restart, rolling back if it fails
-  runtime     Change a site's interpreter version, then rebuild and restart
-  deploy-key  Manage the outbound key a site uses to clone a private repository
+  add          Provision a site: directories, vhost, service and TLS
+  list         List sites
+  show         Show a site's runtime, service state, socket, certificate and last deploy
+  enable       Enable a site and start its service
+  disable      Take a site offline, returning 503 while keeping certificate renewal working
+  start        Start a site's service
+  stop         Stop a site's service
+  restart      Restart a site's service
+  reload       Reload a site's workers without dropping requests, where the runtime allows
+  status       Show a site's service state
+  scale        Change workers, instances or resource ceilings
+  delete       Delete a site, its vhost, its service and its logs
+  alias        Add or remove a site's additional server names
+  logs         Show a site's application, access or error log
+  env          Manage a site's environment variables
+  deploy       Pull, install, build, migrate and restart, rolling back if it fails
+  runtime      Change a site's interpreter version, then rebuild and restart
+  deploy-key   Manage the outbound key a site uses to clone a private repository
+  troubleshoot Walk one site's request path and find where it breaks
 
 Flags:
   -h, --help   help for site
@@ -475,6 +478,70 @@ Global Flags:
   -q, --quiet           Errors only
   -v, --verbose         Debug logging
   -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+### `ratline status`
+
+```
+The inventory and the health of it: tenants, sites and what state each one is
+in, certificates that need attention, and a count of anything 'ratline doctor'
+would report.
+
+Unlike doctor, this always prints. doctor says what is wrong; status says what
+is here.
+
+Usage:
+  ratline status [flags]
+
+Flags:
+  -h, --help    help for status
+      --quiet   Only the summary counts, without the per-site table
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline status
+  ratline status --json | jq '.sites_detail[] | select(.needs_attention)'
+```
+
+### `ratline explain`
+
+```
+Longer-form answers than a help page can carry: how sites are laid out on
+disk, why a node site is supervised by PM2, what turns a working application
+into a silent 502, what happens when a deploy fails halfway.
+
+Run without a topic to list them. The pages are built into the binary, so
+this works on a server with no browser and no network.
+
+Usage:
+  ratline explain [topic] [flags]
+
+Flags:
+  -h, --help   help for explain
+      --raw    Print the markdown source without terminal formatting
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline explain
+  ratline explain sockets
+  ratline explain node | less
 ```
 
 ### `ratline reconcile`
@@ -800,6 +867,7 @@ Flags:
       --from-github string    Fetch a user's public keys from github.com
       --from-gitlab string    Fetch a user's public keys from gitlab.com
   -h, --help                  help for add
+      --isolation string      Site scope only: default, or strict to add a chroot (needs features.strict_isolation)
       --key stringArray       Public key: a path, an https URL, or - for stdin (repeatable)
       --label string          Human label, so this key can be recognised later (required)
       --no-agent-forwarding   Refuse agent forwarding (the default outside global scope)
@@ -1084,6 +1152,7 @@ Flags:
       --build-output string           Directory the build writes, published as the document root
       --client-max-body-size string   Upload limit, e.g. 20M
       --cpu-quota string              CPU ceiling, e.g. 100%
+      --daemon string                 node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)
       --email string                  ACME contact address
       --entry string                  node: the file that starts the server
   -h, --help                          help for add
@@ -1423,7 +1492,15 @@ Use "ratline site alias [command] --help" for more information about a command.
 #### `ratline site logs`
 
 ```
-Show a site's application, access or error log
+Where the application log comes from depends on how the site is supervised.
+
+Under PM2 — the default for node — the application's stdout is captured by
+PM2 into logs/app.log, and the journal holds only PM2's own messages. So
+--app reads the file, and --journal is there for when the question is about
+the unit itself: a failed start, or an OOM kill.
+
+Without PM2 the application writes straight to the journal, and --app reads
+that.
 
 Usage:
   ratline site logs <domain> [flags]
@@ -1434,6 +1511,7 @@ Flags:
       --error       The nginx error log
       --follow      Keep printing as lines arrive
   -h, --help        help for logs
+      --journal     The systemd journal for the unit rather than the application's own log
       --lines int   How many lines to show (default 100)
 
 Global Flags:
@@ -1526,6 +1604,7 @@ Usage:
   ratline site runtime <domain> [flags]
 
 Flags:
+      --daemon string   node: move this site to pm2 or direct supervision
   -h, --help            help for runtime
       --node string     Node version to move to
       --python string   Python version to move to
@@ -1576,6 +1655,40 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Use "ratline site deploy-key [command] --help" for more information about a command.
+```
+
+#### `ratline site troubleshoot`
+
+```
+Follows a request from nginx to the application and reports the first step that
+fails, which is the cause — everything after it is a consequence.
+
+Checks, in order: the site is in state, nginx has a configuration for it and
+accepts it, the directories exist, the unit is installed and running, the socket
+exists and has the permissions nginx needs, the application answers a real HTTP
+request, nginx serves it end to end, and TLS is present and current.
+
+Changes nothing.
+
+Usage:
+  ratline site troubleshoot <domain> [flags]
+
+Flags:
+  -h, --help   help for troubleshoot
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site troubleshoot app.example.com
+  ratline site troubleshoot app.example.com --json
 ```
 
 #### `ratline cert issue`
@@ -1887,6 +2000,32 @@ Global Flags:
 Use "ratline cert auto-renew [command] --help" for more information about a command.
 ```
 
+#### `ratline cert test-renewal`
+
+```
+Exercises the real challenge for every managed certificate without replacing
+anything and without spending rate-limit budget.
+
+Worth a monthly cron: it finds a closed port 80 or a moved DNS record weeks
+before the certificate would actually expire.
+
+Usage:
+  ratline cert test-renewal [flags]
+
+Flags:
+  -h, --help   help for test-renewal
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
 #### `ratline cert account`
 
 ```
@@ -1946,7 +2085,9 @@ Usage:
   ratline runtime install <node|python> <version> [flags]
 
 Flags:
-  -h, --help   help for install
+  -h, --help                 help for install
+      --pm2-version string   node: pin PM2 to this version rather than the latest
+      --with-pm2             node: also install PM2, which is what a node site is supervised by unless --daemon direct is used
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
@@ -1959,7 +2100,7 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Examples:
-  ratline runtime install node 22
+  ratline runtime install node 22 --with-pm2
   ratline runtime install python 3.12
 ```
 

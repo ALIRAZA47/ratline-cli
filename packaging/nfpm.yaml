@@ -52,12 +52,23 @@ contents:
   - src: packaging/systemd/ratline-key-prune.timer
     dst: /etc/systemd/system/ratline-key-prune.timer
 
+  # Documentation, keeping the section structure so /usr/share/doc reads the same
+  # way the repository does. The concept pages are also embedded in the binary and
+  # reachable with `ratline explain`, which is how they are usually read.
   - src: docs/README.md
     dst: /usr/share/doc/ratline/README.md
-  - src: docs/SECURITY.md
-    dst: /usr/share/doc/ratline/SECURITY.md
-  - src: docs/SSH.md
-    dst: /usr/share/doc/ratline/SSH.md
+  - src: docs/getting-started/*.md
+    dst: /usr/share/doc/ratline/getting-started/
+  - src: docs/guides/*.md
+    dst: /usr/share/doc/ratline/guides/
+  - src: docs/operations/*.md
+    dst: /usr/share/doc/ratline/operations/
+  - src: docs/reference/*.md
+    dst: /usr/share/doc/ratline/reference/
+  - src: docs/security/*.md
+    dst: /usr/share/doc/ratline/security/
+  - src: docs/topics/*.md
+    dst: /usr/share/doc/ratline/concepts/
 
   # Directories, with the modes ratline expects. Credentials are 0700.
   - dst: /etc/ratline

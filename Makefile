@@ -106,8 +106,8 @@ completions: build ## Generate shell completions into dist/completions
 	./bin/$(BINARY) completion fish > $(DIST)/completions/$(BINARY).fish
 
 .PHONY: docs-commands
-docs-commands: build ## Regenerate docs/COMMANDS.md from the binary
-	bash scripts/gen-commands.sh ./bin/$(BINARY) docs/COMMANDS.md
+docs-commands: build ## Regenerate docs/reference/commands.md from the binary
+	bash scripts/gen-commands.sh ./bin/$(BINARY) docs/reference/commands.md
 
 .PHONY: man
 man: build ## Generate man pages into dist/man

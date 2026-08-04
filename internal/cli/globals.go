@@ -44,7 +44,11 @@ type Globals struct {
 	StdoutTTY bool
 	StderrTTY bool
 	Color     bool
-	Width     int
+
+	// completionMode is set when this invocation is cobra's hidden completion
+	// helper rather than a command an operator typed. See setup.
+	completionMode bool
+	Width          int
 
 	Cfg     *config.Config
 	Log     *log.Logger
@@ -118,9 +122,25 @@ func (g *Globals) setup(cmd *cobra.Command) error {
 		return err
 	}
 
+	// Shell completion is a different kind of invocation and has to be treated as
+	// one. It runs as whoever pressed Tab, which is usually not root, and cobra
+	// reserves stdout for the candidate list — so a privilege refusal here would
+	// both break completion for every non-root operator and be offered to them as a
+	// completion candidate. The lookups degrade to no candidates on their own when
+	// they cannot read state, which is the right answer.
+	if isCompletionRequest(cmd) {
+		g.completionMode = true
+	}
+
+	level := g.level()
+	if g.completionMode {
+		// Even on stderr, log output during completion is noise printed over the
+		// shell's prompt.
+		level = log.LevelError
+	}
 	g.Log = log.New(log.Options{
 		Out:   g.Stderr,
-		Level: g.level(),
+		Level: level,
 		JSON:  g.JSON,
 		Color: g.Color,
 	})
@@ -131,7 +151,7 @@ func (g *Globals) setup(cmd *cobra.Command) error {
 	g.Invoker = system.CurrentInvoker()
 	g.OS = system.DetectOS()
 
-	if !annotated(cmd, AnnoAllowNonRoot) {
+	if !annotated(cmd, AnnoAllowNonRoot) && !g.completionMode {
 		if err := system.RequireRoot(); err != nil {
 			return err
 		}
@@ -150,7 +170,7 @@ func (g *Globals) setup(cmd *cobra.Command) error {
 			"path", cfg.SourcePath, "fix", "run 'ratline init'")
 	}
 	// A --verbose or --quiet flag beats the file; otherwise the file decides.
-	if !g.Verbose && !g.Quiet && cfg.Logging.Level != "" {
+	if !g.Verbose && !g.Quiet && !g.completionMode && cfg.Logging.Level != "" {
 		g.Log = log.New(log.Options{Out: g.Stderr, Level: cfg.LogLevel(), JSON: g.JSON, Color: g.Color})
 	}
 
@@ -167,7 +187,10 @@ func (g *Globals) setup(cmd *cobra.Command) error {
 		g.Audit = a
 	}
 
-	if annotated(cmd, AnnoMutates) && !g.DryRun && !annotated(cmd, AnnoSkipLock) {
+	// Never take the lock for a completion lookup: pressing Tab would block on
+	// whatever mutation is in flight, and completing the arguments of a mutating
+	// command is not itself a mutation.
+	if annotated(cmd, AnnoMutates) && !g.DryRun && !annotated(cmd, AnnoSkipLock) && !g.completionMode {
 		l, err := system.AcquireLock(cfg.Paths.Lock, cfg.Defaults.LockTimeout.D(), g.CmdPath)
 		if err != nil {
 			return err

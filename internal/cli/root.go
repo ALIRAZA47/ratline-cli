@@ -133,6 +133,8 @@ func NewRootCommand(g *Globals) *cobra.Command {
 		newBackupCommand(g),
 		newDBCommand(g),
 		newDoctorCommand(g),
+		newStatusCommand(g),
+		newExplainCommand(g),
 		newReconcileCommand(g),
 		newExportCommand(g),
 		newVersionCommand(g),
@@ -143,6 +145,8 @@ func NewRootCommand(g *Globals) *cobra.Command {
 	// the annotation can be attached — otherwise `ratline completion zsh` refuses
 	// to run for a non-root operator setting up their own shell.
 	root.InitDefaultCompletionCmd()
+	// After the tree is complete, so every command is reachable by the traversal.
+	registerCompletions(g, root)
 	for _, c := range root.Commands() {
 		switch c.Name() {
 		case "completion", "help":
