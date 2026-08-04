@@ -1,0 +1,109 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          # The target is a VPS, and arm64 VPSes are common enough that
+          # "it compiles on amd64" is not good enough.
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Check formatting
+        run: |
+          gofmt -s -l . | tee /tmp/fmt
+          test ! -s /tmp/fmt
+
+      - run: go vet ./...
+
+      - name: Test with the race detector
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Build both binaries
+        run: make build
+
+      - name: Smoke test
+        run: |
+          ./bin/ratline version
+          ./bin/ratline --help
+          # Every command's help must render: a broken template or a group that
+          # does not exist is a panic, and it should not reach a server.
+          for group in user key site; do
+            ./bin/ratline "$group" --help >/dev/null
+          done
+          ./bin/ratline completion bash >/dev/null
+          ./bin/ratline man >/dev/null
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  fuzz:
+    name: fuzz the validators
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      # Short runs on every push; a crash found here is a real input that would
+      # have reached a config file or a command line.
+      - name: Fuzz
+        run: |
+          for target in FuzzUsername FuzzDomain FuzzResolveWithin FuzzAppModule FuzzSlug; do
+            go test -run '^$' -fuzz "$target" -fuzztime 20s ./internal/validate
+          done
+          go test -run '^$' -fuzz FuzzParseCommand -fuzztime 20s ./internal/system
+
+      - name: Upload any crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: |
+            internal/validate/testdata/fuzz/
+            internal/system/testdata/fuzz/
+
+  integration:
+    name: integration (real nginx, node, python)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - name: Run the integration suite
+        run: make integration

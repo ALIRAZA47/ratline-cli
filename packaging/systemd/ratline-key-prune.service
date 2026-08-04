@@ -1,0 +1,29 @@
+# managed-by: ratline
+[Unit]
+Description=Remove expired ratline SSH keys and record key usage
+Documentation=man:ratline(8)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Two jobs, both of which have to happen on a timer rather than on demand:
+#
+#  - Expired keys are removed. On OpenSSH 8.2+ the expiry-time= option already
+#    refuses them, but this is what actually takes the line out of the file, and
+#    it is the only mechanism on an older daemon.
+#  - Key usage is scraped from the journal. Logs rotate, so a contractor's key
+#    last used four months ago leaves no trace by the time anyone asks —
+#    recording it daily is what makes `key list --unused 90` meaningful.
+ExecStart=/usr/local/bin/ratline key prune
+Nice=15
+IOSchedulingClass=idle
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

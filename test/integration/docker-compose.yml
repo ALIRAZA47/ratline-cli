@@ -1,0 +1,66 @@
+# The integration harness.
+#
+# A real Ubuntu container with real nginx, real systemd, real Node and real
+# Python, plus a local ACME server. The unit tests cover rendering and
+# validation; this covers the things only a real system can tell you — whether
+# the socket permissions actually let nginx connect, whether systemd's sandbox
+# lets the application start, and whether a certificate is really served.
+#
+#   make integration
+services:
+  # Pebble is a local ACME server built for exactly this. Tests never touch
+  # Let's Encrypt: a test suite that spends real rate-limit budget is a test
+  # suite people stop running.
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: -config /test/config/pebble-config.json -dnsserver 10.30.50.3:8053
+    environment:
+      # 0 means "validate immediately", so the suite does not wait out a random
+      # delay Pebble adds by default to catch clients that assume otherwise.
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_WFE_NONCEREJECT: "0"
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.2
+
+  # A DNS server Pebble resolves through, so the harness can point a test domain
+  # at the container under test without touching /etc/hosts inside Pebble.
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:latest
+    command: -defaultIPv6 "" -defaultIPv4 10.30.50.4
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.3
+
+  harness:
+    build:
+      context: ../..
+      dockerfile: test/integration/Dockerfile
+    # systemd needs a real PID 1, its own cgroup namespace and a writable
+    # /run and /sys/fs/cgroup. Without these the units under test cannot start,
+    # and testing site supervision without systemd would test nothing.
+    privileged: true
+    cgroup: host
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    stop_signal: SIGRTMIN+3
+    environment:
+      RATLINE_TEST_ACME_DIRECTORY: https://10.30.50.2:14000/dir
+      RATLINE_TEST_CHALLTESTSRV: http://10.30.50.3:8055
+    depends_on:
+      - pebble
+      - challtestsrv
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.4
+
+networks:
+  acmenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.30.50.0/24

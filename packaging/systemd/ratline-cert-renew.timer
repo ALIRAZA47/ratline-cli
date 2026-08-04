@@ -1,0 +1,20 @@
+# managed-by: ratline
+[Unit]
+Description=Renew ratline-managed certificates
+Documentation=man:ratline(8)
+
+[Timer]
+# Twice a day, which is what every ACME client does and what Let's Encrypt
+# recommends: a certificate has 30 days of slack, so two chances a day means a
+# transient DNS or network failure costs nothing.
+OnCalendar=*-*-* 03,15:00:00
+# Without this, every ratline server on the internet would hit the CA at the same
+# two minutes past the hour.
+RandomizedDelaySec=3h
+# If the machine was off when the timer was due, run it on the next boot rather
+# than waiting for the following window.
+Persistent=true
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target

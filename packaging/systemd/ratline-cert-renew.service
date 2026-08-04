@@ -1,0 +1,31 @@
+# managed-by: ratline
+[Unit]
+Description=Renew ratline-managed certificates
+Documentation=man:ratline(8)
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Renewal reloads nginx for the sites whose certificates changed, and nothing
+# else. certbot's deploy hook calls back into `ratline cert deploy-hook`, which
+# maps the renewed lineage to its sites.
+ExecStart=/usr/local/bin/ratline cert renew --all
+# A failed renewal is not an emergency: the existing certificate is still valid
+# for weeks, the failure is recorded in state, and `ratline doctor` reports it.
+SuccessExitStatus=0
+Nice=10
+IOSchedulingClass=idle
+
+# Renewal touches /etc/letsencrypt and reloads nginx, so it cannot be sandboxed
+# as tightly as a site service. These are the directives that still apply.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
