@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/site"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -175,7 +176,7 @@ func (g *Globals) troubleshoot(ctx context.Context, mgr *site.Manager, name stri
 		default:
 			add("document root", verdictOK, root, "")
 		}
-		g.finishTroubleshoot(ctx, mgr, s, r, add, skip)
+		g.finishTroubleshoot(ctx, s, r, add, skip)
 		return r, nil
 	}
 
@@ -275,13 +276,13 @@ func (g *Globals) troubleshoot(ctx context.Context, mgr *site.Manager, name stri
 		}
 	}
 
-	g.finishTroubleshoot(ctx, mgr, s, r, add, skip)
+	g.finishTroubleshoot(ctx, s, r, add, skip)
 	return r, nil
 }
 
 // finishTroubleshoot runs the checks that apply to every runtime: the request as a
 // visitor makes it, TLS, and DNS.
-func (g *Globals) finishTroubleshoot(ctx context.Context, mgr *site.Manager, s *state.Site,
+func (g *Globals) finishTroubleshoot(ctx context.Context, s *state.Site,
 	r *TroubleshootReport, add func(string, checkVerdict, string, string), skip func(string, string)) {
 
 	// 7. Through nginx over the loopback with the right Host header, which is the
@@ -362,9 +363,7 @@ func resolvesHere(addrs, v4, v6 []string) bool {
 }
 
 // probeApp makes one HTTP request straight to the application.
-func probeApp(ctx context.Context, cfg interface {
-	SocketPath(owner, domain string) string
-}, s *state.Site) (int, time.Duration, error) {
+func probeApp(ctx context.Context, cfg *config.Config, s *state.Site) (int, time.Duration, error) {
 	network, target := "unix", cfg.SocketPath(s.Owner, s.Domain)
 	if s.Listen == "port" {
 		network, target = "tcp", fmt.Sprintf("127.0.0.1:%d", s.Port)
