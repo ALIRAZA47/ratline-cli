@@ -1,0 +1,16 @@
+# managed-by: ratline
+[Unit]
+Description=All ratline-managed sites
+Documentation=man:ratline(8)
+# Every site unit declares PartOf=ratline.target, so stopping or restarting this
+# target propagates to all of them:
+#
+#   systemctl stop ratline.target      # every managed site goes dark
+#   systemctl restart ratline.target   # after an interpreter upgrade
+#
+# It deliberately does not Wants= the site units: each is enabled individually,
+# so disabling one site does not need this file rewritten.
+After=network-online.target nginx.service
+
+[Install]
+WantedBy=multi-user.target

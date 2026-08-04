@@ -1,0 +1,85 @@
+{{- /*
+One unit per dynamic site. Regenerated whenever the site changes.
+*/ -}}
+# managed-by: ratline
+# site: {{ .Domain }}
+# generated: {{ .GeneratedAt }}
+[Unit]
+Description=ratline site {{ .Domain }} ({{ .Runtime }}) owned by {{ .Owner }}
+Documentation=man:ratline(8)
+After=network-online.target
+Wants=network-online.target
+PartOf=ratline.target
+
+[Service]
+# Type=exec rather than notify: neither gunicorn nor a plain Node server
+# implements sd_notify, so Type=notify would hang until the start timeout and
+# then be reported as a failure. ratline proves the service is really up by
+# making an HTTP request through its socket after start — see the health wait in
+# `ratline site start`, which is a stronger check than a readiness ping anyway.
+Type=exec
+User={{ .Owner }}
+Group={{ .Group }}
+WorkingDirectory={{ .WorkingDir }}
+{{- if .EnvironmentFile }}
+# Read by PID 1 as root before privileges are dropped, which is how a 0600 .env
+# owned by the tenant can hold secrets the application still receives.
+EnvironmentFile=-{{ .EnvironmentFile }}
+{{- end }}
+{{- range .Environment }}
+Environment={{ . }}
+{{- end }}
+RuntimeDirectory={{ .RuntimeDirName }}
+RuntimeDirectoryMode=0750
+{{- if .SocketPath }}
+# 0007 rather than the 0027 used elsewhere, because connect(2) on a Unix socket
+# requires *write* permission on the socket inode. At 0027 the socket lands at
+# 0640 and nginx gets EACCES, which surfaces as a 502 with nothing useful in the
+# log. Files the application creates are group-writable as a result, but the
+# group is the tenant's own.
+UMask=0007
+{{- else }}
+UMask={{ .UMask }}
+{{- end }}
+ExecStart={{ .ExecStart }}
+{{- if .ExecStartPost }}
+{{- range .ExecStartPost }}
+ExecStartPost={{ . }}
+{{- end }}
+{{- end }}
+{{- if .ExecReload }}
+ExecReload={{ .ExecReload }}
+{{- end }}
+Restart=always
+RestartSec={{ .RestartSec }}
+StartLimitBurst=5
+StartLimitIntervalSec=60
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec={{ .TimeoutStopSec }}
+{{- if .StandardOutput }}
+StandardOutput={{ .StandardOutput }}
+StandardError={{ .StandardError }}
+{{- end }}
+SyslogIdentifier=ratline-{{ .Slug }}
+
+# Resource limits. This is what replaces a PHP-FPM pool's pm.max_children: the
+# ceiling is enforced by the kernel, and exceeding it kills this service rather
+# than taking the host down with it.
+{{- range .Limits }}
+{{ . }}
+{{- end }}
+
+# Hardening. Every directive here is verified at install time by starting the
+# unit and health-checking it; anything that breaks the application is reported
+# by name so it can be relaxed deliberately rather than dropped wholesale.
+{{- range .Hardening }}
+{{ . }}
+{{- end }}
+{{- if .Relaxed }}
+#
+# Relaxed for this site: {{ .RelaxedList }}
+{{- end }}
+
+[Install]
+WantedBy=multi-user.target

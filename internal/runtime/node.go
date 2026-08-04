@@ -1,0 +1,331 @@
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/unit"
+	"github.com/ALIRAZA47/ratline-cli/internal/validate"
+)
+
+// Node runs a JavaScript server behind nginx.
+type Node struct{}
+
+func (Node) Name() string { return "node" }
+
+// Provision checks that a usable Node is present. There is no per-site
+// installation step beyond node_modules, which Install handles.
+func (n Node) Provision(ctx context.Context, c *Context) error {
+	_, err := n.binary(c, "node")
+	return err
+}
+
+// binary resolves a managed Node binary by absolute path.
+//
+// nvm, shell profiles and login shells are all deliberately avoided: systemd does
+// not read them, so a unit that depended on them would work when tested by hand
+// and fail on boot.
+func (Node) binary(c *Context, name string) (string, error) {
+	version := c.Site.NodeVersion
+	if version == "" {
+		version = c.Cfg.Runtimes.NodeDefault
+	}
+	if version != "" {
+		if err := validate.NodeVersion(version); err != nil {
+			return "", err
+		}
+		managed := filepath.Join(c.Cfg.Paths.RuntimesDir, "node", version, "bin", name)
+		if system.Exists(managed) {
+			return managed, nil
+		}
+		if !c.DryRun {
+			return "", rlerr.Preconditionf("Node %s is not installed", version).
+				WithHint("install it with 'ratline runtime install node %s', or use --node with a version that is present", version)
+		}
+		return managed, nil
+	}
+	for _, dir := range []string{"/usr/local/bin", "/usr/bin"} {
+		candidate := filepath.Join(dir, name)
+		if system.Exists(candidate) {
+			return candidate, nil
+		}
+	}
+	if c.DryRun {
+		return "/usr/bin/" + name, nil
+	}
+	return "", rlerr.Preconditionf("no Node installation was found").
+		WithHint("install one with 'ratline runtime install node 22'")
+}
+
+// Install runs the package manager as the site user.
+func (n Node) Install(ctx context.Context, c *Context) error {
+	if c.DryRun {
+		c.Log.Info("would install dependencies", "dir", c.AppDir)
+		return nil
+	}
+	if !system.Exists(filepath.Join(c.AppDir, "package.json")) {
+		c.Log.Warn("no package.json was found, so no dependencies were installed", "dir", c.AppDir)
+		return nil
+	}
+
+	pm := c.Site.PackageManager
+	if pm == "" {
+		pm = DetectPackageManager(c.AppDir)
+	}
+	argv, err := n.installArgv(c, pm)
+	if err != nil {
+		return err
+	}
+	c.Log.Info("installing dependencies", "package_manager", pm, "dir", c.AppDir)
+
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return err
+	}
+	// The managed Node's bin directory has to be first on PATH so that a
+	// lifecycle script calling `node` gets the same interpreter the service will.
+	env := append(system.UserEnv(c.Identity),
+		"PATH="+filepath.Dir(nodeBin)+":"+system.DefaultPath,
+		"NODE_ENV=production",
+		"npm_config_fund=false",
+		"npm_config_audit=false",
+		"npm_config_update_notifier=false",
+	)
+	_, err = runAsOwner(ctx, c, system.Cmd{
+		Path:    argv[0],
+		Args:    argv[1:],
+		Env:     env,
+		Timeout: c.Cfg.Runtimes.InstallTimeout.D(),
+		Label:   "install dependencies",
+	})
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodeExternal, "installing dependencies failed").
+			WithHint("the output above is the package manager's; a lockfile mismatch is the usual cause")
+	}
+	return nil
+}
+
+// installArgv builds the install command, preferring the reproducible form.
+func (n Node) installArgv(c *Context, pm string) ([]string, error) {
+	if c.Site.InstallCommand != "" {
+		parsed, err := system.ParseCommand(c.Site.InstallCommand)
+		if err != nil {
+			return nil, err
+		}
+		return append([]string{resolveProgram(parsed.Argv[0], c)}, parsed.Argv[1:]...), nil
+	}
+	hasLock := func(name string) bool { return system.Exists(filepath.Join(c.AppDir, name)) }
+	switch pm {
+	case "pnpm":
+		if hasLock("pnpm-lock.yaml") {
+			return []string{resolveProgram("pnpm", c), "install", "--frozen-lockfile", "--prod"}, nil
+		}
+		return []string{resolveProgram("pnpm", c), "install", "--prod"}, nil
+	case "yarn":
+		if hasLock("yarn.lock") {
+			return []string{resolveProgram("yarn", c), "install", "--frozen-lockfile", "--production"}, nil
+		}
+		return []string{resolveProgram("yarn", c), "install", "--production"}, nil
+	case "bun":
+		return []string{resolveProgram("bun", c), "install", "--frozen-lockfile", "--production"}, nil
+	default:
+		npm, err := n.binary(c, "npm")
+		if err != nil {
+			return nil, err
+		}
+		// npm ci is the reproducible install: it fails rather than silently
+		// updating the lockfile, which is what you want on a server.
+		if hasLock("package-lock.json") {
+			return []string{npm, "ci", "--omit=dev"}, nil
+		}
+		return []string{npm, "install", "--omit=dev", "--no-audit", "--no-fund"}, nil
+	}
+}
+
+// DetectPackageManager infers the package manager from the lockfile.
+func DetectPackageManager(appDir string) string {
+	for _, c := range []struct{ file, pm string }{
+		{"pnpm-lock.yaml", "pnpm"},
+		{"yarn.lock", "yarn"},
+		{"bun.lockb", "bun"},
+		{"bun.lock", "bun"},
+		{"package-lock.json", "npm"},
+	} {
+		if system.Exists(filepath.Join(appDir, c.file)) {
+			return c.pm
+		}
+	}
+	return "npm"
+}
+
+// Build runs the build script.
+func (n Node) Build(ctx context.Context, c *Context) error {
+	if c.Site.BuildCommand == "" {
+		return nil
+	}
+	parsed, err := system.ParseCommand(c.Site.BuildCommand)
+	if err != nil {
+		return err
+	}
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return err
+	}
+	env := append(system.UserEnv(c.Identity),
+		"PATH="+filepath.Dir(nodeBin)+":"+filepath.Join(c.AppDir, "node_modules", ".bin")+":"+system.DefaultPath,
+		"NODE_ENV=production",
+	)
+	c.Log.Info("building", "command", c.Site.BuildCommand)
+	_, err = runAsOwner(ctx, c, system.Cmd{
+		Path:    resolveProgram(parsed.Argv[0], c),
+		Args:    parsed.Argv[1:],
+		Env:     env,
+		Timeout: c.Cfg.Runtimes.BuildTimeout.D(),
+		Label:   "build",
+	})
+	return err
+}
+
+// StartCommand builds the ExecStart line.
+func (n Node) StartCommand(ctx context.Context, c *Context) (string, unit.RenderOptions, error) {
+	var opts unit.RenderOptions
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return "", opts, err
+	}
+
+	socket := c.Cfg.SocketPath(c.Site.Owner, c.Site.Domain)
+	env := []string{"NODE_ENV=production"}
+	if c.Site.Listen == "port" {
+		env = append(env, fmt.Sprintf("PORT=%d", c.Site.Port), "HOST=127.0.0.1")
+	} else {
+		// A Node server has no standard way to be told about a socket, so both
+		// spellings are provided: PORT is what most frameworks read, and
+		// RATLINE_SOCKET is documented for anything that can listen on a path.
+		env = append(env, "PORT="+socket, "RATLINE_SOCKET="+socket, "SOCKET_PATH="+socket)
+		// Node creates the socket with the process umask, which at 0027 gives
+		// 0640 — and connect(2) needs write permission, so nginx would get
+		// EACCES and every request would be a 502. The unit already sets
+		// UMask=0007 for socket sites; this waits for the socket and fixes the
+		// mode as a belt-and-braces measure for a framework that chmods it
+		// itself. It runs as root (the + prefix) and always exits 0.
+		opts.ExecStartPost = []string{
+			"+/bin/sh -c 'for i in $(seq 1 100); do if [ -S " + socket + " ]; then chmod 0660 " + socket +
+				"; exit 0; fi; sleep 0.1; done; exit 0'",
+		}
+	}
+	opts.Environment = env
+	// Most Node servers exit on SIGTERM without draining. SIGHUP is not a reload
+	// either, so there is no ExecReload: `site reload` on a node site restarts it,
+	// and says so.
+
+	if c.Site.StartCommand != "" {
+		parsed, err := system.ParseCommand(c.Site.StartCommand)
+		if err != nil {
+			return "", opts, err
+		}
+		for _, w := range parsed.Warnings {
+			c.Log.Warn(w)
+		}
+		// `npm start` in a unit means an extra process between systemd and the
+		// server, which breaks signal delivery and the main PID. It is accepted
+		// because the specification asks for it, with a warning.
+		if base := filepath.Base(parsed.Argv[0]); base == "npm" || base == "pnpm" || base == "yarn" || base == "bun" {
+			c.Log.Warn("a package-manager start command puts an extra process between systemd and your server, "+
+				"which can break graceful shutdown and restart counting",
+				"advice", "prefer --entry with the file that calls listen()")
+		}
+		return shellSafeJoin(resolveProgram(parsed.Argv[0], c), parsed.Argv[1:]), opts, nil
+	}
+
+	if err := validate.NodeEntry(c.Site.Entry); err != nil {
+		return "", opts, err
+	}
+	entry, err := validate.ResolveWithin(c.AppDir, c.Site.Entry)
+	if err != nil {
+		// The file may not exist yet when a site is created before its code is
+		// deployed, so fall back to the lexical check.
+		if entry, err = validate.WithinRoot(c.AppDir, c.Site.Entry); err != nil {
+			return "", opts, err
+		}
+	}
+	if !c.DryRun && !system.Exists(entry) {
+		return "", opts, rlerr.Preconditionf("the entry point %s does not exist", entry).
+			WithHint("deploy your code first, or check --entry against your project layout")
+	}
+	return shellSafeJoin(nodeBin, []string{entry}), opts, nil
+}
+
+// Reload is a restart for Node: there is no standard graceful-reload signal, and
+// pretending otherwise would drop requests while claiming not to.
+func (Node) Reload(ctx context.Context, c *Context) error {
+	return rlerr.Preconditionf("a Node site cannot reload without dropping connections").
+		WithHint("use 'ratline site restart', or run --instances 2 so nginx can shift traffic between them")
+}
+
+// Teardown removes node_modules, which is large and inside the site directory.
+func (Node) Teardown(ctx context.Context, c *Context) error {
+	modules := filepath.Join(c.AppDir, "node_modules")
+	if c.DryRun || !system.Exists(modules) {
+		return nil
+	}
+	if err := os.RemoveAll(modules); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "removing %s", modules)
+	}
+	return nil
+}
+
+// DetectEntry guesses a project's entry point, for the wizard's default.
+func DetectEntry(appDir string) string {
+	for _, candidate := range []string{
+		"server.js", "index.js", "app.js", "main.js",
+		"dist/server.js", "dist/index.js", "build/index.js",
+		".next/standalone/server.js",
+	} {
+		if system.Exists(filepath.Join(appDir, candidate)) {
+			return candidate
+		}
+	}
+	// package.json's main field is the project's own answer.
+	if data, err := system.ReadFileLimit(filepath.Join(appDir, "package.json"), 1<<20); err == nil {
+		if main := extractJSONString(string(data), "main"); main != "" {
+			return main
+		}
+	}
+	return ""
+}
+
+// extractJSONString pulls one top-level string field out of package.json without
+// unmarshalling the whole thing, which would fail on the many package.json files
+// that contain comments or trailing commas.
+func extractJSONString(body, field string) string {
+	needle := `"` + field + `"`
+	i := strings.Index(body, needle)
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(needle):]
+	colon := strings.IndexByte(rest, ':')
+	if colon < 0 {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[colon+1:])
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	rest = rest[1:]
+	end := strings.IndexByte(rest, '"')
+	if end < 0 {
+		return ""
+	}
+	value := rest[:end]
+	if strings.ContainsAny(value, "\\\n\r") {
+		return ""
+	}
+	return value
+}

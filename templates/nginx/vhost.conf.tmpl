@@ -1,0 +1,179 @@
+{{- /*
+The site vhost. One file per site, symlinked into sites-enabled when enabled.
+
+Never edit this file: it is regenerated whenever the site changes. Operator
+additions belong in the custom include at the bottom, which is never touched.
+*/ -}}
+# managed-by: ratline
+# site: {{ .Domain }}
+# owner: {{ .Owner }}
+# runtime: {{ .Runtime }}
+# generated: {{ .GeneratedAt }}
+#
+# Do not edit. Add your own directives to:
+#   {{ .CustomInclude }}
+
+{{ if .Upstream }}
+upstream {{ .Slug }} {
+    least_conn;
+{{- range .UpstreamServers }}
+    server {{ . }};
+{{- end }}
+    keepalive 16;
+}
+{{ end }}
+{{- if .WWWRedirectFrom }}
+# Canonical host redirect, before the main server block so it wins.
+server {
+    listen 80;
+    listen [::]:80;
+{{- if .TLS }}
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    ssl_certificate     {{ .CertPath }};
+    ssl_certificate_key {{ .KeyPath }};
+{{- if .ChainPath }}
+    ssl_trusted_certificate {{ .ChainPath }};
+{{- end }}
+    include {{ .SnippetDir }}/ssl-params.conf;
+{{- end }}
+    server_name {{ .WWWRedirectFrom }};
+
+    # ACME first: renewal must never depend on a redirect.
+    include {{ .SnippetDir }}/acme-challenge.conf;
+
+    return 301 {{ if .TLS }}https{{ else }}http{{ end }}://{{ .WWWRedirectTo }}$request_uri;
+}
+{{ end }}
+{{- if .TLS }}
+# Plain HTTP: serve the ACME challenge, redirect everything else.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ .ServerNames }};
+
+    include {{ .SnippetDir }}/acme-challenge.conf;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+{{ end }}
+server {
+{{- if .TLS }}
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+{{- else }}
+    listen 80;
+    listen [::]:80;
+{{- end }}
+    server_name {{ .ServerNames }};
+
+{{- if .TLS }}
+
+    ssl_certificate     {{ .CertPath }};
+    ssl_certificate_key {{ .KeyPath }};
+{{- if .ChainPath }}
+    ssl_trusted_certificate {{ .ChainPath }};
+{{- end }}
+    include {{ .SnippetDir }}/ssl-params.conf;
+{{- if .HSTS }}
+    # Opt-in only, and never on a self-signed or staging certificate: a browser
+    # that has seen this header will refuse plain HTTP for this host, and for
+    # every subdomain if includeSubDomains is ever added.
+    add_header Strict-Transport-Security "max-age={{ .HSTSMaxAge }}" always;
+{{- end }}
+{{- end }}
+
+    include {{ .SnippetDir }}/security-headers.conf;
+
+    # The single most common cause of a mystery 413.
+    client_max_body_size {{ .ClientMaxBodySize }};
+
+    access_log {{ .AccessLog }};
+    error_log  {{ .ErrorLog }} warn;
+
+    # Serve the challenge even when the site is disabled or the app is down.
+    include {{ .SnippetDir }}/acme-challenge.conf;
+    include {{ .SnippetDir }}/deny-hidden.conf;
+
+{{- if .Disabled }}
+
+    # The site is disabled. The challenge location above still works, so a
+    # certificate can be issued or renewed while the site is dark.
+    location / {
+        return 503;
+    }
+{{- else if eq .Runtime "static" }}
+
+    root {{ .DocRoot }};
+    index {{ .IndexFile }};
+
+    # Content-hashed assets never change under the same name, so they can be
+    # cached indefinitely.
+    location ~* ^/(assets|_next/static|static)/ {
+        expires {{ .AssetMaxAge }}s;
+        add_header Cache-Control "public, immutable, max-age={{ .AssetMaxAge }}";
+        try_files $uri =404;
+    }
+
+    # The entry document must not be cached, or a deploy will not be visible.
+    location = /{{ .IndexFile }} {
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location / {
+{{- if .SPA }}
+        # Client-side routing: a deep link is served the entry document and the
+        # application resolves the path.
+        try_files $uri $uri/ /{{ .IndexFile }};
+{{- else }}
+        try_files $uri $uri/ =404;
+{{- end }}
+    }
+{{- else }}
+
+{{- if .PublicDir }}
+    root {{ .PublicDir }};
+
+    # Static assets are served from disk, so the application never handles an
+    # asset request.
+{{- range .StaticLocations }}
+    location {{ .Path }} {
+        alias {{ .Dir }};
+        expires {{ $.AssetMaxAge }}s;
+        add_header Cache-Control "public, immutable, max-age={{ $.AssetMaxAge }}";
+        try_files $uri @app;
+    }
+{{- end }}
+
+    location = / {
+        try_files /{{ .IndexFile }} @app;
+    }
+{{- end }}
+
+    location / {
+{{- if .PublicDir }}
+        try_files $uri @app;
+{{- else }}
+        proxy_pass {{ .ProxyPass }};
+        include {{ .SnippetDir }}/proxy-params.conf;
+        proxy_read_timeout {{ .ProxyReadTimeout }};
+        proxy_buffering {{ if .ProxyBuffering }}on{{ else }}off{{ end }};
+{{- end }}
+    }
+
+    location @app {
+        proxy_pass {{ .ProxyPass }};
+        include {{ .SnippetDir }}/proxy-params.conf;
+        proxy_read_timeout {{ .ProxyReadTimeout }};
+        proxy_buffering {{ if .ProxyBuffering }}on{{ else }}off{{ end }};
+    }
+{{- end }}
+
+    # Operator additions. Regenerating this file never touches that one.
+    include {{ .CustomInclude }};
+}

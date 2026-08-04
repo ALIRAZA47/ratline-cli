@@ -1,0 +1,23 @@
+# managed-by: ratline
+# Logs for {{ .Domain }}
+{{ .LogGlob }} {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    # The tenant owns their logs; the log-reading group can read them.
+    create 0640 {{ .Owner }} {{ .LogGroup }}
+    su {{ .Owner }} {{ .LogGroup }}
+    sharedscripts
+    postrotate
+        # nginx keeps its log files open, so it has to be told to reopen them.
+        # A reload rather than a restart, so no request is dropped.
+        [ -f /run/nginx.pid ] && kill -USR1 "$(cat /run/nginx.pid)" 2>/dev/null || true
+{{- if .Dynamic }}
+        # The application writes its own log; gunicorn reopens on SIGUSR1 too.
+        systemctl kill --signal=SIGUSR1 {{ .Unit }} 2>/dev/null || true
+{{- end }}
+    endscript
+}
