@@ -1,0 +1,14 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+// The site is served from a subpath on GitHub Pages style hosting as often as
+// from a root, so base is relative. Nothing here reaches the network at runtime.
+export default defineConfig({
+  base: './',
+  plugins: [react(), tailwindcss()],
+  build: {
+    target: 'es2022',
+    chunkSizeWarningLimit: 900,
+  },
+});

@@ -1,0 +1,445 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Theme tokens.
+
+   Two palettes, both deliberate. Light is warm paper; dark is a cool slate that
+   is not pure black, because pure black next to a bright code block is fatiguing.
+   Everything else in the app refers to these names, never to raw colours.
+   --------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+
+  /* A real type scale: 1.2 minor third at the small end, loosening upwards. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1.45;
+  --text-xs: 0.78125rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.6;
+  --text-base: 1rem;
+  --text-base--line-height: 1.75;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.7;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.45;
+  --text-2xl: 1.5625rem;
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 1.22;
+  --text-4xl: 2.375rem;
+  --text-4xl--line-height: 1.14;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 1.06;
+
+  --radius-card: 0.625rem;
+
+  /* Prose measure: ~70 characters at the base size. */
+  --container-measure: 42rem;
+}
+
+:root {
+  color-scheme: light;
+
+  --bg: oklch(99.1% 0.003 85);
+  --bg-raised: oklch(100% 0 0);
+  --bg-sunken: oklch(97% 0.004 85);
+  --bg-code: oklch(97.3% 0.005 250);
+  --bg-term: oklch(23% 0.015 255);
+  --bg-hover: oklch(95.4% 0.006 250);
+  --bg-active: oklch(95% 0.03 250);
+
+  --fg: oklch(24% 0.012 255);
+  --fg-strong: oklch(15% 0.014 255);
+  --fg-muted: oklch(48% 0.012 255);
+  --fg-faint: oklch(62% 0.01 255);
+  --fg-invert: oklch(97% 0.004 250);
+
+  --border: oklch(90.5% 0.006 255);
+  --border-strong: oklch(83% 0.008 255);
+
+  --accent: oklch(48% 0.152 258);
+  --accent-hover: oklch(41% 0.16 258);
+  --accent-fg: oklch(100% 0 0);
+  --accent-soft: oklch(95.5% 0.026 258);
+  --accent-ring: oklch(58% 0.15 258);
+
+  --ok: oklch(48% 0.11 152);
+  --ok-soft: oklch(95.5% 0.038 152);
+  --warn: oklch(52% 0.115 75);
+  --warn-soft: oklch(96.5% 0.05 85);
+  --danger: oklch(51% 0.17 25);
+  --danger-soft: oklch(96% 0.028 25);
+  --info: oklch(47% 0.1 235);
+  --info-soft: oklch(96% 0.028 235);
+
+  /* Syntax. Six hues, chosen for contrast against --bg-code, not for novelty. */
+  --syn-comment: oklch(55% 0.02 150);
+  --syn-keyword: oklch(45% 0.16 300);
+  --syn-string: oklch(43% 0.115 145);
+  --syn-number: oklch(45% 0.13 45);
+  --syn-cmd: oklch(38% 0.11 258);
+  --syn-flag: oklch(44% 0.13 320);
+  --syn-var: oklch(45% 0.12 25);
+  --syn-punct: oklch(55% 0.01 255);
+  --syn-key: oklch(40% 0.1 235);
+
+  --shadow-card: 0 1px 2px oklch(20% 0.02 255 / 0.05), 0 1px 1px oklch(20% 0.02 255 / 0.04);
+  --shadow-pop:
+    0 12px 32px -8px oklch(20% 0.02 255 / 0.18), 0 2px 8px -2px oklch(20% 0.02 255 / 0.1);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg: oklch(18.5% 0.012 258);
+  --bg-raised: oklch(22% 0.013 258);
+  --bg-sunken: oklch(15.5% 0.012 258);
+  --bg-code: oklch(21.5% 0.014 258);
+  --bg-term: oklch(14.5% 0.013 258);
+  --bg-hover: oklch(26% 0.015 258);
+  --bg-active: oklch(28% 0.035 258);
+
+  --fg: oklch(89% 0.008 255);
+  --fg-strong: oklch(97% 0.005 255);
+  --fg-muted: oklch(69% 0.012 255);
+  --fg-faint: oklch(56% 0.012 255);
+  --fg-invert: oklch(18% 0.012 258);
+
+  --border: oklch(29% 0.014 258);
+  --border-strong: oklch(38% 0.016 258);
+
+  --accent: oklch(76% 0.13 250);
+  --accent-hover: oklch(83% 0.12 250);
+  --accent-fg: oklch(16% 0.02 258);
+  --accent-soft: oklch(27% 0.05 255);
+  --accent-ring: oklch(70% 0.14 255);
+
+  --ok: oklch(76% 0.14 155);
+  --ok-soft: oklch(26% 0.05 155);
+  --warn: oklch(81% 0.13 85);
+  --warn-soft: oklch(27% 0.05 80);
+  --danger: oklch(72% 0.16 25);
+  --danger-soft: oklch(27% 0.06 25);
+  --info: oklch(76% 0.1 235);
+  --info-soft: oklch(26% 0.045 235);
+
+  --syn-comment: oklch(60% 0.025 150);
+  --syn-keyword: oklch(78% 0.12 300);
+  --syn-string: oklch(78% 0.13 145);
+  --syn-number: oklch(80% 0.12 60);
+  --syn-cmd: oklch(83% 0.09 250);
+  --syn-flag: oklch(80% 0.11 320);
+  --syn-var: oklch(78% 0.11 30);
+  --syn-punct: oklch(64% 0.012 255);
+  --syn-key: oklch(79% 0.1 235);
+
+  --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.3);
+  --shadow-pop: 0 16px 40px -10px oklch(0% 0 0 / 0.6), 0 2px 8px -2px oklch(0% 0 0 / 0.4);
+}
+
+/* Expose the tokens as Tailwind colour utilities. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-raised: var(--bg-raised);
+  --color-sunken: var(--bg-sunken);
+  --color-code: var(--bg-code);
+  --color-term: var(--bg-term);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+
+  --color-fg: var(--fg);
+  --color-strong: var(--fg-strong);
+  --color-muted: var(--fg-muted);
+  --color-faint: var(--fg-faint);
+  --color-invert: var(--fg-invert);
+
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* One visible focus treatment everywhere, keyboard-only. */
+  :focus-visible {
+    outline: 2px solid var(--accent-ring);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--fg-strong);
+  }
+
+  /* Anchored headings must clear the sticky header. */
+  [id] {
+    scroll-margin-top: 5.5rem;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--fg-strong);
+    font-weight: 600;
+    letter-spacing: -0.014em;
+    text-wrap: balance;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Prose. Applied to long-form pages; every element is styled explicitly so an
+   unstyled tag can never sneak through.
+   --------------------------------------------------------------------------- */
+
+@layer components {
+  .prose {
+    font-size: var(--text-base);
+    line-height: 1.75;
+    color: var(--fg);
+  }
+
+  .prose > * + * {
+    margin-top: 1.1em;
+  }
+
+  .prose p,
+  .prose ul,
+  .prose ol,
+  .prose blockquote {
+    max-width: var(--container-measure);
+  }
+
+  .prose h2 {
+    font-size: var(--text-xl);
+    line-height: 1.35;
+    margin-top: 2.75rem;
+    margin-bottom: 0.85rem;
+    padding-top: 0.35rem;
+    scroll-margin-top: 5.5rem;
+  }
+
+  .prose h3 {
+    font-size: var(--text-lg);
+    line-height: 1.45;
+    margin-top: 2rem;
+    margin-bottom: 0.6rem;
+    scroll-margin-top: 5.5rem;
+  }
+
+  .prose h4 {
+    font-size: var(--text-base);
+    font-weight: 600;
+    margin-top: 1.6rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .prose > h2:first-child,
+  .prose > h3:first-child {
+    margin-top: 0;
+  }
+
+  .prose a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+    text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent);
+  }
+
+  .prose a:hover {
+    color: var(--accent-hover);
+    text-decoration-color: currentColor;
+  }
+
+  .prose strong {
+    color: var(--fg-strong);
+    font-weight: 600;
+  }
+
+  .prose ul,
+  .prose ol {
+    padding-left: 1.35rem;
+  }
+
+  .prose ul {
+    list-style: disc;
+  }
+
+  .prose ol {
+    list-style: decimal;
+  }
+
+  .prose li::marker {
+    color: var(--fg-faint);
+  }
+
+  .prose li + li {
+    margin-top: 0.4rem;
+  }
+
+  .prose li > ul,
+  .prose li > ol {
+    margin-top: 0.4rem;
+  }
+
+  .prose blockquote {
+    border-left: 3px solid var(--border-strong);
+    padding-left: 1rem;
+    color: var(--fg-muted);
+    font-style: normal;
+  }
+
+  .prose :not(pre) > code {
+    font-size: 0.86em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1em 0.34em;
+    color: var(--fg-strong);
+    white-space: nowrap;
+  }
+
+  .prose hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  .prose dt {
+    font-weight: 600;
+    color: var(--fg-strong);
+  }
+
+  /* Syntax token classes, shared by the highlighter and the terminal block. */
+  .tok-comment {
+    color: var(--syn-comment);
+    font-style: italic;
+  }
+  .tok-keyword {
+    color: var(--syn-keyword);
+  }
+  .tok-string {
+    color: var(--syn-string);
+  }
+  .tok-number {
+    color: var(--syn-number);
+  }
+  .tok-cmd {
+    color: var(--syn-cmd);
+    font-weight: 600;
+  }
+  .tok-flag {
+    color: var(--syn-flag);
+  }
+  .tok-var {
+    color: var(--syn-var);
+  }
+  .tok-punct {
+    color: var(--syn-punct);
+  }
+  .tok-key {
+    color: var(--syn-key);
+  }
+  .tok-path {
+    color: var(--fg);
+  }
+
+  /* Terminal transcripts use the CLI's own palette: ANSI 31 / 33 / dim. */
+  .term-info {
+    color: oklch(88% 0.01 255);
+  }
+  .term-warn {
+    color: oklch(83% 0.14 85);
+  }
+  .term-error {
+    color: oklch(70% 0.17 25);
+  }
+  .term-debug {
+    color: oklch(62% 0.012 255);
+  }
+  .term-bold {
+    color: oklch(97% 0.004 255);
+    font-weight: 600;
+  }
+  .term-dim {
+    color: oklch(64% 0.012 255);
+  }
+}
+
+/* Thin scrollbars on the internal scroll containers (sidebar, code, tables). */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
