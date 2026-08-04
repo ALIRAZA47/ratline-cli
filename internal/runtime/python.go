@@ -162,7 +162,11 @@ func (Python) detectDependencySpec(c *Context) (dependencySpec, error) {
 		}
 		path, err := validate.ResolveWithin(c.AppDir, c.Site.Requirements)
 		if err != nil {
-			return dependencySpec{}, err
+			// The application directory does not exist yet under --dry-run. The
+			// lexical check still refuses traversal.
+			if path, err = validate.WithinRoot(c.AppDir, c.Site.Requirements); err != nil {
+				return dependencySpec{}, err
+			}
 		}
 		if !system.Exists(path) && !c.DryRun {
 			return dependencySpec{}, rlerr.Preconditionf("%s does not exist", path).

@@ -49,7 +49,13 @@ type AddOptions struct {
 // the account rather than leaving a half-provisioned tenant for the operator to
 // work out.
 func (m *Manager) Add(ctx context.Context, opts AddOptions) (u *state.User, err error) {
-	if err := m.validateAdd(ctx, &opts); err != nil {
+	// The name is validated first, because it is about to be used as a state key.
+	// The *collision* checks — is this account taken, is this group taken — come
+	// after the idempotence check below, and that order matters: ratline creates a
+	// group per user, so on a re-run the group it made itself is already there and a
+	// collision check run first refuses with "a group named alice already exists".
+	// That broke `user add` being safe to run twice, which every script depends on.
+	if err := validate.Username(opts.Name); err != nil {
 		return nil, err
 	}
 
@@ -68,6 +74,12 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions) (u *state.User, err 
 		return nil, rlerr.Preconditionf("the system user %q already exists but was not created by ratline", opts.Name).
 			WithHint("ratline will not adopt an account it did not create; pick another name, " +
 				"or remove that account first if it is unused")
+	}
+
+	// Now that this is known to be a genuinely new tenant, the rest of the
+	// validation — including the group collision — is meaningful.
+	if err := m.validateAdd(ctx, &opts); err != nil {
+		return nil, err
 	}
 
 	rb := system.NewRollback(m.Log)

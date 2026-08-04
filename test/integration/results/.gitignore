@@ -1,0 +1,5 @@
+# The transcript of the last `make integration` run. Written by the container
+# through a bind mount, because the suite stops systemd — and so the container —
+# as its final act, which makes the journal unreadable from outside.
+*
+!.gitignore

@@ -1,57 +1,59 @@
-# Backup and restore
+# Archives, and what is not backed up
 
 ```bash
-sudo ratline backup
-sudo ratline backup --output /mnt/nas
-sudo ratline restore /var/backups/ratline/ratline-2026-08-04.tar.gz
+sudo ratline backup acme                       # one tenant's home
+sudo ratline backup app.example.com            # one site directory
+sudo ratline backup acme --out /mnt/nas
 ```
 
-## What a backup holds
+## What `backup` actually does
 
-* the state database
+It archives **one tenant's home, or one site directory** — and that is the whole of
+it. The archive holds the application code, the logs and the `.env`.
+
+Because it holds the `.env`, **it holds secrets**. It is written `0600` inside a `0700`
+directory, and where it goes afterwards is your responsibility.
+
+`ratline site delete` writes one of these automatically unless `--purge` says
+otherwise, so the archive of a site you removed by mistake already exists.
+
+## What it does not do
+
+`backup` is not a server backup. It does **not** include:
+
+* the state database at `/var/lib/ratline/state.db`
 * `/etc/ratline` — configuration, global keys, the revocation list, DNS credentials
-* the generated nginx configuration and systemd units
-* the certificate inventory, and the certificates themselves
+* the generated nginx vhosts or systemd units
+* the certificates
 
-## What it does not hold
+And there is **no `ratline restore`**. Nothing unpacks an archive back into place.
 
-* **Tenant application code.** That is what the repository is for. A backup that
-  included `node_modules` would be enormous and no more useful.
-* **Private key material for keys ratline did not generate.** It never had them.
+That is a real gap, stated plainly rather than implied: if you rely on this server,
+back up `/var/lib/ratline/state.db` and `/etc/ratline` with whatever already backs up
+the rest of the host. Those two are what a rebuild needs, because the nginx and
+systemd configuration can be regenerated from state and the application code comes
+from your repository.
 
-So a restore brings back the server's *configuration*, and `site deploy` brings back
-the code. That split is deliberate: it keeps backups small enough to actually be taken.
-
-## Restoring onto a new server
+## Rebuilding a server by hand
 
 ```bash
 sudo ratline init
-sudo ratline restore <archive>
-sudo ratline reconcile --fix
+# restore /var/lib/ratline/state.db and /etc/ratline from your host backup
+sudo ratline reconcile --fix     # regenerate the vhosts and units from state
 sudo ratline doctor
+sudo ratline troubleshoot        # the host: clock, disk, tooling, state
 ```
 
-`reconcile --fix` regenerates anything the archive did not carry, and `doctor` reports
-what still needs attention — most often certificates whose DNS now points somewhere
-else.
+`reconcile --fix` regenerates everything derivable from state. `doctor` then reports
+what still needs attention — most often certificates whose DNS now points elsewhere,
+and application code that has not been deployed yet.
 
-## Exporting state instead
+## Exporting state
 
 ```bash
-sudo ratline export --format json > inventory.json
+sudo ratline export > inventory.json
 ```
 
 A JSON dump of everything ratline knows, carrying **no private key material at all** by
 design — so it is safe to hand to a monitoring system or a configuration-management
-tool.
-
-## Per-site and per-tenant archives
-
-```bash
-sudo ratline backup --site app.example.com
-sudo ratline backup --user acme
-```
-
-These *do* include the site directory, code and all, because that is what someone
-asking for one site's archive wants. `site delete` takes one automatically unless
-`--purge` says otherwise.
+tool. It is a record, not a restore path.

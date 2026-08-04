@@ -1,6 +1,8 @@
 package nginx
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -267,7 +269,10 @@ func TestSnippetsAreSelfConsistent(t *testing.T) {
 	if !strings.Contains(proxy, "$connection_upgrade") {
 		t.Error("proxy-params.conf no longer uses the upgrade map")
 	}
-	http, err := renderTemplate("nginx/ratline-http.conf.tmpl", map[string]bool{"Gzip": true, "Brotli": false})
+	http, err := renderTemplate("nginx/ratline-http.conf.tmpl", map[string]any{
+		"Compression": compressionLines(true, false, map[string]bool{}),
+		"Skipped":     "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,4 +299,83 @@ func TestDenyHiddenCoversTheFilesThatMatter(t *testing.T) {
 func (m *Manager) readSnippet(name string) (string, error) {
 	b, err := templatesRead("nginx/snippets/" + name)
 	return string(b), err
+}
+
+func TestHTTPSnippetOmitsDirectivesTheDistroAlreadySets(t *testing.T) {
+	// Debian and Ubuntu ship `gzip on;` inside nginx.conf's http block, and include
+	// conf.d/*.conf — where ratline links its snippet — into that same block. nginx
+	// treats a repeated directive in one context as a hard error, so emitting it
+	// unconditionally made `nginx -t` fail and every single `site add` fail with it,
+	// on exactly the platform ratline targets.
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "nginx.conf")
+	if err := os.WriteFile(conf, []byte(`user www-data;
+events { worker_connections 768; }
+http {
+	sendfile on;
+	# gzip_vary on;
+	gzip on;
+	include /etc/nginx/conf.d/*.conf;
+	server {
+		gzip_comp_level 9;
+	}
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	taken := httpDirectivesAlreadySet(conf)
+	if !taken["gzip"] {
+		t.Error("gzip is set in the http block and was not detected")
+	}
+	// Commented out is not set.
+	if taken["gzip_vary"] {
+		t.Error("a commented-out directive was treated as set")
+	}
+	// One level deeper is a server block, where a duplicate is a legal override.
+	if taken["gzip_comp_level"] {
+		t.Error("a directive inside a server block was treated as http-level")
+	}
+
+	lines := compressionLines(true, false, taken)
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "gzip on;") {
+		t.Errorf("gzip on; was emitted even though nginx.conf sets it:\n%s", joined)
+	}
+	// Everything the distro left commented out is still ours to set.
+	for _, want := range []string{"gzip_vary on;", "gzip_comp_level 5;", "gzip_types"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q from:\n%s", want, joined)
+		}
+	}
+	// And the omission is stated rather than silent.
+	if skipped := skippedNames(true, false, taken); !strings.Contains(skipped, "gzip") {
+		t.Errorf("skippedNames = %q, want it to name gzip", skipped)
+	}
+}
+
+func TestHTTPSnippetEmitsEverythingWhenNothingCollides(t *testing.T) {
+	// A host whose nginx.conf sets none of them — or no nginx.conf at all — must get
+	// the full set, or turning gzip on in configuration would silently do nothing.
+	for _, taken := range []map[string]bool{
+		{},
+		httpDirectivesAlreadySet(filepath.Join(t.TempDir(), "absent.conf")),
+	} {
+		lines := compressionLines(true, true, taken)
+		joined := strings.Join(lines, "\n")
+		for _, want := range []string{"gzip on;", "gzip_types", "brotli on;", "brotli_types"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("missing %q from:\n%s", want, joined)
+			}
+		}
+		if skippedNames(true, true, taken) != "" {
+			t.Error("nothing collided, so nothing should be reported as skipped")
+		}
+	}
+}
+
+func TestHTTPSnippetEmitsNothingWhenCompressionIsOff(t *testing.T) {
+	if lines := compressionLines(false, false, map[string]bool{}); len(lines) != 0 {
+		t.Errorf("compression is off, so no directives should be emitted: %v", lines)
+	}
 }

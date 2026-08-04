@@ -203,6 +203,11 @@ type ScaleOptions struct {
 	Instances int
 	MemoryMax string
 	CPUQuota  string
+	// ClientMaxBodySize is nginx's upload ceiling. It belongs here rather than only
+	// on `site add`, because it is the documented commonest cause of a mystery 413
+	// and "delete the site and recreate it" is not an acceptable way to raise an
+	// upload limit.
+	ClientMaxBodySize string
 }
 
 // Scale changes a site's resource envelope and applies it without downtime where
@@ -248,9 +253,16 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 		}
 		site.CPUQuota, changed = opts.CPUQuota, true
 	}
+	if opts.ClientMaxBodySize != "" {
+		if _, err := validate.Size(opts.ClientMaxBodySize); err != nil {
+			return nil, err
+		}
+		site.ClientMaxBodySize, changed = opts.ClientMaxBodySize, true
+	}
 	if !changed {
 		return nil, rlerr.Usagef("nothing to change").
-			WithHint("pass at least one of --workers, --instances, --memory-max or --cpu-quota")
+			WithHint("pass at least one of --workers, --instances, --memory-max, " +
+				"--cpu-quota or --client-max-body-size")
 	}
 
 	if err := m.State.PutSite(ctx, site); err != nil {
@@ -280,7 +292,8 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 	// instance count is not something this code can prove, and a restart that is
 	// honest beats a reload that may quietly not have scaled. Anything touching the
 	// cgroup restarts too.
-	workersOnly := opts.Instances == 0 && opts.MemoryMax == "" && opts.CPUQuota == ""
+	workersOnly := opts.Instances == 0 && opts.MemoryMax == "" && opts.CPUQuota == "" &&
+		opts.ClientMaxBodySize == ""
 	if workersOnly && site.Runtime == "python" && site.AppServer == "gunicorn" {
 		if err := m.Unit.Control(ctx, site, "reload"); err != nil {
 			return nil, err

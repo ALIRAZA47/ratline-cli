@@ -8,8 +8,8 @@ A key is added at one of three scopes, and the scope decides what it can reach:
     user     one tenant's account — everything that tenant owns
     site     one site, restricted to file transfer by default
 
-    ratline key add --user acme --file ~/.ssh/id_ed25519.pub --label "deploy laptop"
-    ratline key add --site app.example.com --file deploy.pub --label "ci"
+    ratline key add --scope user --user acme --key ~/.ssh/id_ed25519.pub --label "deploy laptop"
+    ratline key add --scope site --site app.example.com --key deploy.pub --label "ci"
     ratline key list --user acme
     ratline key remove <fingerprint>
 
@@ -44,7 +44,7 @@ key is never removed by a ratline operation.
 
 ## Expiry and revocation
 
-    ratline key add --user acme --file ci.pub --expires 2026-12-31
+    ratline key add --scope user --user acme --key ci.pub --expires 2026-12-31
     ratline key revoke <fingerprint>
 
 Expiry uses OpenSSH's `expiry-time=` where the server supports it, and a daily timer

@@ -53,8 +53,16 @@ cover: ## Run the tests and open a coverage report
 .PHONY: integration
 integration: ## Run the integration suite against a real Ubuntu container
 	@command -v docker >/dev/null || { echo "docker is required for the integration suite"; exit 1; }
-	docker compose -f test/integration/docker-compose.yml up --build --abort-on-container-exit --exit-code-from harness
-	docker compose -f test/integration/docker-compose.yml down -v
+	@set -e; \
+	  code=0; \
+	  docker compose -f test/integration/docker-compose.yml up --build \
+	      --abort-on-container-exit --exit-code-from harness || code=$$?; \
+	  if [ -s test/integration/results/suite.txt ]; then \
+	    echo; echo "== the suite transcript =="; \
+	    cat test/integration/results/suite.txt; \
+	  fi; \
+	  docker compose -f test/integration/docker-compose.yml down -v >/dev/null 2>&1 || true; \
+	  exit $$code
 
 .PHONY: lint
 lint: ## Run golangci-lint

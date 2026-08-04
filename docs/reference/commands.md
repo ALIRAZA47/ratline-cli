@@ -1472,11 +1472,12 @@ Usage:
   ratline site scale <domain> [flags]
 
 Flags:
-      --cpu-quota string    CPU ceiling, e.g. 100%
-  -h, --help                help for scale
-      --instances int       node: PM2 cluster workers
-      --memory-max string   Memory ceiling, e.g. 512M
-      --workers int         Worker processes
+      --client-max-body-size string   Upload ceiling, e.g. 100M — the commonest cause of a mystery 413
+      --cpu-quota string              CPU ceiling, e.g. 100%
+  -h, --help                          help for scale
+      --instances int                 node: PM2 cluster workers
+      --memory-max string             Memory ceiling, e.g. 512M
+      --workers int                   Worker processes
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
@@ -1491,6 +1492,7 @@ Global Flags:
 Examples:
   ratline site scale api.example.com --workers 6
   ratline site scale api.example.com --memory-max 1G --cpu-quota 200%
+  ratline site scale www.example.com --client-max-body-size 100M
 ```
 
 #### `ratline site delete`

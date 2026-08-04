@@ -138,6 +138,11 @@ func TestResolveWithinRejectsTraversal(t *testing.T) {
 }
 
 func TestResolveWithinRequiresAnExistingRoot(t *testing.T) {
+	// Deliberately strict. Resolving a root that does not exist is possible, but it
+	// would change what this returns — on a host where /home is a symlink the
+	// resolved root leaks into the generated vhost — and this helper's output is
+	// written into configuration files. A caller that runs before the tree exists,
+	// such as a --dry-run preview, skips resolution instead.
 	if _, err := ResolveWithin(filepath.Join(realTempDir(t), "nope"), "x"); err == nil {
 		t.Error("ResolveWithin accepted a root that does not exist")
 	}

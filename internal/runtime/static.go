@@ -24,7 +24,13 @@ func (Static) Provision(ctx context.Context, c *Context) error {
 	}
 	target, err := validate.ResolveWithin(c.SiteDir, root)
 	if err != nil {
-		return err
+		// The site directory does not exist yet under --dry-run, and resolution
+		// needs it to. The lexical check still refuses traversal, so a preview can
+		// say what it would create without the tree being there — which it has to,
+		// since not creating the tree is the whole point of a preview.
+		if target, err = validate.WithinRoot(c.SiteDir, root); err != nil {
+			return err
+		}
 	}
 	if c.DryRun {
 		c.Log.Info("would create the document root", "path", target)

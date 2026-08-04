@@ -284,7 +284,7 @@ func (m *Manager) VerifyLogin(ctx context.Context, users []*state.User) error {
 		if v := effective["authorizedkeysfile"]; v != "" && !mentionsAuthorizedKeys(v) {
 			return rlerr.Preconditionf("sshd would read %q for %s rather than the file ratline writes", v, account)
 		}
-		if forced := effective["forcecommand"]; forced != "" && !strings.Contains(forced, "internal-sftp") && !strings.Contains(forced, "ratline") {
+		if forced := effective["forcecommand"]; foreignForceCommand(forced) {
 			return rlerr.Preconditionf("a ForceCommand of %q applies to %s", forced, account)
 		}
 	}
@@ -327,6 +327,23 @@ func parseEffectiveConfig(out string) map[string]string {
 		m[key] = strings.TrimSpace(value)
 	}
 	return m
+}
+
+// foreignForceCommand reports whether a ForceCommand would intercept a login that
+// ratline did not put there.
+//
+// `sshd -T` prints "forcecommand none" when there is no forced command, so the
+// literal string "none" has to be read as absence. Treating it as a real command made
+// VerifyLogin refuse on an ordinary server — reverting every key change with
+// `a ForceCommand of "none" applies`, which is the opposite of the guarantee the
+// verification exists to provide.
+func foreignForceCommand(forced string) bool {
+	switch strings.TrimSpace(forced) {
+	case "", "none":
+		return false
+	}
+	// ratline's own forced commands are expected: site scope is implemented with one.
+	return !strings.Contains(forced, "internal-sftp") && !strings.Contains(forced, "ratline")
 }
 
 func mentionsAuthorizedKeys(v string) bool {

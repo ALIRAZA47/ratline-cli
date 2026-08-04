@@ -217,7 +217,7 @@ usually means a hardening directive. ratline recognises the common cases and nam
 the directive in the error. To confirm:
 
 ```bash
-ratline site restart app.example.com --relax ProtectSystem
+ratline site runtime app.example.com --relax ProtectSystem
 ```
 
 If that fixes it, the application writes outside its site directory. Prefer moving

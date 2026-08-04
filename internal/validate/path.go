@@ -99,6 +99,11 @@ func ResolveWithin(root, candidate string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The root must exist. Resolving symlinks in a root that does not is possible,
+	// but it would change what this returns — on a host where /home is a symlink the
+	// resolved root leaks into generated configuration — and this helper's output is
+	// written into vhosts and units. A caller that legitimately runs before the tree
+	// exists (a --dry-run preview) has to skip resolution rather than loosen this.
 	rootReal, err := filepath.EvalSymlinks(rootClean)
 	if err != nil {
 		return "", rlerr.Wrap(err, rlerr.CodePrecondition, "cannot resolve %s", rootClean)

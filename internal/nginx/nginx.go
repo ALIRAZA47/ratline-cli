@@ -12,7 +12,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -31,6 +34,13 @@ type Manager struct {
 	Log    *log.Logger
 	Runner system.Runner
 	DryRun bool
+
+	// The installed nginx's version, read once. It decides how HTTP/2 is spelled —
+	// see http2Support — and shelling out per vhost would be wasteful when a
+	// reconcile renders dozens.
+	versionOnce sync.Once
+	version     [3]int
+	versionOK   bool
 }
 
 // StaticLocation is one directory served from disk, bypassing the application.
@@ -62,6 +72,11 @@ type VhostData struct {
 	IndexFile string
 	SPA       bool
 	PublicDir string
+
+	// HTTP2Directive and HTTP2OnListen are mutually exclusive spellings of the same
+	// thing, chosen by the installed nginx version. See http2Support.
+	HTTP2Directive bool
+	HTTP2OnListen  bool
 
 	ProxyPass        string
 	ProxyReadTimeout string
@@ -127,6 +142,7 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 		d.CertPath = cert.CertPath
 		d.KeyPath = cert.KeyPath
 		d.ChainPath = cert.ChainPath
+		d.HTTP2Directive, d.HTTP2OnListen = m.http2Support()
 		// HSTS on an untrusted certificate would pin a browser to a host it
 		// cannot verify, so the combination is refused rather than rendered.
 		d.HSTS = site.HSTS && cert.Trusted()
@@ -410,8 +426,15 @@ func (m *Manager) EnsureSnippets(ctx context.Context) error {
 	// The http-level include has to be reachable from nginx.conf. ratline writes
 	// it, but wiring it in is the operator's call, because editing nginx.conf is
 	// not something a provisioning tool should do behind their back.
-	httpConf, err := renderTemplate("nginx/ratline-http.conf.tmpl", map[string]bool{
-		"Gzip": m.Cfg.Nginx.Gzip, "Brotli": m.Cfg.Nginx.Brotli,
+	// Only the directives nginx.conf has not already set. Debian and Ubuntu ship
+	// `gzip on;` inside the http block and include conf.d/*.conf into that same
+	// block — which is where this snippet is linked — so emitting it unconditionally
+	// makes `nginx -t` fail with "gzip directive is duplicate" and every single
+	// `site add` fail with it, on the exact platform ratline targets.
+	taken := httpDirectivesAlreadySet("/etc/nginx/nginx.conf")
+	httpConf, err := renderTemplate("nginx/ratline-http.conf.tmpl", map[string]any{
+		"Compression": compressionLines(m.Cfg.Nginx.Gzip, m.Cfg.Nginx.Brotli, taken),
+		"Skipped":     skippedNames(m.Cfg.Nginx.Gzip, m.Cfg.Nginx.Brotli, taken),
 	})
 	if err != nil {
 		return err
@@ -426,6 +449,176 @@ func (m *Manager) EnsureSnippets(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// http2Support picks the spelling of HTTP/2 this nginx understands.
+//
+// `http2 on;` is a standalone directive only from nginx 1.25.1. Before that the only
+// spelling is the `http2` parameter on the listen line, and the standalone directive
+// is an "unknown directive" that makes nginx refuse the whole configuration — so
+// emitting it unconditionally broke every TLS vhost on Ubuntu 24.04 LTS, which ships
+// nginx 1.24. Conversely 1.25.1+ deprecates the listen parameter and warns about it.
+//
+// Returns (standalone, onListen); exactly one is true.
+func (m *Manager) http2Support() (bool, bool) {
+	major, minor, patch, ok := m.nginxVersion()
+	if !ok {
+		// Unknown version: prefer the listen parameter, which every nginx that has
+		// ever supported HTTP/2 accepts. A deprecation warning is survivable; an
+		// unknown directive is not.
+		return false, true
+	}
+	if major > 1 || (major == 1 && (minor > 25 || (minor == 25 && patch >= 1))) {
+		return true, false
+	}
+	return false, true
+}
+
+var nginxVersionRe = regexp.MustCompile(`nginx/(\d+)\.(\d+)\.(\d+)`)
+
+// nginxVersion reads the installed nginx's version, once.
+func (m *Manager) nginxVersion() (major, minor, patch int, ok bool) {
+	m.versionOnce.Do(func() {
+		// Rendering must not require a Runner: a caller that only wants the text of a
+		// vhost — a golden test, a --dry-run preview — has no reason to supply one,
+		// and panicking on it would make rendering depend on being able to execute.
+		if m.Runner == nil {
+			return
+		}
+		// `nginx -v` writes to stderr, which the runner captures alongside stdout.
+		res, err := m.Runner.Run(context.Background(), system.Cmd{Name: "nginx", Args: []string{"-v"}})
+		if err != nil || res == nil {
+			return
+		}
+		fields := nginxVersionRe.FindStringSubmatch(res.Out() + res.Stderr)
+		if len(fields) != 4 {
+			return
+		}
+		a, _ := strconv.Atoi(fields[1])
+		b, _ := strconv.Atoi(fields[2])
+		c, _ := strconv.Atoi(fields[3])
+		m.version = [3]int{a, b, c}
+		m.versionOK = true
+	})
+	return m.version[0], m.version[1], m.version[2], m.versionOK
+}
+
+// gzipDirectives and brotliDirectives are what ratline would like to set at http
+// level, in order, as directive name to full line.
+var gzipDirectives = [][2]string{
+	{"gzip", "gzip on;"},
+	{"gzip_vary", "gzip_vary on;"},
+	{"gzip_proxied", "gzip_proxied any;"},
+	{"gzip_comp_level", "gzip_comp_level 5;"},
+	{"gzip_min_length", "gzip_min_length 256;"},
+	{"gzip_types", `gzip_types
+    application/atom+xml application/geo+json application/javascript
+    application/json application/ld+json application/manifest+json
+    application/rdf+xml application/rss+xml application/vnd.ms-fontobject
+    application/wasm application/x-web-app-manifest+json application/xhtml+xml
+    application/xml font/eot font/otf font/ttf image/bmp image/svg+xml
+    text/cache-manifest text/calendar text/css text/javascript text/markdown
+    text/plain text/vcard text/vnd.rim.location.xloc text/vtt
+    text/x-component text/xml;`},
+}
+
+var brotliDirectives = [][2]string{
+	{"brotli", "brotli on;"},
+	{"brotli_comp_level", "brotli_comp_level 5;"},
+	{"brotli_types", `brotli_types
+    application/javascript application/json application/xml
+    image/svg+xml text/css text/javascript text/plain text/xml;`},
+}
+
+// compressionLines returns the directives to emit, skipping any the http block
+// already sets.
+//
+// nginx treats a repeated flag directive in one context as a hard error rather than
+// an override, and this snippet is included into the distro's http block — so a
+// directive already set there cannot be set again at all, and there is nothing to
+// gain by trying.
+func compressionLines(gzip, brotli bool, taken map[string]bool) []string {
+	var out []string
+	add := func(set [][2]string) {
+		for _, d := range set {
+			if taken[d[0]] {
+				continue
+			}
+			out = append(out, d[1])
+		}
+	}
+	if gzip {
+		add(gzipDirectives)
+	}
+	if brotli {
+		add(brotliDirectives)
+	}
+	return out
+}
+
+// skippedNames lists what was left out, so the snippet says so in a comment rather
+// than silently differing from the configuration an operator asked for.
+func skippedNames(gzip, brotli bool, taken map[string]bool) string {
+	var out []string
+	check := func(set [][2]string) {
+		for _, d := range set {
+			if taken[d[0]] {
+				out = append(out, d[0])
+			}
+		}
+	}
+	if gzip {
+		check(gzipDirectives)
+	}
+	if brotli {
+		check(brotliDirectives)
+	}
+	return strings.Join(out, ", ")
+}
+
+// httpDirectivesAlreadySet reports the directives nginx.conf sets inside its http
+// block.
+//
+// Deliberately shallow: nginx.conf itself, not the files it includes. The distro sets
+// these there, and following includes would read this very snippet back and conclude
+// every directive was taken. Comments are stripped first, because Debian ships most
+// of these commented out and a commented directive is not set.
+func httpDirectivesAlreadySet(confPath string) map[string]bool {
+	out := map[string]bool{}
+	data, err := system.ReadFileLimit(confPath, 4<<20)
+	if err != nil {
+		return out
+	}
+	depth, inHTTP := 0, false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := raw
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		opens := strings.Count(line, "{")
+		closes := strings.Count(line, "}")
+
+		// A directive counts only at the top level of the http block: one deeper is
+		// a server or location, where a duplicate is a legal override.
+		if inHTTP && depth == 1 && opens == 0 {
+			if name, _, ok := strings.Cut(line, " "); ok {
+				out[strings.TrimSuffix(strings.TrimSpace(name), ";")] = true
+			}
+		}
+		if strings.HasPrefix(line, "http") && opens > 0 {
+			inHTTP, depth = true, depth+opens-closes
+			continue
+		}
+		depth += opens - closes
+		if inHTTP && depth <= 0 {
+			inHTTP = false
+		}
+	}
+	return out
 }
 
 // checkHTTPInclude warns when the http-level snippet is not included, because a

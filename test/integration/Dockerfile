@@ -1,6 +1,10 @@
 # The integration image: a real Ubuntu with systemd as PID 1, so site units are
 # genuinely supervised rather than simulated.
-FROM golang:1.22-bookworm AS build
+# The builder must satisfy go.mod's own Go version. Pinned to 1.22 it failed with
+# "go.mod requires go >= 1.25.0 (running go 1.22.12; GOTOOLCHAIN=local)" — the
+# official images set GOTOOLCHAIN=local, so there is no silent toolchain download to
+# paper over a stale pin. Bump this whenever go.mod's `go` line moves.
+FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -13,11 +17,17 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV container=docker
 
+# certbot is not optional here: without it the entire ACME section of the suite
+# skips, and the Pebble and challtestsrv containers that compose starts alongside
+# this one do nothing at all. The comment is above the instruction rather than inside
+# it, because a # within a line continuation is handed to the shell and would comment
+# out the rest of the command — installing fewer packages and still exiting 0.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd systemd-sysv dbus \
         nginx openssh-server openssl ca-certificates curl \
         python3 python3-venv python3-pip \
         git rsync sudo procps xz-utils jq sqlite3 \
+        certbot \
     && rm -rf /var/lib/apt/lists/*
 
 # The units systemd would otherwise spend the container's life failing on.

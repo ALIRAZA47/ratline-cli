@@ -198,6 +198,12 @@ func (g *Globals) ensureDirectories() error {
 		{g.Cfg.Paths.NginxSnippets, 0o755},
 		{g.Cfg.Paths.NginxCustom, 0o755},
 		{g.Cfg.Paths.ACMEWebroot, 0o755},
+		// Every level has to be listed. The leaf was 0755 and its parent was created
+		// implicitly under the 0027 provisioning umask, landing at 0750 — so nginx,
+		// running as www-data, could not traverse into .well-known and every HTTP-01
+		// challenge returned 404. A fresh install could therefore never renew a
+		// certificate, and nothing short of a real request would have said so.
+		{filepath.Join(g.Cfg.Paths.ACMEWebroot, ".well-known"), 0o755},
 		{filepath.Join(g.Cfg.Paths.ACMEWebroot, ".well-known", "acme-challenge"), 0o755},
 		{g.Cfg.Paths.BackupDir, 0o700},
 		{filepath.Dir(g.Cfg.Paths.ShellWrapper), 0o755},

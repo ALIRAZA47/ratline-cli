@@ -494,7 +494,8 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 		Short: "Change workers, instances or resource ceilings",
 		Args:  cobra.ExactArgs(1),
 		Example: "  ratline site scale api.example.com --workers 6\n" +
-			"  ratline site scale api.example.com --memory-max 1G --cpu-quota 200%",
+			"  ratline site scale api.example.com --memory-max 1G --cpu-quota 200%\n" +
+			"  ratline site scale www.example.com --client-max-body-size 100M",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mgr, err := g.siteManager(cmd.Context())
 			if err != nil {
@@ -513,6 +514,7 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 				[2]string{"instances", fmt.Sprint(s.Instances)},
 				[2]string{"memory max", orDash(s.MemoryMax)},
 				[2]string{"cpu quota", orDash(s.CPUQuota)},
+				[2]string{"max body size", orDash(s.ClientMaxBodySize)},
 			)
 		},
 	}
@@ -521,6 +523,8 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 	f.IntVar(&opts.Instances, "instances", 0, "node: PM2 cluster workers")
 	f.StringVar(&opts.MemoryMax, "memory-max", "", "Memory ceiling, e.g. 512M")
 	f.StringVar(&opts.CPUQuota, "cpu-quota", "", "CPU ceiling, e.g. 100%")
+	f.StringVar(&opts.ClientMaxBodySize, "client-max-body-size", "",
+		"Upload ceiling, e.g. 100M — the commonest cause of a mystery 413")
 	return Mutating(cmd)
 }
 

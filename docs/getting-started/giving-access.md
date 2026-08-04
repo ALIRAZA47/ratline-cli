@@ -4,13 +4,13 @@ Three scopes, and the scope is the grant:
 
 ```bash
 # You, administering the server
-sudo ratline key add --global --file ~/.ssh/id_ed25519.pub --label "my laptop"
+sudo ratline key add --scope global --key ~/.ssh/id_ed25519.pub --label "my laptop"
 
 # A tenant, for everything they own
-sudo ratline key add --user acme --file client.pub --label "acme's laptop"
+sudo ratline key add --scope user --user acme --key client.pub --label "acme's laptop"
 
 # CI, for one site, file transfer only
-sudo ratline key add --site app.example.com --file ci.pub --label "github actions"
+sudo ratline key add --scope site --site app.example.com --key ci.pub --label "github actions"
 ```
 
 A site-scoped key gets sftp, rsync and git through a forced command — not a shell.
@@ -21,7 +21,7 @@ materially different grant.
 ## Constraints worth using
 
 ```bash
-sudo ratline key add --site app.example.com --file contractor.pub \
+sudo ratline key add --scope site --site app.example.com --key contractor.pub \
     --label "contractor" --from 203.0.113.0/24 --expires 2026-12-31
 ```
 
@@ -44,7 +44,7 @@ one site.
 
 ```bash
 # Add the replacement, confirm it works, then remove the old one.
-sudo ratline key add --user acme --file new.pub --label "acme's new laptop"
+sudo ratline key add --scope user --user acme --key new.pub --label "acme's new laptop"
 sudo ratline key remove <fingerprint>
 
 # A compromised key: off every scope, and onto the revocation list, which sshd

@@ -7,6 +7,30 @@
 # leaves residue. Those are all properties of a real system.
 set -uo pipefail
 
+# The transcript has to outlive the container.
+#
+# systemd is PID 1, `StandardOutput=journal+console` does not reach docker's stdout on
+# every host, and the last thing this script does is `systemctl exit` — which stops
+# systemd, and therefore the container, before anything outside can read the journal.
+# A failing run was consequently invisible from the host. Writing to a bind-mounted
+# file fixes that for a human and for CI alike.
+TRANSCRIPT=/var/log/ratline-integration/suite.txt
+if mkdir -p "$(dirname "$TRANSCRIPT")" 2>/dev/null; then
+    exec > >(tee "$TRANSCRIPT") 2>&1
+fi
+
+# docker's `environment:` sets variables for PID 1, and a systemd unit inherits
+# nothing from it — so RATLINE_TEST_ACME_DIRECTORY was always unset here and the
+# entire ACME section skipped, with Pebble and challtestsrv running alongside for
+# nothing. PID 1's environment is where they actually are.
+if [ -r /proc/1/environ ]; then
+    while IFS= read -r -d '' entry; do
+        case "$entry" in
+            RATLINE_TEST_*) export "${entry?}" ;;
+        esac
+    done < /proc/1/environ
+fi
+
 PASS=0
 FAIL=0
 RATLINE=/usr/local/bin/ratline
@@ -52,16 +76,52 @@ contains() {
 # ---------------------------------------------------------------- setup
 
 info "environment"
-check "systemd is running"      systemctl is-system-running --wait
+
+# Deliberately not `systemctl is-system-running --wait`. In a container systemd may
+# never reach "running" — here dev-vda1.device sits in "activating tentative"
+# forever, because the device does not exist — and `--wait` then blocks for the life
+# of the container, hanging the suite on its first line with no output.
+#
+# What actually matters is that systemd is PID 1 and answering, and that the units
+# this suite depends on came up. The service's own After=/Wants= already guarantee
+# the ordering, so those are the things to assert.
+check "systemd is PID 1"        bash -c '[ "$(readlink /proc/1/exe)" = "/usr/lib/systemd/systemd" ] || [ "$(readlink /proc/1/exe)" = "/lib/systemd/systemd" ]'
+check "systemd answers"         systemctl --no-pager show --property=Version
+check "multi-user.target is up" systemctl is-active --quiet multi-user.target
+if failed=$(systemctl list-units --state=failed --no-legend --no-pager 2>/dev/null | awk '{print $1}' | tr '\n' ' '); then
+    if [ -n "${failed// /}" ]; then
+        printf '  note  units in a failed state before the suite began: %s\n' "$failed"
+    fi
+fi
 check "nginx is installed"      test -x /usr/sbin/nginx
 check "ratline runs"            "$RATLINE" version
 check "doctor runs on a bare box" "$RATLINE" doctor
 check "init seeds the config"   "$RATLINE" init --write-config-only
+# The CA's terms have to be accepted before anything can be issued, and the ACME
+# section below is otherwise refused with "the subscriber agreement has not been
+# accepted" — correctly, but it means the whole section tests nothing. Written into
+# the config directly, because --write-config-only stops before recording it and a
+# full `init` wants a terminal.
+if [ -f /etc/ratline/config.yaml ]; then
+    sed -i 's/^\( *tos_agreed:\).*/\1 true/' /etc/ratline/config.yaml
+    sed -i "s|^\( *email:\) \"\"|\1 ops@acme.test|" /etc/ratline/config.yaml
+fi
 check "the config validates"    test -f /etc/ratline/config.yaml
 
 # nginx's default site claims server_name _, which would swallow every request.
 rm -f /etc/nginx/sites-enabled/default
 systemctl reload nginx || true
+
+# `sshd -t` refuses with "Missing privilege separation directory" without this. On a
+# real server sshd's own unit creates it; here /run is a fresh tmpfs and sshd has
+# never started, so the suite has to make it or every sshd validation fails for a
+# reason that has nothing to do with ratline.
+mkdir -p /run/sshd && chmod 0755 /run/sshd
+
+# sshd itself has to be running, or every `key add` and `key sync` reverts on
+# "ssh.service is not active, cannot reload" — which is ratline behaving correctly
+# and the container not resembling a server.
+systemctl start ssh >/dev/null 2>&1 || systemctl start sshd >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------- users
 
@@ -353,6 +413,11 @@ else
 
     # Point the challenge server's DNS at this container, so Pebble resolves the
     # test domain here rather than nowhere.
+    # ratline's own preflight resolves the name through the container's resolver,
+    # which knows nothing about acme.test — so it correctly refuses before Pebble is
+    # ever contacted. challtestsrv answers for Pebble's benefit, not for ours.
+    grep -q ' acme.test$' /etc/hosts || echo '10.30.50.4 acme.test' >> /etc/hosts
+
     if [ -n "$CHALLTESTSRV" ]; then
         curl -sS -X POST -d '{"host":"acme.test","addresses":["10.30.50.4"]}'             "$CHALLTESTSRV/add-a" >/dev/null 2>&1             && ok "DNS for acme.test points at this container"             || bad "could not set up DNS" "Pebble will not resolve acme.test"
     fi
@@ -472,11 +537,21 @@ exits_with 2 "an unknown command is a usage error" "$RATLINE" nonesuch
 exits_with 2 "contradictory flags are a usage error" "$RATLINE" --json --interactive version
 exits_with 3 "a missing site is a precondition failure" "$RATLINE" site show nope.test
 
-# The lock: a second mutating invocation must fail fast rather than corrupt.
-( flock 9; sleep 3 ) 9>/run/ratline.lock &
+# The lock: a second mutating invocation must fail rather than proceed concurrently.
+#
+# The hold has to outlast the waiter's timeout, or the correct behaviour is to wait
+# and then succeed — which is what this check used to assert by accident, holding for
+# 3s while ratline waited its default 30s and exited 0. A one-second timeout keeps the
+# check honest and fast.
+cat > /tmp/shortlock.yaml <<'YAML'
+version: 1
+defaults:
+  lock_timeout: 1s
+YAML
+( flock 9; sleep 5 ) 9>/run/ratline.lock &
 locker=$!
 sleep 0.5
-exits_with 5 "a held lock exits 5" "$RATLINE" user add locktest
+exits_with 5 "a held lock exits 5" "$RATLINE" --config /tmp/shortlock.yaml user add locktest
 wait $locker
 
 check "--dry-run changes nothing" "$RATLINE" --dry-run site add dry.test --user alice --runtime static

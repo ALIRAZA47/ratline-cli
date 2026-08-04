@@ -40,7 +40,6 @@ sudo ratline status --json | jq '.sites_detail[] | select(.needs_attention)'
 
 ```bash
 sudo ratline doctor
-sudo ratline doctor --fix
 ```
 
 Every check ratline knows how to run: the nginx configuration, failed services, dead
@@ -91,5 +90,5 @@ will tell you everything is fine while the application crash-loops.
 redacted.
 
 ```bash
-sudo ratline export --format json | jq '.events[-20:]'
+sudo ratline export | jq '.data.events[-20:]'
 ```
