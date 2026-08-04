@@ -127,7 +127,14 @@ func (m *Manager) runCertbot(ctx context.Context, opts IssueOptions, names []str
 			"--"+plugin+"-credentials", opts.DNSCredentials,
 			"--"+plugin+"-propagation-seconds", fmt.Sprint(opts.DNSPropagation))
 	}
-	if opts.Staging {
+	// --server, always. Without it certbot uses its own compiled-in directory and
+	// acme.directory_url and acme.staging_url — both documented settings — did
+	// nothing at all. It also meant there was no way to reach a private ACME CA:
+	// step-ca, an internal issuer, or Pebble in the integration suite.
+	if dir := m.directoryURL(opts); dir != "" {
+		args = append(args, "--server", dir)
+	} else if opts.Staging {
+		// No configured staging URL, so fall back to certbot's own flag.
 		args = append(args, "--staging")
 	}
 	if opts.Force {
@@ -229,6 +236,21 @@ func (m *Manager) recordIssued(ctx context.Context, certName string, opts IssueO
 //
 // This is the difference between "the file is on disk" and "the site works". A
 // certificate nginx has not picked up, or one served by a different vhost because
+// directoryURL resolves which ACME directory this issuance should talk to.
+//
+// An explicit override wins, then the configured staging URL when --staging was
+// asked for, then the configured production URL. Empty means "let certbot decide",
+// which only happens if configuration has been emptied deliberately.
+func (m *Manager) directoryURL(opts IssueOptions) string {
+	if opts.DirectoryURL != "" {
+		return opts.DirectoryURL
+	}
+	if opts.Staging {
+		return m.Cfg.ACME.StagingURL
+	}
+	return m.Cfg.ACME.DirectoryURL
+}
+
 // of a server_name collision, looks identical on disk to a working one.
 func (m *Manager) VerifyServed(ctx context.Context, domain string, expected *state.Certificate) (string, error) {
 	if m.DryRun {

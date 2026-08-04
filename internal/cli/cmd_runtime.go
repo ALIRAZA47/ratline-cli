@@ -200,6 +200,13 @@ func (g *Globals) installPM2(ctx context.Context, nodeVersion, pm2Version string
 	if !system.Exists(pm2) {
 		return rlerr.Preconditionf("npm reported success but there is no %s", pm2)
 	}
+	// npm ran under the provisioning umask, so everything it wrote is 0750/0640 and
+	// the tenant that has to exec pm2 cannot. The tarball extraction fixes its own
+	// tree, but PM2 lands afterwards — and a unit that cannot exec its supervisor
+	// fails with 203/EXEC and a "Permission denied" that says nothing about umasks.
+	if err := makeWorldExecutable(prefix); err != nil {
+		return err
+	}
 	res, err := g.Runner.Run(ctx, system.Cmd{
 		Path: pm2, Args: []string{"--version"},
 		Env: []string{"PATH=" + filepath.Join(prefix, "bin") + ":" + system.DefaultPath, "HOME=" + prefix},
@@ -286,10 +293,24 @@ func (g *Globals) installNode(ctx context.Context, version string) error {
 		return err
 	}
 	if _, err := g.Runner.Run(ctx, system.Cmd{
+		// --no-same-owner and --no-same-permissions, because tar running as root
+		// otherwise restores whatever uid, gid and mode the archive was built with.
+		// The official Node tarballs carry a uid that does not exist here, which left
+		// the interpreter every site executes owned by a phantom account — and would
+		// hand it to a real user the day that uid was allocated. --no-same-permissions
+		// applies the umask instead, so the modes are set explicitly below.
 		Name: "tar", Args: []string{"--extract", "--xz", "--strip-components", "1",
+			"--no-same-owner", "--no-same-permissions",
 			"--file", archive, "--directory", staging},
 		Mutates: true, Timeout: 10 * time.Minute, Label: "extract",
 	}); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+	// A managed interpreter is executed by every tenant, so the tree has to be
+	// traversable and executable by all of them and writable by none. The
+	// provisioning umask would otherwise leave it at 0750/0640.
+	if err := makeWorldExecutable(staging); err != nil {
 		os.RemoveAll(staging)
 		return err
 	}
@@ -325,6 +346,32 @@ func (g *Globals) installNode(ctx context.Context, version string) error {
 	g.Printf("Installed Node %s at %s\n", installed, target)
 	g.Printf("\nUse it for a site:\n  ratline site add app.example.com --user <user> --runtime node --entry server.js --node %s\n", version)
 	return nil
+}
+
+// makeWorldExecutable gives a managed runtime tree the modes every tenant needs.
+//
+// Root-owned, world-readable, world-traversable, and writable by nobody else. A
+// directory or binary a tenant could modify would be a way to run arbitrary code
+// inside every service unit on the box, and one they cannot traverse is an
+// interpreter no site can start.
+func makeWorldExecutable(root string) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := os.Lchown(path, 0, 0); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "setting the owner of %s", path)
+		}
+		// A symlink's own mode is not meaningful and chmod would follow it.
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		mode := os.FileMode(0o644)
+		if info.IsDir() || info.Mode().Perm()&0o111 != 0 {
+			mode = 0o755
+		}
+		return system.Chmod(path, mode)
+	})
 }
 
 // resolveNodeVersion turns a major version into the latest full version.
@@ -473,7 +520,10 @@ func (g *Globals) installPython(ctx context.Context, version string) error {
 			g.Log.Info("would link the system Python", "from", candidate, "to", target)
 			return nil
 		}
-		if _, err := system.EnsureDir(filepath.Join(target, "bin"), 0o755, 0, 0); err != nil {
+		// MkdirAllMode rather than EnsureDir: EnsureDir is a single level, and on a
+		// fresh box neither .../python nor .../python/<version> exists yet, so it
+		// failed with ENOENT on the very first `runtime install python`.
+		if err := system.MkdirAllMode(filepath.Join(target, "bin"), 0o755); err != nil {
 			return err
 		}
 		// A symlink rather than a copy: the distribution keeps patching the real

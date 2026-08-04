@@ -312,10 +312,12 @@ func (n Node) Reload(ctx context.Context, c *Context) error {
 // outlive the site it was supervising.
 func (n Node) Teardown(ctx context.Context, c *Context) error {
 	if ProcessManagerFor(c) == ProcessManagerPM2 && !c.DryRun {
-		if pm2, err := n.pm2Binary(c); err == nil {
+		pm2, perr := n.pm2Binary(c)
+		env, eerr := n.pm2Env(c)
+		if perr == nil && eerr == nil {
 			if _, kerr := c.Runner.Run(ctx, system.Cmd{
 				Path: pm2, Args: []string{"kill"}, As: c.Identity,
-				Env:     append(system.UserEnv(c.Identity), "PM2_HOME="+pm2Home(c)),
+				Env:     env,
 				Mutates: true, OKExit: []int{1, 2},
 			}); kerr != nil {
 				c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)

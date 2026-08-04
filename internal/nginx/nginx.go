@@ -341,6 +341,7 @@ func (m *Manager) Reload(ctx context.Context) error {
 		return nil
 	}
 	timeout := m.Cfg.Nginx.ReloadTimeout.D()
+	before := m.nginxWorkers(ctx)
 	if _, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "systemctl", Args: []string{"reload", "nginx"},
 		Mutates: true, Timeout: timeout, Label: "reload nginx",
@@ -354,8 +355,70 @@ func (m *Manager) Reload(ctx context.Context) error {
 				WithHint("check 'systemctl status nginx'; the configuration itself tested clean")
 		}
 	}
+	// A reload is asynchronous: `systemctl reload nginx` runs `nginx -s reload`,
+	// which returns as soon as the signal is delivered. The master then re-reads its
+	// configuration and starts new workers while the old ones drain — so for a short
+	// window nginx is still serving the *previous* configuration.
+	//
+	// That window is long enough to matter. `site add` and `cert issue` report
+	// success and return; a script that immediately requests the site can be answered
+	// by an old worker and see the pre-change behaviour — a missing redirect, a stale
+	// document root. Waiting until new workers exist proves the reload landed.
+	m.waitForReload(ctx, before, timeout)
 	m.Log.Debug("reloaded nginx")
 	return nil
+}
+
+// nginxWorkers returns the current worker pids, as a set.
+//
+// Read from the master's children rather than from a pid file, because the pid file
+// only names the master and it is the workers that carry the configuration.
+func (m *Manager) nginxWorkers(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	res, err := m.Runner.Run(ctx, system.Cmd{
+		Name: "pgrep", Args: []string{"-f", "nginx: worker process"},
+	})
+	if err != nil || res == nil {
+		return out
+	}
+	for _, line := range strings.Fields(res.Out()) {
+		out[line] = true
+	}
+	return out
+}
+
+// waitForReload blocks until nginx has workers that did not exist before the reload.
+//
+// Best effort by design: if pgrep is unavailable, or nginx is not running as a
+// conventional master-plus-workers, this returns promptly rather than failing a
+// reload that in all likelihood worked. The alternative — treating an unobservable
+// reload as an error — would break provisioning on any host that runs nginx
+// differently.
+func (m *Manager) waitForReload(ctx context.Context, before map[string]bool, timeout time.Duration) {
+	if len(before) == 0 {
+		return
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return
+		}
+		now := m.nginxWorkers(ctx)
+		if len(now) == 0 {
+			return
+		}
+		for pid := range now {
+			if !before[pid] {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	m.Log.Debug("nginx did not appear to start new workers within the reload timeout, "+
+		"so the new configuration may take a moment longer to serve", "timeout", timeout)
 }
 
 // Remove deletes a site's vhost and its symlink.

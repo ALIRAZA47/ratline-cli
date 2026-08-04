@@ -355,3 +355,63 @@ func TestPM2BinaryRefusalNamesBothWaysForward(t *testing.T) {
 		}
 	}
 }
+
+func TestThePM2UnitPutsNodeOnPath(t *testing.T) {
+	// `pm2` is a JavaScript file with a `#!/usr/bin/env node` shebang. systemd execs
+	// it directly, env searches PATH, and a unit's PATH does not include a managed
+	// runtime — so without this every PM2-supervised site failed to start with
+	// "/usr/bin/env: 'node': No such file or directory" and status 127. PM2 is the
+	// default supervisor, so that was every node site.
+	c := nodeContext(t, nil)
+	_, opts, err := (Node{}).pm2StartCommand(context.Background(), c)
+	if err != nil {
+		t.Fatalf("pm2StartCommand = %v", err)
+	}
+	var path string
+	for _, e := range opts.Environment {
+		if rest, ok := strings.CutPrefix(e, "PATH="); ok {
+			path = rest
+		}
+	}
+	if path == "" {
+		t.Fatalf("the unit sets no PATH: %v", opts.Environment)
+	}
+	// The managed runtime's bin directory has to come first, or a system node of a
+	// different major version answers instead.
+	if !strings.HasPrefix(path, "/opt/ratline/runtimes/node/22/bin:") {
+		t.Errorf("PATH = %q, want the managed node bin directory first", path)
+	}
+}
+
+func TestEveryPM2InvocationHasNodeOnPath(t *testing.T) {
+	// `pm2` is a JS file with a `#!/usr/bin/env node` shebang, so *every* way ratline
+	// runs it needs the managed node on PATH — not only the systemd unit. Two of them
+	// failed silently: PM2Report, which made PM2 supervision invisible to site
+	// status, doctor and troubleshoot; and pm2Reload, where a reload that never ran
+	// was indistinguishable from one that dropped no requests.
+	c := nodeContext(t, nil)
+	c.DryRun = false
+	installFakeRuntime(t, c, "node", "pm2")
+
+	env, err := (Node{}).pm2Env(c)
+	if err != nil {
+		t.Fatalf("pm2Env = %v", err)
+	}
+	var path, home string
+	for _, e := range env {
+		if rest, ok := strings.CutPrefix(e, "PATH="); ok {
+			path = rest
+		}
+		if rest, ok := strings.CutPrefix(e, "PM2_HOME="); ok {
+			home = rest
+		}
+	}
+	if path == "" {
+		t.Errorf("no PATH in the pm2 environment: %v", env)
+	} else if !strings.Contains(path, "/node/22/bin") {
+		t.Errorf("PATH = %q, want the managed node bin directory", path)
+	}
+	if home != pm2Home(c) {
+		t.Errorf("PM2_HOME = %q, want %q", home, pm2Home(c))
+	}
+}

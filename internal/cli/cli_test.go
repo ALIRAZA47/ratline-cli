@@ -8,6 +8,9 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // harness builds Globals over buffers. Because the buffers are not *os.File,
@@ -276,5 +279,28 @@ func TestTableRowsAreAlwaysHeaderWidth(t *testing.T) {
 	}
 	if got := len(tbl.rows[1]); got != 3 {
 		t.Errorf("a long row has %d cells, want 3", got)
+	}
+}
+
+func TestTheCommandTreeBuildsWithoutPanicking(t *testing.T) {
+	// cobra panics on a redefined flag, at construction time, so a duplicate
+	// registration takes the whole binary down before it can print anything — every
+	// command, not just the one with the clash. It surfaced once as a panic inside an
+	// unrelated help test, which is a confusing way to learn about it.
+	defer func() {
+		if p := recover(); p != nil {
+			t.Fatalf("building the command tree panicked: %v", p)
+		}
+	}()
+	root := NewRootCommand(NewGlobals())
+
+	// And every flag is reachable, which is what a panic would have prevented.
+	var commands int
+	walk(root, func(c *cobra.Command) {
+		commands++
+		c.Flags().VisitAll(func(*pflag.Flag) {})
+	})
+	if commands < 50 {
+		t.Errorf("only %d commands were built; the tree looks truncated", commands)
 	}
 }

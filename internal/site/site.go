@@ -133,17 +133,27 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions) (res *AddResult, err
 	// A port has to be reserved before the vhost is rendered, since the vhost
 	// names it.
 	if site.Dynamic() && site.Listen == "port" {
-		port, err := m.State.AllocatePort(ctx, site.Domain,
-			m.Cfg.Ports.RangeStart, m.Cfg.Ports.RangeEnd, system.PortFree)
-		if err != nil {
-			return nil, err
+		if m.DryRun {
+			// A plausible port, so the rendered preview names something realistic,
+			// without reserving anything. Reserving under --dry-run would leak a port
+			// on every preview.
+			site.Port = m.Cfg.Ports.RangeStart
+			res.Port = site.Port
+			m.Log.Info("would allocate a port", "from", m.Cfg.Ports.RangeStart,
+				"to", m.Cfg.Ports.RangeEnd)
+		} else {
+			port, err := m.State.AllocatePort(ctx, site.Domain,
+				m.Cfg.Ports.RangeStart, m.Cfg.Ports.RangeEnd, system.PortFree)
+			if err != nil {
+				return nil, err
+			}
+			site.Port = port
+			res.Port = port
+			rb.Push(fmt.Sprintf("allocated port %d", port), func(ctx context.Context) error {
+				return m.State.ReleasePort(ctx, site.Domain)
+			})
+			m.Log.Info("allocated a port", "port", port, "domain", site.Domain)
 		}
-		site.Port = port
-		res.Port = port
-		rb.Push(fmt.Sprintf("allocated port %d", port), func(ctx context.Context) error {
-			return m.State.ReleasePort(ctx, site.Domain)
-		})
-		m.Log.Info("allocated a port", "port", port, "domain", site.Domain)
 	}
 
 	if err := m.buildTree(ctx, site, id, rb); err != nil {
@@ -151,12 +161,20 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions) (res *AddResult, err
 	}
 	res.Steps = append(res.Steps, "directories")
 
-	if err := m.State.PutSite(ctx, site); err != nil {
-		return nil, err
+	// A preview must not write the row. It used to, which meant `--dry-run site add`
+	// left a real record behind — and the subsequent real command refused with
+	// "already exists with a different configuration", against a site that had never
+	// been created. A dry run that poisons the database is worse than none.
+	if m.DryRun {
+		m.Log.Info("would record the site in state", "domain", site.Domain)
+	} else {
+		if err := m.State.PutSite(ctx, site); err != nil {
+			return nil, err
+		}
+		rb.Push("recorded the site in state", func(ctx context.Context) error {
+			return m.State.DeleteSite(ctx, site.Domain)
+		})
 	}
-	rb.Push("recorded the site in state", func(ctx context.Context) error {
-		return m.State.DeleteSite(ctx, site.Domain)
-	})
 
 	if opts.Repo != "" {
 		if err := m.clone(ctx, site, id, opts); err != nil {

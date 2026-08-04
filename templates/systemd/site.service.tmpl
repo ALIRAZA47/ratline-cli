@@ -10,6 +10,12 @@ Documentation=man:ratline(8)
 After=network-online.target
 Wants=network-online.target
 PartOf=ratline.target
+# StartLimit* live in [Unit], not [Service]. systemd moved them here and ignores
+# them there with "Unknown key name", so a copy in [Service] silently left a
+# crash-looping service restarting for ever instead of being put into a failed
+# state where `doctor` could see it.
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 # Type=exec rather than notify: neither gunicorn nor a plain Node server
@@ -60,8 +66,6 @@ ExecStop={{ .ExecStop }}
 {{- end }}
 Restart=always
 RestartSec={{ .RestartSec }}
-StartLimitBurst=5
-StartLimitIntervalSec=60
 KillSignal=SIGTERM
 KillMode=mixed
 TimeoutStopSec={{ .TimeoutStopSec }}

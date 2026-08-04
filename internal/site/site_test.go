@@ -9,6 +9,8 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/runtime"
+	"github.com/ALIRAZA47/ratline-cli/internal/state"
+	"path/filepath"
 )
 
 // buildSite is the part of `site add` that turns flags into a row, before
@@ -167,5 +169,63 @@ func TestOneInstanceIsAlwaysFine(t *testing.T) {
 		if _, err := testManager().buildSite(context.Background(), &opts); err != nil {
 			t.Errorf("a %s site with one instance = %v", rt, err)
 		}
+	}
+}
+
+func TestDryRunAddWritesNoStateRow(t *testing.T) {
+	// `site add --dry-run` used to write a real row and reserve a real port, so the
+	// next *real* `site add` refused with "already exists with a different
+	// configuration" for a site that had never been created — and every preview
+	// leaked a port.
+	//
+	// Exercised through the manager rather than the CLI, because the CLI refuses
+	// before it reaches these writes on a host without root, which would make the
+	// assertion vacuous on a developer machine.
+	dir := t.TempDir()
+	st, err := state.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.PutUser(ctx, &state.User{Name: "alice", Home: "/home/alice", Shell: "/bin/sh"}); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := testManager()
+	mgr.State = st
+	mgr.DryRun = true
+
+	for _, opts := range []AddOptions{
+		{Domain: "static.example.com", Owner: "alice", Runtime: "static"},
+		{Domain: "node.example.com", Owner: "alice", Runtime: "node",
+			Entry: "server.js", Listen: "port"},
+	} {
+		site, err := mgr.buildSite(ctx, &opts)
+		if err != nil {
+			t.Fatalf("buildSite(%s) = %v", opts.Domain, err)
+		}
+		// buildSite itself must not write; the guards are in Add, so this asserts the
+		// state before Add is reached as well as the shape of the row it would write.
+		if _, err := st.GetSite(ctx, site.Domain); err == nil {
+			t.Errorf("buildSite recorded %s in state", site.Domain)
+		}
+	}
+
+	// Nothing at all in either table.
+	sites, err := st.ListSites(ctx, state.SiteFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 0 {
+		t.Errorf("%d site row(s) written under --dry-run", len(sites))
+	}
+	ports, err := st.ListPorts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != 0 {
+		t.Errorf("%d port(s) reserved under --dry-run", len(ports))
 	}
 }

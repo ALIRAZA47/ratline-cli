@@ -89,11 +89,15 @@ type IssueOptions struct {
 	DNSPropagation int
 	Email          string
 	Staging        bool
-	KeyType        string
-	Force          bool
-	Attach         bool
-	CertbotDryRun  bool
-	SkipPreflight  bool
+	// DirectoryURL overrides the ACME directory for this one issuance. Empty means
+	// the configured one — acme.staging_url when Staging, acme.directory_url
+	// otherwise.
+	DirectoryURL  string
+	KeyType       string
+	Force         bool
+	Attach        bool
+	CertbotDryRun bool
+	SkipPreflight bool
 }
 
 // IssueResult reports what happened.
@@ -172,6 +176,13 @@ func (m *Manager) Resolve(opts *IssueOptions) error {
 		}
 	default:
 		return rlerr.Usagef("--challenge must be http or dns, got %q", opts.Challenge)
+	}
+
+	// Validated here so a typo is a usage error rather than a confusing certbot
+	// failure fifteen seconds later.
+	if opts.DirectoryURL != "" && !strings.HasPrefix(opts.DirectoryURL, "https://") {
+		return rlerr.Usagef("--acme-directory must be an https URL, got %q", opts.DirectoryURL).
+			WithHint("an ACME directory looks like https://acme.example.internal/directory")
 	}
 
 	if opts.KeyType == "" {

@@ -153,12 +153,17 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions) (u *state.User, err 
 		}
 		u.UID, u.GID = id.UID, id.GID
 	}
-	if err := m.State.PutUser(ctx, u); err != nil {
-		return nil, err
+	// A preview must leave no record; see the same guard in site.Add.
+	if m.DryRun {
+		m.Log.Info("would record the tenant in state", "user", opts.Name)
+	} else {
+		if err := m.State.PutUser(ctx, u); err != nil {
+			return nil, err
+		}
+		rb.Push("recorded the user in state", func(ctx context.Context) error {
+			return m.State.DeleteUser(ctx, opts.Name)
+		})
 	}
-	rb.Push("recorded the user in state", func(ctx context.Context) error {
-		return m.State.DeleteUser(ctx, opts.Name)
-	})
 
 	m.Log.Info("user created", "user", opts.Name, "uid", u.UID, "home", home)
 	return u, nil

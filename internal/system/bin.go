@@ -42,6 +42,10 @@ var defaultCandidates = map[string][]string{
 	"systemd-analyze": {"/usr/bin/systemd-analyze", "/bin/systemd-analyze"},
 	"logrotate":       {"/usr/sbin/logrotate", "/sbin/logrotate"},
 	"kill":            {"/bin/kill", "/usr/bin/kill"},
+	// Used to confirm an nginx reload actually landed, by looking for workers that
+	// did not exist before it. Absent on a minimal host, which the caller treats as
+	// "cannot observe" rather than as a failure.
+	"pgrep": {"/usr/bin/pgrep", "/bin/pgrep"},
 
 	// ssh
 	"ssh-keygen":  {"/usr/bin/ssh-keygen", "/bin/ssh-keygen"},

@@ -153,6 +153,8 @@ func newCertIssueCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.DNSCredentials, "dns-credentials", "", "Credentials file for the DNS plugin, which must be 0600")
 	f.IntVar(&opts.DNSPropagation, "dns-propagation", 0, "Seconds to wait for the TXT record before validating")
 	f.StringVar(&opts.Email, "email", "", "ACME contact address")
+	f.StringVar(&opts.DirectoryURL, "acme-directory", "",
+		"ACME directory URL, for a private CA such as step-ca (default: the configured one)")
 	f.BoolVar(&opts.Staging, "staging", false, "Use the staging endpoint: real exchange, untrusted certificate, generous limits")
 	f.StringVar(&opts.KeyType, "key-type", "", "ecdsa or rsa (default from config)")
 	f.BoolVar(&opts.Force, "force", false, "Re-issue even if a valid certificate exists, and proceed past preflight")

@@ -280,7 +280,10 @@ server.listen(target, () => console.log('listening on ' + target));
 JS
 chown -R bob:bob /home/bob/app.test
 
-if command -v node >/dev/null 2>&1 || "$RATLINE" runtime install node 22 >/dev/null 2>&1; then
+# --with-pm2, because PM2 is the default supervisor for a node site and `site add`
+# refuses without it. Installed unconditionally rather than falling back to a system
+# node, so the managed-runtime path is what gets tested.
+if "$RATLINE" runtime install node 22 --with-pm2 >/dev/null 2>&1; then
     check "runtime list" "$RATLINE" runtime list
     if "$RATLINE" site add app.test --user bob --runtime node --entry server.js --ssl none 2>&1 | tail -20; then
         ok "site add node"
@@ -293,6 +296,34 @@ if command -v node >/dev/null 2>&1 || "$RATLINE" runtime install node 22 >/dev/n
                 -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
                 http://127.0.0.1/ 2>&1 | head -1)
         contains "a WebSocket upgrade succeeds" "101" "$up"
+
+        # PM2 is the default, so assert the thing it exists for: a reload that keeps
+        # answering. Without PM2 this is a restart and requests are dropped.
+        fails=0
+        for _ in $(seq 1 40); do
+            curl -fsS -o /dev/null -H 'Host: app.test' http://127.0.0.1/ || fails=$((fails+1))
+        done &
+        loop=$!
+        "$RATLINE" site reload app.test >/dev/null 2>&1
+        wait $loop
+        [ "$fails" = "0" ] && ok "a PM2 reload dropped no requests" \
+            || bad "zero-downtime reload" "$fails request(s) failed"
+
+        contains "site status reports PM2's own worker count" "pm2" \
+            "$("$RATLINE" site status app.test 2>&1)"
+
+        # And the other supervision mode, since --daemon direct is a documented
+        # choice and nothing else here exercises it.
+        mkdir -p /home/bob/direct.test/app
+        cp /home/bob/app.test/app/server.js /home/bob/direct.test/app/server.js
+        cp /home/bob/app.test/app/package.json /home/bob/direct.test/app/package.json
+        chown -R bob:bob /home/bob/direct.test
+        check "site add --daemon direct" "$RATLINE" site add direct.test --user bob \
+            --runtime node --entry server.js --daemon direct --ssl none
+        contains "a direct node site answers" '"ok":true' \
+            "$(curl -sS -H 'Host: direct.test' http://127.0.0.1/ 2>&1)"
+        refute "a direct node site refuses to reload gracefully" \
+            "$RATLINE" site reload direct.test
     else
         bad "site add node" "see the output above"
     fi
@@ -428,14 +459,24 @@ else
 
     # The preflight has to pass before an attempt is spent, so it is asserted
     # separately from the issuance itself.
-    if "$RATLINE" --verbose cert issue acme.test --email ops@acme.test --dry-run 2>&1 | tail -25; then
+    # --acme-directory, because certbot otherwise talks to the real Let's Encrypt:
+    # nothing ever read RATLINE_TEST_ACME_DIRECTORY, so every assertion in this
+    # section was really testing the public CA and failing against it.
+    #
+    # REQUESTS_CA_BUNDLE points certbot's HTTP client at the system trust store,
+    # which now holds Pebble's root; certbot otherwise uses certifi's own bundle and
+    # cannot verify a private CA.
+    export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+    if "$RATLINE" --verbose cert issue acme.test --email ops@acme.test \
+            --acme-directory "$DIRECTORY" --dry-run 2>&1 | tail -25; then
         ok "cert issue --dry-run passes preflight and validates"
     else
         bad "cert issue --dry-run" "preflight or validation failed; see the output above"
     fi
 
     # Now for real, against Pebble.
-    if RATLINE_ACME_DIRECTORY="$DIRECTORY" "$RATLINE" cert issue acme.test             --email ops@acme.test 2>&1 | tail -25; then
+    if "$RATLINE" cert issue acme.test --email ops@acme.test \
+            --acme-directory "$DIRECTORY" 2>&1 | tail -25; then
         ok "cert issue completed against the local ACME server"
 
         contains "the certificate is recorded" "acme.test" "$("$RATLINE" cert list)"
@@ -460,9 +501,11 @@ else
         # A duplicate request must be refused by the local budget before it reaches
         # the CA at all.
         for _ in 1 2 3 4 5 6; do
-            "$RATLINE" cert issue acme.test --email ops@acme.test --force >/dev/null 2>&1 || true
+            "$RATLINE" cert issue acme.test --email ops@acme.test \
+                --acme-directory "$DIRECTORY" --force >/dev/null 2>&1 || true
         done
-        if "$RATLINE" cert issue acme.test --email ops@acme.test --force 2>&1 | grep -qiE 'rate limit|duplicate'; then
+        if "$RATLINE" cert issue acme.test --email ops@acme.test \
+                --acme-directory "$DIRECTORY" --force 2>&1 | grep -qiE 'rate limit|duplicate'; then
             ok "the duplicate-certificate budget refuses further attempts"
         else
             printf '  note  the duplicate budget was not reached in this run\n'
@@ -500,14 +543,21 @@ if [ -d /home/alice/api.test/app/.git ]; then
     sudo -u alice git -C /home/alice/api.test/app -c user.email=t@t -c user.name=t commit -qm initial
     good=$(sudo -u alice git -C /home/alice/api.test/app rev-parse HEAD)
 
+    # A healthy deploy first, so there is a recorded "this was serving" to go back
+    # to. Reverting is only possible against something ratline knows was good, and
+    # the history is where that is kept.
+    check "a healthy deploy is recorded" "$RATLINE" site deploy api.test --restart
+
     # A commit that cannot even import: the deploy must revert and leave the
     # previous version serving.
     echo 'import does_not_exist_anywhere' > /home/alice/api.test/app/main.py
     sudo -u alice git -C /home/alice/api.test/app -c user.email=t@t -c user.name=t commit -qam broken
 
-    "$RATLINE" site deploy api.test --restart >/dev/null 2>&1
+    exits_with 7 "a broken deploy reports it was unhealthy" \
+        "$RATLINE" site deploy api.test --restart
     body=$(curl -sS -H 'Host: api.test' http://127.0.0.1/ 2>&1)
     contains "a broken deploy leaves the previous version serving" '"ok":true' "$body"
+
 
     sudo -u alice git -C /home/alice/api.test/app reset -q --hard "$good"
     "$RATLINE" site restart api.test >/dev/null 2>&1

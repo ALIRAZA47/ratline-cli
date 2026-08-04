@@ -152,6 +152,7 @@ OPERATIONS
   explain      Explain how part of ratline works
   reconcile    Report or repair drift between state and the system
   export       Dump the full state as JSON, for migration
+  update       Update ratline itself, in place, on a live server
   version      Print the version, the host and the available runtimes
   man          Write man pages for every command
 
@@ -649,6 +650,50 @@ Global Flags:
   -q, --quiet           Errors only
   -v, --verbose         Debug logging
   -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+### `ratline update`
+
+```
+Replaces the installed binaries with a newer release. One command, and it is
+safe to run on a server that is serving traffic.
+
+Nothing is installed until the download has been checksummed against the
+release's own SHA256SUMS, the new binary has been run and asked its version,
+and it has proved it can read this server's state — which is what catches a
+downgrade past a schema migration. The install itself is an atomic rename, and
+the previous binary is kept beside it for --rollback.
+
+No site is interrupted. Sites are systemd units running an interpreter; they do
+not exec this binary, so replacing it cannot drop a request.
+
+Usage:
+  ratline update [flags]
+
+Flags:
+      --allow-unverified   Install even when the release publishes no SHA256SUMS (refused by default)
+      --base-url string    Where releases live (default: the project's GitHub releases)
+      --check              Report whether an update is available and change nothing
+  -h, --help               help for update
+      --rollback           Restore the binary this command last replaced
+      --version string     Install this version rather than the latest
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline update                       # to the latest release
+  ratline update --check               # is there one? change nothing
+  ratline update --version 1.2.0
+  ratline update --rollback            # back to the previous binary
+  ratline update --base-url https://mirror.example.internal/ratline
 ```
 
 ### `ratline version`
@@ -1758,6 +1803,7 @@ Usage:
   ratline cert issue <domain> [flags]
 
 Flags:
+      --acme-directory string    ACME directory URL, for a private CA such as step-ca (default: the configured one)
       --alias stringArray        SAN to include, replacing the site's own aliases (repeatable)
       --challenge string         http (webroot) or dns; a wildcard forces dns (default "http")
       --dns-credentials string   Credentials file for the DNS plugin, which must be 0600

@@ -254,3 +254,31 @@ func TestUnitRendersAForkingPM2Service(t *testing.T) {
 		}
 	}
 }
+
+func TestStartLimitLivesInTheUnitSection(t *testing.T) {
+	// systemd moved StartLimitBurst and StartLimitIntervalSec to [Unit] and ignores
+	// them in [Service] with "Unknown key name". Left there, the restart rate limit
+	// was never in force — a crash-looping service restarted for ever instead of
+	// entering the failed state that `doctor` reports.
+	out := render(t, pythonSite(), "/venv/bin/gunicorn app:app", RenderOptions{})
+
+	// Split on the section headers as whole lines. A comment in the unit mentions
+	// "[Service]" in prose, and matching the bare string found that instead — which
+	// truncated the [Unit] slice and made this test fail against a correct unit.
+	const serviceHeader = "\n[Service]\n"
+	at := strings.Index(out, serviceHeader)
+	if at < 0 {
+		t.Fatalf("no [Service] section:\n%s", out)
+	}
+	unitSection := out[:at]
+	serviceSection := out[at:]
+
+	for _, key := range []string{"StartLimitBurst=", "StartLimitIntervalSec="} {
+		if !strings.Contains(unitSection, key) {
+			t.Errorf("%s should be in [Unit]:\n%s", key, unitSection)
+		}
+		if strings.Contains(serviceSection, key) {
+			t.Errorf("%s is in [Service], where systemd ignores it", key)
+		}
+	}
+}

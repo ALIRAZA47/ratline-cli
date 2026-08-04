@@ -268,10 +268,44 @@ func (g *Globals) deploy(ctx context.Context, name string, opts deployOptions) e
 			// service will not come up. Revert and restart, so the site is
 			// serving again before the error is reported.
 			record.Steps = append(record.Steps, "restart")
-			if previousSHA != "" && opts.Pull {
-				g.Log.Warn("the application did not become healthy; reverting to the previous commit",
-					"sha", shortSHA(previousSHA))
-				if rerr := g.gitReset(ctx, rc, id, previousSHA); rerr != nil {
+
+			// Whether to revert is decided by what is safe, not by whether this
+			// deploy did the pulling.
+			//
+			// It used to require --pull, on the reasoning that reverting code the
+			// deploy did not fetch would undo something the operator staged. But that
+			// left the far worse outcome: `site deploy --restart` on a broken commit
+			// reported failure and walked away with the service *down*, while the
+			// documented promise is that the previous version keeps serving.
+			//
+			// The real constraint is uncommitted work: `git reset --hard` destroys it,
+			// and no automatic recovery is worth that. A clean tree loses nothing —
+			// the commit being reverted from still exists and is named in the error.
+			// Where to go back to. The commit that was HEAD when this deploy started
+			// is only the right answer if this deploy moved HEAD — and an operator who
+			// commits a break and then runs `site deploy --restart` has already moved
+			// it, so HEAD is the broken commit and reverting to it achieves nothing.
+			//
+			// What was actually serving is recorded: the git SHA of the last deployment
+			// that finished healthy. That is the honest target, and it is why the
+			// deployment history is kept.
+			currentSHA := gitSHA(ctx, g, rc.AppDir, id)
+			revertTo := lastHealthySHA(ctx, g, st, site.Domain, deployID)
+			if revertTo == "" {
+				revertTo = previousSHA
+			}
+			canRevert := revertTo != "" && currentSHA != revertTo
+			if canRevert && !g.gitTreeIsClean(ctx, rc, id) {
+				canRevert = false
+				g.Log.Warn("not reverting: the working tree has uncommitted changes, and "+
+					"reverting would destroy them",
+					"fix", "commit or stash them, then 'ratline site deploy "+site.Domain+"'")
+			}
+
+			if canRevert {
+				g.Log.Warn("the application did not become healthy; reverting to the last "+
+					"commit that was serving", "sha", shortSHA(revertTo))
+				if rerr := g.gitReset(ctx, rc, id, revertTo); rerr != nil {
 					return finish(rlerr.Wrap(err, rlerr.CodeRollbackFailed,
 						"the deploy failed and the revert also failed (%v)", rerr))
 				}
@@ -280,11 +314,17 @@ func (g *Globals) deploy(ctx context.Context, name string, opts deployOptions) e
 						"the deploy failed, and the previous version did not restart either (%v)", ierr))
 				}
 				record.RolledBack = true
-				g.Log.Info("the previous version is serving again", "sha", shortSHA(previousSHA))
+				g.Log.Info("the previous version is serving again", "sha", shortSHA(revertTo))
 				return finish(rlerr.Wrap(err, rlerr.CodeUnhealthy,
-					"the deploy was reverted to %s, which is serving again", shortSHA(previousSHA)))
+					"the deploy was reverted to %s, which is serving again", shortSHA(revertTo)))
 			}
-			return finish(err)
+			// Nothing to revert to, or reverting would have destroyed work. The
+			// service is down and saying so plainly is the only honest option — a
+			// caller that does not know this is left probing a dead site.
+			return finish(rlerr.Wrap(err, rlerr.CodeUnhealthy,
+				"%s is not serving and there was nothing safe to revert to", site.Domain).
+				WithHint("the code on disk is what failed to start; fix it and re-run, "+
+					"or 'ratline site troubleshoot %s' for the cause", site.Domain))
 		}
 		record.Steps = append(record.Steps, "restart")
 		record.Health = health
@@ -341,6 +381,46 @@ func (g *Globals) gitPull(ctx context.Context, rc *runtime.Context, id *system.I
 		}
 	}
 	return nil
+}
+
+// lastHealthySHA is the commit of the most recent deployment that finished healthy.
+//
+// Skips the deployment currently in flight, which is the one that just failed. An
+// empty result means this site has never had a recorded healthy deploy — a first
+// deploy, or one that predates the record — and the caller falls back to whatever
+// HEAD was when this run started.
+func lastHealthySHA(ctx context.Context, g *Globals, st *state.Store, domain string, exclude int64) string {
+	history, err := st.ListDeployments(ctx, domain, 20)
+	if err != nil {
+		g.Log.Debug("could not read the deployment history", "err", err)
+		return ""
+	}
+	for _, d := range history {
+		if d.ID == exclude || !d.OK || d.GitSHA == "" {
+			continue
+		}
+		return d.GitSHA
+	}
+	return ""
+}
+
+// gitTreeIsClean reports whether the working tree has no uncommitted changes.
+//
+// Consulted before any automatic `git reset --hard`: recovering a site is worth a
+// lot, and never worth silently deleting work somebody has not committed. An
+// unreadable status is treated as dirty, because guessing wrong in that direction is
+// merely unhelpful rather than destructive.
+func (g *Globals) gitTreeIsClean(ctx context.Context, rc *runtime.Context, id *system.Identity) bool {
+	if !system.IsDir(filepath.Join(rc.AppDir, ".git")) {
+		return false
+	}
+	res, err := g.Runner.Run(ctx, system.Cmd{
+		Name: "git", Args: []string{"status", "--porcelain"}, As: id, Dir: rc.AppDir,
+	})
+	if err != nil || res == nil {
+		return false
+	}
+	return strings.TrimSpace(res.Out()) == ""
 }
 
 func (g *Globals) gitReset(ctx context.Context, rc *runtime.Context, id *system.Identity, sha string) error {

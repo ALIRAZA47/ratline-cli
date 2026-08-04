@@ -281,6 +281,20 @@ func (m *Manager) Install(ctx context.Context, site *state.Site, body []byte, rb
 			return err
 		}
 		rb.Push("enabled "+unitName, func(ctx context.Context) error {
+			// Stop before disable, and before anything further up the stack removes
+			// the site's directories.
+			//
+			// `systemctl disable` only unlinks the wants symlink; it does not stop a
+			// running unit. With Restart=always, a unit whose start failed keeps being
+			// restarted — so the rollback would delete the logs and tmp directories out
+			// from under a service systemd was still trying to launch, turning one
+			// clear failure into a stream of 226/NAMESPACE errors in the journal.
+			if _, err := m.Runner.Run(ctx, system.Cmd{
+				Name: "systemctl", Args: []string{"stop", unitName},
+				Mutates: true, OKExit: []int{1, 5},
+			}); err != nil {
+				return err
+			}
 			_, err := m.Runner.Run(ctx, system.Cmd{
 				Name: "systemctl", Args: []string{"disable", unitName}, Mutates: true, OKExit: []int{1, 5},
 			})

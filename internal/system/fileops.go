@@ -338,8 +338,44 @@ func fsyncDir(dir string) error {
 // mode on the leaf. Parents get 0755, which is right for the /etc and /var trees
 // ratline creates; anything that needs to be tighter is created individually.
 func MkdirAllMode(path string, mode fs.FileMode) error {
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	// Every level this call creates gets the requested mode, not just the leaf.
+	//
+	// os.MkdirAll applies the process umask, which is 0027 while provisioning — so
+	// asking for a 0755 directory three levels down produced 0750 parents and a 0755
+	// leaf that nothing unprivileged could reach through them. That silently broke
+	// two separate things: nginx could not traverse into the ACME webroot's
+	// .well-known, so every HTTP-01 challenge 404'd; and no tenant could traverse
+	// into /opt/ratline, so no site could execute its own managed interpreter.
+	//
+	// Directories that already exist are left alone. Walking up to /opt or /var and
+	// chmod'ing them because they happened to be on the way would be a destructive
+	// side effect on somebody else's filesystem.
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) {
+		return rlerr.Genericf("MkdirAllMode needs an absolute path, got %q", path)
+	}
+
+	// The components that do not exist yet, deepest last.
+	var missing []string
+	for cur := clean; ; cur = filepath.Dir(cur) {
+		if _, err := os.Stat(cur); err == nil {
+			break
+		}
+		missing = append([]string{cur}, missing...)
+		if parent := filepath.Dir(cur); parent == cur {
+			break
+		}
+	}
+
+	if err := os.MkdirAll(clean, mode); err != nil {
 		return rlerr.Wrap(err, rlerr.CodeGeneric, "creating %s", path)
 	}
-	return Chmod(path, mode)
+	for _, dir := range missing {
+		if err := Chmod(dir, mode); err != nil {
+			return err
+		}
+	}
+	// The leaf is chmod'ed even when it already existed, which is what makes this
+	// idempotent for a directory whose mode has drifted.
+	return Chmod(clean, mode)
 }

@@ -51,6 +51,25 @@ const (
 // ecosystemFile is the PM2 configuration ratline generates per site.
 const ecosystemFile = "ecosystem.config.json"
 
+// pm2Env is the environment every pm2 invocation needs.
+//
+// PATH above all: `pm2` is a JavaScript file with a `#!/usr/bin/env node` shebang, so
+// running it without the managed node on PATH fails with "env: 'node': No such file
+// or directory". That failure was silent in two places — `PM2Report`, which made PM2
+// supervision invisible to `site status`, `doctor` and `troubleshoot`, and
+// `pm2Reload`, where a reload that never ran looked exactly like one that dropped no
+// requests.
+func (n Node) pm2Env(c *Context) ([]string, error) {
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return nil, err
+	}
+	return append(system.UserEnv(c.Identity),
+		"PATH="+filepath.Dir(nodeBin)+":"+system.DefaultPath,
+		"PM2_HOME="+pm2Home(c),
+	), nil
+}
+
 // pm2Home is where a site's PM2 daemon keeps its socket, pid file and logs.
 //
 // Inside the site directory rather than the tenant's home, so it is removed with
@@ -279,6 +298,10 @@ func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.Ren
 	if err != nil {
 		return "", opts, err
 	}
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return "", opts, err
+	}
 	if err := n.WriteEcosystem(ctx, c); err != nil {
 		return "", opts, err
 	}
@@ -291,6 +314,14 @@ func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.Ren
 	// limits still cover every worker.
 	opts.Type = "forking"
 	opts.Environment = []string{
+		// PATH first, and it is not optional. `pm2` is a JavaScript file whose
+		// shebang is `#!/usr/bin/env node`, so systemd executing it runs env, which
+		// searches PATH — and a unit has no PATH beyond systemd's minimal default.
+		// Without this every PM2-supervised site failed to start with
+		// "/usr/bin/env: 'node': No such file or directory" and status 127. Direct
+		// supervision never hit it, because there ExecStart is the node binary
+		// itself.
+		"PATH=" + filepath.Dir(nodeBin) + ":" + system.DefaultPath,
 		"PM2_HOME=" + home,
 		"NODE_ENV=production",
 		"PM2_DISCRETE_MODE=true",
@@ -360,10 +391,14 @@ func (n Node) PM2Report(ctx context.Context, c *Context) (*PM2Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	env, err := n.pm2Env(c)
+	if err != nil {
+		return nil, err
+	}
 	res, err := c.Runner.Run(ctx, system.Cmd{
 		Path: pm2, Args: []string{"jlist"},
 		As:  c.Identity,
-		Env: append(system.UserEnv(c.Identity), "PM2_HOME="+pm2Home(c)),
+		Env: env,
 		// PM2 exits non-zero when no daemon is running, which is a normal state
 		// for a stopped site rather than an error.
 		OKExit: []int{1},
@@ -412,12 +447,16 @@ func (n Node) pm2Reload(ctx context.Context, c *Context) error {
 		c.Log.Info("would reload the PM2 workers", "site", c.Site.Domain)
 		return nil
 	}
+	env, err := n.pm2Env(c)
+	if err != nil {
+		return err
+	}
 	// --update-env so a changed .env is picked up by the replacement workers; a
 	// reload that kept the old environment would be a confusing half-measure.
 	_, err = c.Runner.Run(ctx, system.Cmd{
 		Path: pm2, Args: []string{"reload", ecosystemPath(c), "--update-env"},
 		As:      c.Identity,
-		Env:     append(system.UserEnv(c.Identity), "PM2_HOME="+pm2Home(c)),
+		Env:     env,
 		Mutates: true, Stream: true, Label: "pm2 reload",
 	})
 	if err != nil {
