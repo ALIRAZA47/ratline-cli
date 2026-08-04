@@ -42,6 +42,7 @@ type Site struct {
 	NodeVersion    string `json:"node_version,omitempty"`
 	PackageManager string `json:"package_manager,omitempty"`
 	Listen         string `json:"listen,omitempty"`
+	ProcessManager string `json:"process_manager,omitempty"`
 	Port           int    `json:"port,omitempty"`
 	Instances      int    `json:"instances,omitempty"`
 

@@ -163,11 +163,14 @@ type Nginx struct {
 
 // Runtimes pins the managed language versions.
 type Runtimes struct {
-	NodeDefault    string   `yaml:"node_default"`
-	PythonDefault  string   `yaml:"python_default"`
-	NodeMirror     string   `yaml:"node_mirror"`
-	InstallTimeout Duration `yaml:"install_timeout"`
-	BuildTimeout   Duration `yaml:"build_timeout"`
+	NodeDefault string `yaml:"node_default"`
+	// NodeProcessManager is pm2 or direct. PM2 is the default because it is the
+	// only way a Node site reloads without dropping requests.
+	NodeProcessManager string   `yaml:"node_process_manager"`
+	PythonDefault      string   `yaml:"python_default"`
+	NodeMirror         string   `yaml:"node_mirror"`
+	InstallTimeout     Duration `yaml:"install_timeout"`
+	BuildTimeout       Duration `yaml:"build_timeout"`
 }
 
 // ACME is the certificate policy, including the rate-limit budget.
@@ -367,6 +370,11 @@ func (c *Config) Validate() error {
 	}
 	if !strings.HasPrefix(c.Runtimes.NodeMirror, "https://") {
 		add("runtimes.node_mirror must be an https URL")
+	}
+	switch c.Runtimes.NodeProcessManager {
+	case "pm2", "direct":
+	default:
+		add("runtimes.node_process_manager must be pm2 or direct, got %q", c.Runtimes.NodeProcessManager)
 	}
 
 	if _, err := logLevel(c.Logging.Level); err != nil {

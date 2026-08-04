@@ -550,3 +550,71 @@ func TestTxRollsBackOnError(t *testing.T) {
 		t.Errorf("the row survived a rolled-back transaction: %v", err)
 	}
 }
+
+func TestUpgradeFromAnOlderSchemaReachesTheSameShape(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+
+	// Apply only migration 1, which is what a server installed before the process
+	// manager column existed has on disk.
+	full := migrations
+	migrations = full[:1]
+	old, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open at version 1 = %v", err)
+	}
+	if v, _ := old.SchemaVersion(ctx); v != 1 {
+		t.Fatalf("schema version = %d, want 1", v)
+	}
+	if err := old.PutUser(ctx, &User{Name: "alice", Home: "/home/alice", Shell: "/bin/bash"}); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	migrations = full
+
+	// Upgrading has to carry the existing row forward rather than start over.
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("upgrading = %v", err)
+	}
+	defer s.Close()
+	if v, _ := s.SchemaVersion(ctx); v != len(migrations) {
+		t.Errorf("schema version = %d, want %d", v, len(migrations))
+	}
+	if _, err := s.GetUser(ctx, "alice"); err != nil {
+		t.Errorf("the upgrade lost an existing row: %v", err)
+	}
+
+	// And the added column has to be usable, not merely present.
+	site := &Site{Domain: "app.example.com", Owner: "alice", Runtime: "node",
+		Slug: "alice-app_example_com", Entry: "server.js", ProcessManager: "pm2"}
+	if err := s.PutSite(ctx, site); err != nil {
+		t.Fatalf("PutSite after the upgrade = %v", err)
+	}
+	got, err := s.GetSite(ctx, "app.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProcessManager != "pm2" {
+		t.Errorf("process_manager = %q, want pm2", got.ProcessManager)
+	}
+}
+
+func TestProcessManagerDefaultsToEmptyMeaningTheConfiguredDefault(t *testing.T) {
+	s, ctx := testStore(t), context.Background()
+	if err := s.PutUser(ctx, &User{Name: "alice", Home: "/home/alice", Shell: "/bin/bash"}); err != nil {
+		t.Fatal(err)
+	}
+	// Empty rather than "pm2": a site that never chose is meant to follow the
+	// server's configured default, so writing the default into the row would
+	// silently pin it and make a configuration change a no-op.
+	site := &Site{Domain: "b.example.com", Owner: "alice", Runtime: "node",
+		Slug: "alice-b_example_com", Entry: "server.js"}
+	if err := s.PutSite(ctx, site); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetSite(ctx, "b.example.com")
+	if got.ProcessManager != "" {
+		t.Errorf("process_manager = %q, want it left empty", got.ProcessManager)
+	}
+}

@@ -166,6 +166,29 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 				"ratline site logs "+s.Domain)
 		}
 
+		// systemd's NRestarts above is zero on a PM2-supervised site even while the
+		// application crash-loops, because PM2 is the one doing the restarting. The
+		// check would be quietly useless on the default node setup without this.
+		if report, rerr := mgr.ProcessReport(ctx, s); rerr == nil && report != nil {
+			switch {
+			case report.Restarts >= 10:
+				add("problem", "service", s.Domain,
+					fmt.Sprintf("PM2 has restarted a worker %d times, which is a crash loop", report.Restarts),
+					"ratline site logs "+s.Domain)
+			case report.Restarts > 0:
+				add("warning", "service", s.Domain,
+					fmt.Sprintf("PM2 has restarted a worker %d time(s)", report.Restarts),
+					"ratline site logs "+s.Domain)
+			}
+			// Fewer workers online than configured means some died and did not come
+			// back, which nothing else on this page would reveal.
+			if s.Enabled && status.Active == "active" && report.Instances > 0 && report.Online < report.Instances {
+				add("problem", "service", s.Domain,
+					fmt.Sprintf("%d of %d PM2 workers are online", report.Online, report.Instances),
+					"ratline site logs "+s.Domain)
+			}
+		}
+
 		// A socket file left behind by a crashed process still exists, so the
 		// only meaningful check is whether it accepts a connection.
 		if s.Enabled && status.Active == "active" {

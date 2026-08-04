@@ -192,7 +192,37 @@ func (n Node) Build(ctx context.Context, c *Context) error {
 }
 
 // StartCommand builds the ExecStart line.
+//
+// PM2 is the default, because it is the only way a Node site gets a graceful
+// reload. --daemon direct runs node straight under systemd, which is one fewer
+// moving part and the better choice for an app that never needs a reload.
 func (n Node) StartCommand(ctx context.Context, c *Context) (string, unit.RenderOptions, error) {
+	switch ProcessManagerFor(c) {
+	case ProcessManagerPM2:
+		return n.pm2StartCommand(ctx, c)
+	case ProcessManagerDirect:
+		return n.directStartCommand(ctx, c)
+	default:
+		return "", unit.RenderOptions{}, rlerr.Usagef(
+			"unknown process manager %q", ProcessManagerFor(c)).
+			WithHint("choose pm2 or direct")
+	}
+}
+
+// ProcessManagerFor resolves which supervisor a site uses: its own setting, then
+// the configured default, then PM2.
+func ProcessManagerFor(c *Context) string {
+	if c.Site.ProcessManager != "" {
+		return c.Site.ProcessManager
+	}
+	if c.Cfg.Runtimes.NodeProcessManager != "" {
+		return c.Cfg.Runtimes.NodeProcessManager
+	}
+	return ProcessManagerPM2
+}
+
+// directStartCommand runs node under systemd with nothing in between.
+func (n Node) directStartCommand(ctx context.Context, c *Context) (string, unit.RenderOptions, error) {
 	var opts unit.RenderOptions
 	nodeBin, err := n.binary(c, "node")
 	if err != nil {
@@ -261,15 +291,36 @@ func (n Node) StartCommand(ctx context.Context, c *Context) (string, unit.Render
 	return shellSafeJoin(nodeBin, []string{entry}), opts, nil
 }
 
-// Reload is a restart for Node: there is no standard graceful-reload signal, and
-// pretending otherwise would drop requests while claiming not to.
-func (Node) Reload(ctx context.Context, c *Context) error {
-	return rlerr.Preconditionf("a Node site cannot reload without dropping connections").
-		WithHint("use 'ratline site restart', or run --instances 2 so nginx can shift traffic between them")
+// Reload is graceful under PM2 and impossible without it.
+//
+// PM2 cluster mode brings up a replacement worker, waits for it, and only then
+// retires the old one — so no request is dropped. Running node directly has no
+// equivalent signal, and claiming otherwise while dropping requests would be
+// worse than refusing.
+func (n Node) Reload(ctx context.Context, c *Context) error {
+	if ProcessManagerFor(c) == ProcessManagerPM2 {
+		return n.pm2Reload(ctx, c)
+	}
+	return rlerr.Preconditionf("a Node site running without PM2 cannot reload gracefully").
+		WithHint("switch it to PM2, which reloads with no dropped requests:\n"+
+			"        ratline site runtime %s --daemon pm2\n"+
+			"      or accept a restart: ratline site restart %s", c.Site.Domain, c.Site.Domain)
 }
 
-// Teardown removes node_modules, which is large and inside the site directory.
-func (Node) Teardown(ctx context.Context, c *Context) error {
+// Teardown removes node_modules, and stops the site's PM2 daemon so it does not
+// outlive the site it was supervising.
+func (n Node) Teardown(ctx context.Context, c *Context) error {
+	if ProcessManagerFor(c) == ProcessManagerPM2 && !c.DryRun {
+		if pm2, err := n.pm2Binary(c); err == nil {
+			if _, kerr := c.Runner.Run(ctx, system.Cmd{
+				Path: pm2, Args: []string{"kill"}, As: c.Identity,
+				Env:     append(system.UserEnv(c.Identity), "PM2_HOME="+pm2Home(c)),
+				Mutates: true, OKExit: []int{1, 2},
+			}); kerr != nil {
+				c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)
+			}
+		}
+	}
 	modules := filepath.Join(c.AppDir, "node_modules")
 	if c.DryRun || !system.Exists(modules) {
 		return nil
@@ -328,4 +379,24 @@ func extractJSONString(body, field string) string {
 		return ""
 	}
 	return value
+}
+
+// validateNodeEntry and resolveEntry are shared with the PM2 path, so both
+// supervision modes resolve an entry point identically.
+func validateNodeEntry(entry string) error { return validate.NodeEntry(entry) }
+
+func resolveEntry(c *Context) (string, error) {
+	entry, err := validate.ResolveWithin(c.AppDir, c.Site.Entry)
+	if err != nil {
+		// The file may not exist yet when a site is created before its code is
+		// deployed, so fall back to the lexical check.
+		if entry, err = validate.WithinRoot(c.AppDir, c.Site.Entry); err != nil {
+			return "", err
+		}
+	}
+	if !c.DryRun && !system.Exists(entry) {
+		return "", rlerr.Preconditionf("the entry point %s does not exist", entry).
+			WithHint("deploy your code first, or check --entry against your project layout")
+	}
+	return entry, nil
 }

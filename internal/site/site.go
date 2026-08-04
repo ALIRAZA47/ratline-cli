@@ -58,6 +58,7 @@ type AddOptions struct {
 	NodeVersion    string
 	PackageManager string
 	Listen         string
+	ProcessManager string
 	Instances      int
 
 	// python
@@ -272,6 +273,7 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 		NodeVersion:       opts.NodeVersion,
 		PackageManager:    opts.PackageManager,
 		Listen:            orDefault(opts.Listen, "socket"),
+		ProcessManager:    opts.ProcessManager,
 		Instances:         maxInt(opts.Instances, 1),
 		AppModule:         opts.AppModule,
 		PythonVersion:     opts.PythonVersion,
@@ -331,6 +333,12 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 		case "socket", "port":
 		default:
 			return nil, rlerr.Usagef("--listen must be socket or port, got %q", site.Listen)
+		}
+		switch site.ProcessManager {
+		case "", runtime.ProcessManagerPM2, runtime.ProcessManagerDirect:
+		default:
+			return nil, rlerr.Usagef("--daemon must be pm2 or direct, got %q", site.ProcessManager).
+				WithHint("pm2 reloads without dropping requests; direct is one fewer moving part")
 		}
 	case "python":
 		if opts.AppModule == "" {

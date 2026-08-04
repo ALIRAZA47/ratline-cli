@@ -201,6 +201,8 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.NodeVersion, "node", "", "node: managed Node version, e.g. 22")
 	f.StringVar(&opts.PackageManager, "package-manager", "", "node: npm, pnpm, yarn or bun (detected from the lockfile)")
 	f.StringVar(&opts.Listen, "listen", "socket", "node: socket or port")
+	f.StringVar(&opts.ProcessManager, "daemon", "",
+		"node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)")
 	f.IntVar(&opts.Instances, "instances", 1, "Run this many instances behind an nginx upstream pool")
 
 	f.StringVar(&opts.AppModule, "app-module", "", "python: import path of the callable, e.g. app.main:app")
@@ -443,24 +445,42 @@ func newSiteStatusCommand(g *Globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Asked for unconditionally so the reported restart count is the real
+			// one: under PM2 systemd's counter stays at zero because PM2 restarts
+			// the workers itself. A failure here is not the operator's problem —
+			// the systemd view is still worth printing.
+			report, _ := mgr.ProcessReport(cmd.Context(), info.Site)
+
 			if g.JSON {
 				return g.EmitJSON(map[string]any{"domain": info.Domain, "unit": info.Unit,
-					"socket": info.Socket, "socket_ok": info.SocketOK, "enabled": info.Site.Enabled})
+					"socket": info.Socket, "socket_ok": info.SocketOK, "enabled": info.Site.Enabled,
+					"process_manager": processManagerLabel(info.Site, report != nil), "pm2": report})
 			}
 			if info.Unit == nil {
 				g.Printf("%s is a static site: nginx serves it directly and there is no service.\n", info.Domain)
 				return nil
 			}
-			return g.Fields(
-				[2]string{"unit", info.Unit.Unit},
-				[2]string{"active", info.Unit.Active},
-				[2]string{"sub", info.Unit.Sub},
-				[2]string{"enabled", info.Unit.Enabled},
-				[2]string{"main pid", info.Unit.MainPID},
-				[2]string{"memory", info.Unit.MemoryHuman},
-				[2]string{"restarts", info.Unit.NRestarts},
-				[2]string{"socket", info.Socket + socketNote(info.SocketOK)},
-			)
+			pairs := [][2]string{
+				{"unit", info.Unit.Unit},
+				{"active", info.Unit.Active},
+				{"sub", info.Unit.Sub},
+				{"enabled", info.Unit.Enabled},
+				{"main pid", info.Unit.MainPID},
+				{"memory", info.Unit.MemoryHuman},
+			}
+			if report != nil {
+				pairs = append(pairs,
+					[2]string{"supervisor", "pm2 (" + orDefault2(report.Mode, "cluster") + ")"},
+					[2]string{"workers", fmt.Sprintf("%d online of %d", report.Online, report.Instances)},
+					// PM2's counter, labelled as PM2's, so it is never confused with
+					// systemd's zero.
+					[2]string{"restarts", fmt.Sprintf("%d (as counted by pm2)", report.Restarts)},
+				)
+			} else {
+				pairs = append(pairs, [2]string{"restarts", info.Unit.NRestarts})
+			}
+			pairs = append(pairs, [2]string{"socket", info.Socket + socketNote(info.SocketOK)})
+			return g.Fields(pairs...)
 		},
 	}
 }
@@ -601,6 +621,21 @@ func newSiteAliasCommand(g *Globals) *cobra.Command {
 		cmd.AddCommand(Mutating(sub))
 	}
 	return cmd
+}
+
+// processManagerLabel names the supervisor for machine-readable output.
+func processManagerLabel(s *state.Site, pm2 bool) string {
+	switch {
+	case !s.Dynamic():
+		return ""
+	case pm2:
+		return "pm2"
+	case s.Runtime == "node":
+		return "direct"
+	default:
+		// A python site is gunicorn under systemd; there is no choice to report.
+		return "systemd"
+	}
 }
 
 func orDash(s string) string {

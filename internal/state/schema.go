@@ -220,4 +220,13 @@ var migrations = [][]string{
 			value TEXT NOT NULL
 		)`,
 	},
+
+	// 2 — which process manager supervises a node site.
+	//
+	// A new migration rather than an edit to the one above: migration 1 has
+	// shipped, and editing it would leave an upgraded server with a different
+	// schema from a fresh install.
+	{
+		`ALTER TABLE sites ADD COLUMN process_manager TEXT NOT NULL DEFAULT ''`,
+	},
 }

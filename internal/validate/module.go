@@ -105,6 +105,21 @@ func NodeVersion(s string) error {
 	return nil
 }
 
+var packageVersionRe = regexp.MustCompile(`^[0-9][0-9A-Za-z.+-]{0,63}$`)
+
+// PackageVersion checks a version passed through to a package manager.
+//
+// The leading digit is the point: it stops a value that starts with '-' from
+// reaching npm as a flag rather than as a version, which would change the command
+// instead of pinning it.
+func PackageVersion(s string) error {
+	if !packageVersionRe.MatchString(s) {
+		return rlerr.Usagef("invalid version %q", s).
+			WithHint("a version starts with a digit, e.g. 5.4.2")
+	}
+	return nil
+}
+
 // PythonVersion accepts 3.x or 3.x.y. Python 2 is not supported.
 func PythonVersion(s string) error {
 	if !pythonVersionRe.MatchString(s) {

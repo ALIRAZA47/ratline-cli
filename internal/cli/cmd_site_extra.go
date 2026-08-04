@@ -21,6 +21,7 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 	var (
 		nodeVersion   string
 		pythonVersion string
+		daemon        string
 		relax         []string
 	)
 	cmd := &cobra.Command{
@@ -30,9 +31,9 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 		Example: "  ratline site runtime app.example.com --node 22\n" +
 			"  ratline site runtime api.example.com --python 3.12",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeVersion == "" && pythonVersion == "" && len(relax) == 0 {
+			if nodeVersion == "" && pythonVersion == "" && daemon == "" && len(relax) == 0 {
 				return rlerr.Usagef("nothing to change").
-					WithHint("pass --node, --python, or --relax <directive>")
+					WithHint("pass --node, --python, --daemon, or --relax <directive>")
 			}
 			st, err := g.Store(cmd.Context())
 			if err != nil {
@@ -42,6 +43,7 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			previousManager := site.ProcessManager
 
 			switch {
 			case nodeVersion != "":
@@ -66,6 +68,23 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 				}
 				site.PythonVersion = pythonVersion
 			}
+			supervisorChanged := false
+			if daemon != "" {
+				if site.Runtime != "node" {
+					return rlerr.Usagef("%s is a %s site, so --daemon does not apply", site.Domain, site.Runtime)
+				}
+				switch daemon {
+				case runtime.ProcessManagerPM2, runtime.ProcessManagerDirect:
+				default:
+					return rlerr.Usagef("--daemon must be pm2 or direct, got %q", daemon)
+				}
+				supervisorChanged = site.ProcessManager != daemon
+				if supervisorChanged {
+					g.Log.Info("changing the process manager", "from",
+						orDash(site.ProcessManager), "to", daemon)
+				}
+				site.ProcessManager = daemon
+			}
 			if len(relax) > 0 {
 				if err := validateRelaxNames(relax); err != nil {
 					return err
@@ -73,11 +92,26 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 				site.Relaxed = mergeUnique(site.Relaxed, relax)
 			}
 
-			if err := st.PutSite(cmd.Context(), site); err != nil {
-				return err
-			}
 			mgr, err := g.siteManager(cmd.Context())
 			if err != nil {
+				return err
+			}
+
+			// The old supervisor has to be told to let go before the unit is
+			// replaced, and it has to be told using the unit that is still on disk:
+			// only the PM2 unit carries ExecStop=pm2 kill. Re-render first and
+			// systemd would stop the daemon with the new unit's rules, leaving the
+			// PM2 daemon and its workers alive until the kill timeout — still holding
+			// the socket the replacement is about to bind.
+			if supervisorChanged {
+				if _, err := mgr.Control(cmd.Context(), site.Domain, "stop"); err != nil {
+					return rlerr.Wrap(err, rlerr.CodeExternal, "stopping the site under its current supervisor").
+						WithHint("nothing has changed yet; the site is still configured for %s",
+							orDefault2(previousManager, "the configured default"))
+				}
+			}
+
+			if err := st.PutSite(cmd.Context(), site); err != nil {
 				return err
 			}
 			id, err := system.LookupIdentity(site.Owner)
@@ -109,6 +143,11 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 			if err := rt.Build(cmd.Context(), rc); err != nil {
 				return err
 			}
+			// The unit changes shape between supervisors — Type, PIDFile, ExecStop —
+			// so it has to be re-rendered rather than only restarted.
+			if err := mgr.ReapplyUnit(cmd.Context(), site); err != nil {
+				return err
+			}
 			health, err := mgr.Control(cmd.Context(), site.Domain, "restart")
 			if err != nil {
 				return err
@@ -117,12 +156,20 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 				return g.EmitJSON(map[string]any{"site": site, "health": health})
 			}
 			g.Printf("%s now runs on %s\n", site.Domain, versionOf(site))
-			return g.Fields([2]string{"health", health})
+			pairs := [][2]string{{"health", health}}
+			if daemon != "" {
+				pairs = append(pairs, [2]string{"supervisor", daemon})
+				if daemon == runtime.ProcessManagerDirect {
+					pairs = append(pairs, [2]string{"note", "reload is now a restart on this site"})
+				}
+			}
+			return g.Fields(pairs...)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVar(&nodeVersion, "node", "", "Node version to move to")
 	f.StringVar(&pythonVersion, "python", "", "Python version to move to")
+	f.StringVar(&daemon, "daemon", "", "node: move this site to pm2 or direct supervision")
 	f.StringSliceVar(&relax, "relax", nil, "Turn off a named systemd hardening directive for this site")
 	return Mutating(cmd)
 }

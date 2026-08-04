@@ -143,6 +143,18 @@ runtimes:
   # Empty until `ratline runtime install` or `ratline init` has run.
   node_default: ""
   python_default: ""
+  # How a node site is supervised.
+  #
+  #   pm2     PM2 in cluster mode under the site's systemd unit. The default,
+  #           because it is the only way a node site reloads without dropping
+  #           requests: PM2 starts a replacement worker, waits for it, and only
+  #           then retires the old one.
+  #   direct  node straight under systemd. One fewer moving part, and systemd sees
+  #           the application itself — but `site reload` becomes a restart.
+  #
+  # Either way systemd owns the cgroup, so MemoryMax and CPUQuota stay
+  # kernel-enforced across PM2 and all of its workers.
+  node_process_manager: pm2
   node_mirror: https://nodejs.org/dist
   install_timeout: 30m
   build_timeout: 20m

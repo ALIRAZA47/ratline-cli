@@ -19,13 +19,21 @@ import (
 func newSiteLogsCommand(g *Globals) *cobra.Command {
 	var (
 		app, access, errorLog bool
+		journal               bool
 		follow                bool
 		lines                 int
 	)
 	cmd := &cobra.Command{
 		Use:   "logs <domain>",
 		Short: "Show a site's application, access or error log",
-		Args:  cobra.ExactArgs(1),
+		Long: "Where the application log comes from depends on how the site is supervised.\n\n" +
+			"Under PM2 — the default for node — the application's stdout is captured by\n" +
+			"PM2 into logs/app.log, and the journal holds only PM2's own messages. So\n" +
+			"--app reads the file, and --journal is there for when the question is about\n" +
+			"the unit itself: a failed start, or an OOM kill.\n\n" +
+			"Without PM2 the application writes straight to the journal, and --app reads\n" +
+			"that.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mgr, err := g.siteManager(cmd.Context())
 			if err != nil {
@@ -40,6 +48,13 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 				return err
 			}
 			paths := mgr.LogPaths(site)
+
+			// PM2 captures its workers' stdout into out_file, so on a PM2 site the
+			// journal has PM2's messages and not the application's. Reading the
+			// journal there would show an operator an empty screen while the app was
+			// logging happily to a file two directories away.
+			report, _ := mgr.ProcessReport(cmd.Context(), site)
+			pm2Supervised := report != nil
 
 			which := "app"
 			switch {
@@ -57,7 +72,7 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 
 			// A dynamic site's stdout goes to the journal as well as its own log,
 			// and journalctl is the only way to follow a crash loop.
-			if site.Dynamic() && which == "app" {
+			if site.Dynamic() && (journal || (which == "app" && !pm2Supervised)) {
 				unitName := mgr.UnitName(site)
 				jargs := []string{"-u", unitName, "-n", fmt.Sprint(lines), "--no-pager", "--output=short-iso"}
 				if follow {
@@ -72,7 +87,12 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 
 			path := paths[which]
 			if !system.Exists(path) {
-				return rlerr.Preconditionf("no %s log at %s yet", which, path)
+				err := rlerr.Preconditionf("no %s log at %s yet", which, path)
+				if which == "app" && pm2Supervised {
+					err = err.WithHint("PM2 creates it on the first line the application writes; "+
+						"for the unit's own messages: ratline site logs %s --journal", site.Domain)
+				}
+				return err
 			}
 			if follow {
 				tail, err := g.Bins.Path("tail")
@@ -91,6 +111,7 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&app, "app", false, "The application log (the default for a dynamic site)")
 	f.BoolVar(&access, "access", false, "The nginx access log")
 	f.BoolVar(&errorLog, "error", false, "The nginx error log")
+	f.BoolVar(&journal, "journal", false, "The systemd journal for the unit rather than the application's own log")
 	f.BoolVar(&follow, "follow", false, "Keep printing as lines arrive")
 	f.IntVar(&lines, "lines", 100, "How many lines to show")
 	return cmd

@@ -52,6 +52,9 @@ type Data struct {
 	ExecStart       string
 	ExecStartPost   []string
 	ExecReload      string
+	ExecStop        string
+	Type            string
+	PIDFile         string
 	RestartSec      string
 	TimeoutStopSec  string
 	StandardOutput  string
@@ -129,6 +132,9 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 		ExecStart:       execStart,
 		ExecStartPost:   opts.ExecStartPost,
 		ExecReload:      opts.ExecReload,
+		ExecStop:        opts.ExecStop,
+		Type:            orDefault(opts.Type, "exec"),
+		PIDFile:         opts.PIDFile,
 		RestartSec:      m.Cfg.Defaults.RestartSec.D().String(),
 		TimeoutStopSec:  m.Cfg.Defaults.StopTimeout.D().String(),
 		Relaxed:         len(relaxed) > 0,
@@ -203,7 +209,13 @@ type RenderOptions struct {
 	Environment         []string
 	ExecStartPost       []string
 	ExecReload          string
+	ExecStop            string
 	ExtraReadWritePaths string
+
+	// Type overrides the service type. PM2 daemonises, so a PM2-supervised site is
+	// Type=forking with a PIDFile; everything else stays Type=exec.
+	Type    string
+	PIDFile string
 }
 
 // Install writes the unit, verifies it and enables it.

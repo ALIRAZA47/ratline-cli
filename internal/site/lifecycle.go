@@ -498,6 +498,61 @@ func (m *Manager) RemoveAlias(ctx context.Context, name, alias string) (*state.S
 	return site, nil
 }
 
+// ProcessReport asks a site's process manager what it is actually running.
+//
+// It exists because PM2 does the restarting on a PM2-supervised site, which leaves
+// systemd's own NRestarts at zero even while the application crash-loops. Anything
+// that reports on health has to read PM2's counter or it reports a lie.
+//
+// Returns (nil, nil) when there is nothing to ask — a static or python site, or a
+// node site running directly under systemd — so a caller can treat "not
+// applicable" and "nothing running" the same way.
+func (m *Manager) ProcessReport(ctx context.Context, site *state.Site) (*runtime.PM2Status, error) {
+	if site.Runtime != "node" {
+		return nil, nil
+	}
+	rt, err := runtime.For(site.Runtime)
+	if err != nil {
+		return nil, err
+	}
+	node, ok := rt.(*runtime.Node)
+	if !ok {
+		return nil, nil
+	}
+	id, err := m.identity(site.Owner)
+	if err != nil {
+		return nil, err
+	}
+	rc := runtime.NewContext(m.Cfg, m.Log, m.Runner, site, id, m.DryRun)
+	if runtime.ProcessManagerFor(rc) != runtime.ProcessManagerPM2 {
+		return nil, nil
+	}
+	return node.PM2Report(ctx, rc)
+}
+
+// ReapplyUnit re-renders and reinstalls a dynamic site's unit.
+//
+// Needed when something that changes the unit's *shape* changes — the process
+// manager above all, since PM2 needs Type=forking, a PIDFile and an ExecStop that
+// direct supervision does not have. Restarting alone would keep the old unit.
+func (m *Manager) ReapplyUnit(ctx context.Context, site *state.Site) (err error) {
+	if !site.Dynamic() {
+		return nil
+	}
+	rt, err := runtime.For(site.Runtime)
+	if err != nil {
+		return err
+	}
+	id, err := m.identity(site.Owner)
+	if err != nil {
+		return err
+	}
+	rc := runtime.NewContext(m.Cfg, m.Log, m.Runner, site, id, m.DryRun)
+	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
+	return m.applyUnit(ctx, site, rt, rc, rb)
+}
+
 // LogPaths returns a site's log files.
 func (m *Manager) LogPaths(site *state.Site) map[string]string {
 	logDir := filepath.Join(m.Cfg.SiteDir(site.Owner, site.Domain), "logs")

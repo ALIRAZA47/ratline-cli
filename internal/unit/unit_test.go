@@ -205,3 +205,52 @@ func TestRenderRejectsABadMemoryLimit(t *testing.T) {
 		t.Fatal("Render accepted an invalid memory size")
 	}
 }
+
+func TestUnitDefaultsToTypeExecWithNoPIDFile(t *testing.T) {
+	out := render(t, pythonSite(), "/venv/bin/gunicorn app:app", RenderOptions{})
+	if !strings.Contains(out, "Type=exec") {
+		t.Errorf("want Type=exec by default:\n%s", out)
+	}
+	// A PIDFile on a Type=exec unit makes systemd wait for a file that never
+	// appears, so it must be absent unless something actually forks.
+	if strings.Contains(out, "PIDFile=") {
+		t.Errorf("Type=exec must not carry a PIDFile:\n%s", out)
+	}
+}
+
+func TestUnitRendersAForkingPM2Service(t *testing.T) {
+	site := pythonSite()
+	site.Runtime, site.Domain = "node", "app.example.com"
+	out := render(t, site, "/opt/ratline/runtimes/node/22/bin/pm2 start /home/alice/app.example.com/.ratline/ecosystem.config.json",
+		RenderOptions{
+			Type:        "forking",
+			PIDFile:     "/home/alice/app.example.com/.pm2/pm2.pid",
+			ExecReload:  "/opt/ratline/runtimes/node/22/bin/pm2 reload /home/alice/app.example.com/.ratline/ecosystem.config.json --update-env",
+			ExecStop:    "/opt/ratline/runtimes/node/22/bin/pm2 kill",
+			Environment: []string{"PM2_HOME=/home/alice/app.example.com/.pm2"},
+		})
+
+	for _, want := range []string{
+		// PM2 daemonises, so systemd has to be told to expect the fork and where
+		// to read the surviving process's pid.
+		"Type=forking",
+		"PIDFile=/home/alice/app.example.com/.pm2/pm2.pid",
+		// The reload is the whole reason PM2 is the default supervisor.
+		"ExecReload=/opt/ratline/runtimes/node/22/bin/pm2 reload",
+		// Without ExecStop the daemon survives `systemctl stop`.
+		"ExecStop=/opt/ratline/runtimes/node/22/bin/pm2 kill",
+		"Environment=PM2_HOME=/home/alice/app.example.com/.pm2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the unit is missing %q:\n%s", want, out)
+		}
+	}
+
+	// The extra supervision layer must not cost the kernel-enforced ceiling: a
+	// cgroup contains every descendant, so the limits still cover PM2's workers.
+	for _, want := range []string{"MemoryMax=", "TasksMax=", "CPUQuota="} {
+		if !strings.Contains(out, want) {
+			t.Errorf("PM2 supervision must keep %s enforced:\n%s", want, out)
+		}
+	}
+}

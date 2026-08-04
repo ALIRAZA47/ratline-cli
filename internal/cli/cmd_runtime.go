@@ -109,25 +109,113 @@ func newRuntimeListCommand(g *Globals) *cobra.Command {
 }
 
 func newRuntimeInstallCommand(g *Globals) *cobra.Command {
+	var (
+		withPM2    bool
+		pm2Version string
+	)
 	cmd := &cobra.Command{
 		Use:   "install <node|python> <version>",
 		Short: "Install a managed interpreter into /opt/ratline/runtimes",
 		Args:  cobra.ExactArgs(2),
-		Example: "  ratline runtime install node 22\n" +
+		Example: "  ratline runtime install node 22 --with-pm2\n" +
 			"  ratline runtime install python 3.12",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kind, version := args[0], args[1]
 			switch kind {
 			case "node":
-				return g.installNode(cmd.Context(), version)
+				if err := g.installNode(cmd.Context(), version); err != nil {
+					return err
+				}
+				if withPM2 || pm2Version != "" {
+					return g.installPM2(cmd.Context(), version, pm2Version)
+				}
+				return nil
 			case "python":
+				if withPM2 || pm2Version != "" {
+					return rlerr.Usagef("--with-pm2 applies to node, not python")
+				}
 				return g.installPython(cmd.Context(), version)
 			default:
 				return rlerr.Usagef("unknown runtime %q", kind).WithHint("choose node or python")
 			}
 		},
 	}
+	f := cmd.Flags()
+	f.BoolVar(&withPM2, "with-pm2", false,
+		"node: also install PM2, which is what a node site is supervised by unless --daemon direct is used")
+	f.StringVar(&pm2Version, "pm2-version", "", "node: pin PM2 to this version rather than the latest")
 	return Mutating(cmd)
+}
+
+// installPM2 installs PM2 into one managed Node tree.
+//
+// Per Node version rather than once globally, for two reasons. A PM2 resolved
+// against Node 18 is not the one a Node 22 site should be running, and a single
+// shared install would mean `runtime default` silently changed the supervisor
+// binary underneath every existing site.
+//
+// It lands in the root-owned runtime prefix, so tenants can execute it and cannot
+// modify it — a writable supervisor binary in a tenant's home would be a way to run
+// arbitrary code from within a service unit.
+func (g *Globals) installPM2(ctx context.Context, nodeVersion, pm2Version string) error {
+	if err := validate.NodeVersion(nodeVersion); err != nil {
+		return err
+	}
+	nodeVersion = strings.TrimPrefix(nodeVersion, "v")
+	prefix := filepath.Join(g.Cfg.Paths.RuntimesDir, "node", nodeVersion)
+	npm := filepath.Join(prefix, "bin", "npm")
+	if !system.Exists(npm) {
+		return rlerr.Preconditionf("Node %s has no npm at %s", nodeVersion, npm)
+	}
+
+	spec := "pm2"
+	if pm2Version != "" {
+		// Validated because it is passed as an argv element to npm; a version that
+		// looked like a flag would change what npm did.
+		if err := validate.PackageVersion(pm2Version); err != nil {
+			return err
+		}
+		spec = "pm2@" + pm2Version
+	}
+
+	g.Log.Info("installing PM2", "node", nodeVersion, "spec", spec, "prefix", prefix)
+	if _, err := g.Runner.Run(ctx, system.Cmd{
+		Path: npm,
+		// --global with --prefix keeps it inside this Node tree instead of /usr/local.
+		Args: []string{"install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", spec},
+		Env: []string{
+			"PATH=" + filepath.Join(prefix, "bin") + ":" + system.DefaultPath,
+			"HOME=" + prefix,
+			"npm_config_update_notifier=false",
+		},
+		Mutates: true, Stream: true,
+		Timeout: g.Cfg.Runtimes.InstallTimeout.D(),
+		Label:   "install pm2",
+	}); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeExternal, "installing PM2 failed").
+			WithHint("sites can run without it: ratline site add ... --daemon direct")
+	}
+
+	pm2 := filepath.Join(prefix, "bin", "pm2")
+	if !system.Exists(pm2) {
+		return rlerr.Preconditionf("npm reported success but there is no %s", pm2)
+	}
+	res, err := g.Runner.Run(ctx, system.Cmd{
+		Path: pm2, Args: []string{"--version"},
+		Env: []string{"PATH=" + filepath.Join(prefix, "bin") + ":" + system.DefaultPath, "HOME=" + prefix},
+	})
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodePrecondition, "the installed PM2 does not run")
+	}
+	installed := strings.TrimSpace(res.Out())
+
+	if g.JSON {
+		return g.EmitJSON(map[string]any{"pm2": installed, "node": nodeVersion, "path": pm2})
+	}
+	g.Printf("Installed PM2 %s for Node %s at %s\n", installed, nodeVersion, pm2)
+	g.Printf("\nNode sites on this version now reload without dropping requests:\n" +
+		"  ratline site reload <domain>\n")
+	return nil
 }
 
 // installNode downloads an official tarball and verifies its checksum.

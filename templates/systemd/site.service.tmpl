@@ -17,7 +17,12 @@ PartOf=ratline.target
 # then be reported as a failure. ratline proves the service is really up by
 # making an HTTP request through its socket after start — see the health wait in
 # `ratline site start`, which is a stronger check than a readiness ping anyway.
-Type=exec
+Type={{ .Type }}
+{{- if .PIDFile }}
+# PM2 daemonises, so systemd is told which process to follow after the fork. The
+# cgroup still contains every worker, which is what keeps MemoryMax enforceable.
+PIDFile={{ .PIDFile }}
+{{- end }}
 User={{ .Owner }}
 Group={{ .Group }}
 WorkingDirectory={{ .WorkingDir }}
@@ -49,6 +54,9 @@ ExecStartPost={{ . }}
 {{- end }}
 {{- if .ExecReload }}
 ExecReload={{ .ExecReload }}
+{{- end }}
+{{- if .ExecStop }}
+ExecStop={{ .ExecStop }}
 {{- end }}
 Restart=always
 RestartSec={{ .RestartSec }}
