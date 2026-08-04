@@ -1,0 +1,61 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosimple
+    - bodyclose
+    - gosec
+    - misspell
+    - unconvert
+    - copyloopvar
+    - nilerr
+    - errorlint
+    - forbidigo
+
+linters-settings:
+  govet:
+    enable:
+      - printf
+      - shadow
+  gosec:
+    excludes:
+      # ratline runs external commands by design; the argv-only Runner plus the
+      # binary registry is the mitigation, and it is tested.
+      - G204
+      # File modes are chosen deliberately and asserted in tests.
+      - G302
+      - G306
+  forbidigo:
+    forbid:
+      # Shelling out through a shell is the one thing this codebase must never
+      # do. The Runner takes an argv slice; there is no shell in the registry.
+      - p: '^exec\.Command$'
+        msg: use system.Runner, which takes an argv slice and resolves the binary by absolute path
+      - p: 'sh -c'
+        msg: ratline never invokes a shell; put the pipeline in a script inside the repository
+    exclude-godoc-examples: false
+  errcheck:
+    exclude-functions:
+      # Deliberate: a failed close on a read-only handle changes nothing.
+      - (io.Closer).Close
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    # The wrapper execs into the requested program, so os/exec use is the point.
+    - path: cmd/ratline-shell/main\.go
+      linters:
+        - forbidigo
+  max-issues-per-linter: 0
+  max-same-issues: 0

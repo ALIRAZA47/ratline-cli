@@ -1,0 +1,191 @@
+# ratline configuration
+#
+# This file is the reference for every setting as well as the source of the
+# built-in defaults. Values shown here are what ratline uses when the setting is
+# absent, so an operator can delete anything they do not want to override.
+#
+# Reload is not needed: ratline reads this file on every invocation.
+
+version: 1
+
+server:
+  # Left empty, these are detected once and cached in state. Setting them
+  # explicitly is useful on a host whose public address differs from any
+  # locally configured one — behind NAT, or on a provider with a floating IP.
+  hostname: ""
+  public_ipv4: []
+  public_ipv6: []
+  # The account that holds global-scope SSH keys. Empty means the account that
+  # ran `ratline init`.
+  admin_user: ""
+
+paths:
+  state_db: /var/lib/ratline/state.db
+  audit_log: /var/log/ratline/audit.log
+  lock: /run/ratline.lock
+  run_dir: /run/ratline
+  home_base: /home
+  nginx_sites_available: /etc/nginx/sites-available
+  nginx_sites_enabled: /etc/nginx/sites-enabled
+  nginx_snippets: /etc/nginx/ratline
+  # Anything an operator puts here is included by the generated vhost and is
+  # never regenerated, so hand-written additions survive `ratline reconcile`.
+  nginx_custom: /etc/nginx/ratline/custom
+  systemd_dir: /etc/systemd/system
+  logrotate_dir: /etc/logrotate.d
+  # One shared HTTP-01 webroot for every site, served before any redirect so
+  # renewal never depends on an application being up.
+  acme_webroot: /var/www/ratline-acme
+  letsencrypt_dir: /etc/letsencrypt
+  imported_certs: /etc/ratline/certs
+  dns_credentials: /etc/ratline/dns
+  ssh_dir: /etc/ratline/ssh
+  sshd_dropin: /etc/ssh/sshd_config.d/60-ratline.conf
+  runtimes_dir: /opt/ratline/runtimes
+  shell_wrapper: /usr/local/lib/ratline/ratline-shell
+  backup_dir: /var/backups/ratline
+
+defaults:
+  shell: /bin/bash
+  umask: "0027"
+  # The most common cause of a mystery 413.
+  client_max_body_size: 20M
+  # How long `site start` waits for an application to answer a real request
+  # before calling the deploy a failure.
+  health_timeout: 30s
+  # How long a command waits for another ratline invocation to release the lock.
+  lock_timeout: 30s
+  proxy_read_timeout: 60s
+  restart_sec: 3s
+  stop_timeout: 30s
+  memory_max: 512M
+  # MemoryHigh is set to this fraction of MemoryMax, so the kernel starts
+  # reclaiming before it starts killing.
+  memory_high_ratio: 0.875
+  cpu_quota: 100%
+  tasks_max: 256
+  limit_nofile: 8192
+  # Ceiling for the automatic (2 x cores) + 1 worker calculation.
+  worker_cap: 8
+  # HSTS is opt-in. Enabling it for one site can break a tenant's unrelated
+  # subdomains, and that decision is not ratline's to make. ratline refuses to
+  # enable it on a self-signed or staging certificate.
+  hsts: false
+  hsts_max_age: 31536000
+
+users:
+  # Extends the built-in reserved list; both are checked.
+  reserved: []
+  # Created users get no sudo. Turning this on only permits the escape hatch to
+  # exist; each grant is still validated with visudo -c.
+  allow_sudo: false
+  # Requires the filesystem to be mounted with quota support. ratline refuses
+  # --quota rather than silently ignoring it when this is false.
+  quota_enabled: false
+  nginx_user: www-data
+  log_group: adm
+  # Homes stay 0750 and nginx is added to the user's group. Never 0755.
+  home_mode: "0750"
+  site_mode: "0750"
+
+ssh:
+  min_rsa_bits: 3072
+  warn_rsa_bits: 4096
+  allowed_algorithms:
+    - ssh-ed25519
+    - sk-ssh-ed25519@openssh.com
+    - ecdsa-sha2-nistp256
+    - ecdsa-sha2-nistp384
+    - ecdsa-sha2-nistp521
+    - sk-ecdsa-sha2-nistp256@openssh.com
+    - rsa-sha2-256
+    - rsa-sha2-512
+    - ssh-rsa
+  # ssh-dss is refused outright; 1024-bit DSA has no place on a new server.
+  rejected_algorithms:
+    - ssh-dss
+  max_key_line_bytes: 8192
+  max_authorized_keys_bytes: 262144
+  # Keys are never added to root's authorized_keys unless this is true and the
+  # operator asks for it explicitly.
+  allow_root_keys: false
+  # Site-scoped keys get sftp, rsync and git only. --allow-shell overrides it
+  # per key, with a warning.
+  site_scope_sftp_only: true
+  # A daily timer removes keys past their expiry, whether or not sshd supports
+  # the expiry-time option.
+  prune_expired: true
+  command_presets:
+    sftp-only: internal-sftp
+    rsync-only: rsync
+    git-only: git
+  revoked_keys: /etc/ratline/ssh/revoked_keys
+  global_keys_file: /etc/ratline/ssh/global.authorized_keys
+  # After changing anything under /etc/ssh, prove that login still works and
+  # roll back if it does not. Turning this off on a remote server is how people
+  # lock themselves out.
+  verify_after_change: true
+  # Scan the auth log for accepted-publickey lines to populate last-used data.
+  usage_scan_enabled: true
+  key_fetch_timeout: 15s
+  max_fetched_key_bytes: 65536
+
+nginx:
+  reload_timeout: 30s
+  gzip: true
+  # Only rendered when the brotli module is present.
+  brotli: false
+  server_tokens: false
+  # Cache lifetime in seconds for content-hashed assets.
+  asset_max_age: 31536000
+
+runtimes:
+  # Empty until `ratline runtime install` or `ratline init` has run.
+  node_default: ""
+  python_default: ""
+  node_mirror: https://nodejs.org/dist
+  install_timeout: 30m
+  build_timeout: 20m
+
+acme:
+  # ACME contact address. Certificate expiry warnings go here.
+  email: ""
+  directory_url: https://acme-v02.api.letsencrypt.org/directory
+  staging_url: https://acme-staging-v02.api.letsencrypt.org/directory
+  key_type: ecdsa
+  renew_before_days: 30
+  dns_propagation_seconds: 60
+  # Set by `ratline init` once the operator has accepted the CA's terms.
+  tos_agreed: false
+  preflight_timeout: 20s
+  issue_timeout: 5m
+  # The certificate authority's published limits, tracked locally so ratline can
+  # refuse an attempt with a countdown instead of discovering the limit the hard
+  # way. These are policy and do change: check the CA's documentation if a
+  # refusal looks wrong.
+  rate_limits:
+    certs_per_registered_domain_per_week: 50
+    duplicate_certs_per_week: 5
+    failed_validations_per_hour: 5
+    new_orders_per_3_hours: 300
+  alerts:
+    webhook_url: ""
+    email: ""
+    # Warn when a certificate has fewer than this many days left.
+    warn_days: 7
+
+ports:
+  # Allocation window for node sites that listen on TCP rather than a socket.
+  range_start: 20000
+  range_end: 29999
+
+logging:
+  level: info
+  color: auto
+
+features:
+  # `ratline db` is a stub until database provisioning lands.
+  db_provisioning: false
+  # Adds a chroot and a bind mount to site-scoped SSH keys. Off by default
+  # because a misconfigured chroot generates support tickets.
+  strict_isolation: false

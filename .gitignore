@@ -1,0 +1,15 @@
+/bin/
+/dist/
+coverage.out
+*.test
+*.out
+
+# Note: files under internal/*/testdata/fuzz/ are deliberately committed. Each one
+# is an input that used to break a validator, so it is a regression test.
+
+.DS_Store
+*.swp
+
+# Documentation site
+/docs/web/node_modules/
+/docs/web/dist/
