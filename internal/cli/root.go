@@ -201,6 +201,19 @@ func Run(g *Globals, args []string) int {
 	g.Argv = append([]string{"ratline"}, args...)
 
 	root := NewRootCommand(g)
+
+	// `ratline restor --help` — a typo — printed the root help and exited 0, saying
+	// nothing about `restor` not existing. cobra's help flag is handled before RunE, so
+	// the unknown-command check there never runs, and the operator is left reading a
+	// list of commands wondering which one they got wrong. Without --help the same typo
+	// correctly exits 2, which made the inconsistency easy to miss.
+	if name, ok := unknownCommandWithHelp(root, args); ok {
+		err := rlerr.Usagef("unknown command %q", name).
+			WithHint("run 'ratline --help' for the list of commands")
+		g.reportError(err)
+		return rlerr.ExitCode(err)
+	}
+
 	root.SetArgs(args)
 	root.SetOut(g.Stdout)
 	root.SetErr(g.Stderr)
@@ -279,3 +292,58 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 const helpTemplate = `{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}
 
 {{end}}{{if or .Runnable .HasSubCommands}}{{.UsageString}}{{end}}`
+
+// unknownCommandWithHelp reports an argument that looks like a subcommand, is not one,
+// and is accompanied by a help flag.
+//
+// The subtlety is that a flag can take its value as the next argument, so a naive scan
+// for "the first thing not starting with a dash" reads the value of --config as a command
+// name. Each flag is therefore looked up: one whose NoOptDefVal is empty consumes the
+// argument after it.
+//
+// Only the first real non-flag argument matters. Anything after it belongs to whatever
+// command it named, and a command's own arguments are its own business.
+func unknownCommandWithHelp(root *cobra.Command, args []string) (string, bool) {
+	flags := root.PersistentFlags()
+	var wantsHelp bool
+	var first string
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--help" || a == "-h":
+			wantsHelp = true
+		case a == "--":
+			// Everything after this is positional by definition.
+			if first == "" && i+1 < len(args) {
+				first = args[i+1]
+			}
+			i = len(args)
+		case strings.HasPrefix(a, "--"):
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if hasValue {
+				continue
+			}
+			// A flag that is not boolean-like takes the next argument as its value.
+			if f := flags.Lookup(name); f != nil && f.NoOptDefVal == "" {
+				i++
+			}
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			shorthand := a[len(a)-1:]
+			if f := flags.ShorthandLookup(shorthand); f != nil && f.NoOptDefVal == "" {
+				i++
+			}
+		case first == "":
+			first = a
+		}
+	}
+	if !wantsHelp || first == "" {
+		return "", false
+	}
+	for _, c := range root.Commands() {
+		if c.Name() == first || c.HasAlias(first) {
+			return "", false
+		}
+	}
+	return first, true
+}

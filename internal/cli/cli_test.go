@@ -341,3 +341,51 @@ func TestARealCommandStillNeedsRoot(t *testing.T) {
 		t.Errorf("it should still refuse without root, got:\n%s", errOut.String())
 	}
 }
+
+func TestATypoWithHelpSaysWhichWordWasWrong(t *testing.T) {
+	// `ratline restor --help` printed the root help and exited 0, leaving the operator
+	// reading a list of commands and wondering which one they got wrong. cobra handles
+	// the help flag before RunE, so the unknown-command check there never ran — and
+	// without --help the same typo correctly exits 2, which is what made the
+	// inconsistency easy to miss.
+	//
+	// Found by a test of mine that used `restore --help` to ask whether a binary had the
+	// command, and got "yes" from one that had never heard of it.
+	for _, args := range [][]string{
+		{"restor", "--help"},
+		{"bogus", "-h"},
+		{"--json", "bogus", "--help"},
+	} {
+		code, _, errOut := harness(t, args...)
+		if code != 2 {
+			t.Errorf("%v exited %d, want 2 (usage)", args, code)
+		}
+		if !strings.Contains(errOut.String(), "unknown command") {
+			t.Errorf("%v should say the command is unknown, got:\n%s", args, errOut.String())
+		}
+	}
+}
+
+func TestHelpForARealCommandStillWorks(t *testing.T) {
+	// The other half: the check must not swallow help for commands that do exist, nor
+	// for a root invocation carrying global flags.
+	for _, args := range [][]string{
+		{"--help"},
+		{"--json", "--help"},
+		{"site", "--help"},
+		{"restore", "--help"},
+		{"cert", "issue", "--help"},
+		{"help", "site", "add"},
+	} {
+		code, out, errOut := harness(t, args...)
+		if code != 0 {
+			t.Errorf("%v exited %d, want 0\nstderr: %s", args, code, errOut.String())
+		}
+		if out.Len()+errOut.Len() == 0 {
+			t.Errorf("%v printed nothing", args)
+		}
+		if strings.Contains(errOut.String(), "unknown command") {
+			t.Errorf("%v was reported as unknown", args)
+		}
+	}
+}
