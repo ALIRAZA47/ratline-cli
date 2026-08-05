@@ -1803,6 +1803,7 @@ Usage:
   ratline cert issue <domain> [flags]
 
 Flags:
+      --acme-ca-bundle string    Trust store for a private ACME server (default: the system one, when --acme-directory is set)
       --acme-directory string    ACME directory URL, for a private CA such as step-ca (default: the configured one)
       --alias stringArray        SAN to include, replacing the site's own aliases (repeatable)
       --challenge string         http (webroot) or dns; a wildcard forces dns (default "http")

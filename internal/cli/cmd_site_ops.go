@@ -404,12 +404,18 @@ func lastHealthySHA(ctx context.Context, g *Globals, st *state.Store, domain str
 	return ""
 }
 
-// gitTreeIsClean reports whether the working tree has no uncommitted changes.
+// gitTreeIsClean reports whether reverting would destroy uncommitted work.
 //
 // Consulted before any automatic `git reset --hard`: recovering a site is worth a
 // lot, and never worth silently deleting work somebody has not committed. An
 // unreadable status is treated as dirty, because guessing wrong in that direction is
 // merely unhelpful rather than destructive.
+//
+// Untracked files do not count. `git reset --hard` does not remove them, so they are
+// not at risk — and treating them as dirty blocked recovery on any site that had ever
+// been deployed, because installing dependencies and importing the application leave
+// __pycache__, node_modules and build output sitting untracked in the tree. The
+// question is only whether a *tracked* file has been modified or staged.
 func (g *Globals) gitTreeIsClean(ctx context.Context, rc *runtime.Context, id *system.Identity) bool {
 	if !system.IsDir(filepath.Join(rc.AppDir, ".git")) {
 		return false
@@ -420,7 +426,16 @@ func (g *Globals) gitTreeIsClean(ctx context.Context, rc *runtime.Context, id *s
 	if err != nil || res == nil {
 		return false
 	}
-	return strings.TrimSpace(res.Out()) == ""
+	for _, line := range strings.Split(res.Out(), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		// "?? path" is untracked; anything else is a tracked change.
+		if !strings.HasPrefix(line, "??") {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Globals) gitReset(ctx context.Context, rc *runtime.Context, id *system.Identity, sha string) error {

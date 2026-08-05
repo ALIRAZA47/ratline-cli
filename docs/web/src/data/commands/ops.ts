@@ -12,6 +12,61 @@ export const ops: CommandGroup = {
   ],
   commands: [
     {
+      id: 'update',
+      name: 'ratline update',
+      status: 'built',
+      summary: 'Update ratline itself, in place, on a server that is serving traffic.',
+      description: [
+        'One command. The success case is a file copy, so the whole design is the refusals.',
+        'The download is checksummed against the release’s own SHA256SUMS, and a release with no checksum file is a refusal rather than a warning — an unverified binary installed as root on a server holding every tenant’s keys is the same supply-chain hole the runtime installer already declines to leave open.',
+        'The new binary is then executed from a staging directory and asked its version, which catches the wrong architecture before it goes near the install path; and asked to list this server’s sites against the real database, which is what catches a downgrade past a schema migration. That would otherwise install cleanly and fail on the next command you ran.',
+        'The install is an atomic rename per file within one filesystem, so a timer firing mid-update sees the old inode or the new one and never a partial file. The previous binary is kept beside it for --rollback.',
+        'No site is interrupted. Sites are systemd units running an interpreter; they do not exec this binary. ratline-shell is the one exception, because forced commands in authorized_keys point at it by absolute path — which is why it is verified and swapped the same way.',
+      ],
+      refuses: [
+        'A release with no SHA256SUMS, unless --allow-unverified is given deliberately.',
+        'A downloaded binary that does not run here, or reports a different version from the one requested.',
+        'A binary that cannot read this server’s state — the signature of a downgrade past a migration.',
+        'Overwriting a file dpkg owns. Doing so leaves the package database lying and the next apt upgrade silently reverts the update, so it names the apt command instead.',
+      ],
+      flags: [
+        { name: '--check', type: 'bool', default: 'false', description: 'Report whether an update is available and change nothing.' },
+        { name: '--version', arg: '<version>', type: 'string', description: 'Install this release rather than the latest.' },
+        { name: '--rollback', type: 'bool', default: 'false', description: 'Restore the binary the last update replaced.' },
+        {
+          name: '--base-url',
+          arg: '<url>',
+          type: 'url',
+          description: 'Where release artefacts live.',
+          note: 'For a server with no route to GitHub, which is normal. Checksum verification is unchanged, so a mirror is not a place to be trusted blindly.',
+        },
+        {
+          name: '--allow-unverified',
+          type: 'bool',
+          default: 'false',
+          description: 'Install even when the release publishes no checksums.',
+          note: 'Deliberately awkward. Verification is the default and should stay that way.',
+        },
+      ],
+      exits: [
+        { code: 0, reason: 'Updated, already current, or --check completed.' },
+        { code: 3, reason: 'Not root, or the binary belongs to a package manager.' },
+        { code: 4, reason: 'The download failed, or did not match the published checksum.' },
+      ],
+      examples: [
+        { lang: 'shell', code: 'ratline update' },
+        { lang: 'shell', code: 'ratline update --check' },
+        { lang: 'shell', code: 'ratline update --rollback' },
+        {
+          title: 'A server that cannot reach GitHub',
+          lang: 'shell',
+          code: 'ratline update --base-url https://mirror.example.internal/ratline --version 1.2.0',
+        },
+      ],
+      seeAlso: [{ label: 'Upgrading', to: '/reference/ops#version' }],
+      keywords: ['upgrade', 'self-update', 'new version', 'rollback', 'downgrade', 'checksum', 'mirror'],
+    },
+    {
       id: 'troubleshoot',
       name: 'ratline troubleshoot',
       args: '[subject]',

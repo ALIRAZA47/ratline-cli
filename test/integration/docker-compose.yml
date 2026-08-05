@@ -19,6 +19,19 @@ services:
       # delay Pebble adds by default to catch clients that assume otherwise.
       PEBBLE_VA_NOSLEEP: "1"
       PEBBLE_WFE_NONCEREJECT: "0"
+    volumes:
+      # Pebble's own config, because the image's default validates HTTP-01 on port
+      # 5002 — aimed at its challenge-test server rather than at a real webserver. On
+      # 5002 the harness's nginx never sees the request and every authorization comes
+      # back INVALID, which looks exactly like a broken site. 80 and 443 are what a
+      # real CA uses and what this suite is here to exercise.
+      - ./pebble-config.json:/test/config/pebble-config.json:ro
+      # Pebble's ACME endpoint is served with a static test certificate signed by
+      # test/certs/pebble.minica.pem, which is *not* the root it issues from — so
+      # fetching /roots/0 does not let a client verify Pebble itself. Docker
+      # populates an empty named volume from the image, which shares that file with
+      # the harness without a network fetch or a certificate committed to this repo.
+      - pebble-certs:/test/certs
     networks:
       acmenet:
         ipv4_address: 10.30.50.2
@@ -52,9 +65,16 @@ services:
       # time anything outside could ask for it. The transcript is written here
       # instead, which is also what a CI job needs to attach to a failed run.
       - ./results:/var/log/ratline-integration:rw
+      # Read-only: the harness needs to trust Pebble, not to alter it.
+      - pebble-certs:/pebble-certs:ro
     stop_signal: SIGRTMIN+3
     environment:
-      RATLINE_TEST_ACME_DIRECTORY: https://10.30.50.2:14000/dir
+      # By hostname, not by IP. Pebble's endpoint certificate covers
+      # DNS:localhost, DNS:pebble and IP:127.0.0.1 — so an https URL naming
+      # 10.30.50.2 fails verification with "certificate is not valid for
+      # 10.30.50.2" however well the CA itself is trusted. `pebble` is the compose
+      # service name and resolves on this network.
+      RATLINE_TEST_ACME_DIRECTORY: https://pebble:14000/dir
       RATLINE_TEST_CHALLTESTSRV: http://10.30.50.3:8055
     depends_on:
       - pebble
@@ -62,6 +82,9 @@ services:
     networks:
       acmenet:
         ipv4_address: 10.30.50.4
+
+volumes:
+  pebble-certs:
 
 networks:
   acmenet:

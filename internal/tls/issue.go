@@ -158,6 +158,7 @@ func (m *Manager) runCertbot(ctx context.Context, opts IssueOptions, names []str
 
 	res, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "certbot", Args: args, Mutates: true, Stream: true,
+		Env:     m.certbotEnv(opts),
 		Timeout: timeout, Label: "certbot",
 	})
 
@@ -236,6 +237,57 @@ func (m *Manager) recordIssued(ctx context.Context, certName string, opts IssueO
 //
 // This is the difference between "the file is on disk" and "the site works". A
 // certificate nginx has not picked up, or one served by a different vhost because
+// certbotEnv is the environment certbot runs with.
+//
+// nil means the runner's usual minimal environment. The one addition is
+// REQUESTS_CA_BUNDLE, and only for a private CA.
+//
+// certbot verifies the ACME server with certifi's bundled roots, not the system
+// trust store — so a private CA's root installed the normal way, with
+// update-ca-certificates, is not consulted and issuance fails with
+// CERTIFICATE_VERIFY_FAILED. ratline deliberately does not inherit the caller's
+// environment, which is right, but it also means an operator cannot export the
+// variable themselves. Pointing certbot at the system store when they have asked for
+// a private directory is the behaviour they meant.
+//
+// Never done for a public CA: certifi is the correct trust store there, and widening
+// it to whatever is in the system store would be a downgrade nobody asked for.
+func (m *Manager) certbotEnv(opts IssueOptions) []string {
+	bundle := m.caBundle(opts)
+	if bundle == "" {
+		return nil
+	}
+	m.Log.Debug("pointing certbot at a trust store for the private ACME directory",
+		"bundle", bundle)
+	return system.MinimalEnv(
+		"REQUESTS_CA_BUNDLE="+bundle,
+		// urllib3 and some plugins read this one instead.
+		"SSL_CERT_FILE="+bundle,
+	)
+}
+
+// caBundle is the trust store to verify a private ACME server with, or empty when
+// certifi's own roots are the right answer.
+func (m *Manager) caBundle(opts IssueOptions) string {
+	if opts.CABundle != "" {
+		return opts.CABundle
+	}
+	// Only for a directory the operator named explicitly. A configured
+	// acme.directory_url pointing at Let's Encrypt must keep using certifi.
+	if opts.DirectoryURL == "" {
+		return ""
+	}
+	for _, candidate := range []string{
+		"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
+		"/etc/pki/tls/certs/ca-bundle.crt",   // RHEL family
+	} {
+		if system.Exists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // directoryURL resolves which ACME directory this issuance should talk to.
 //
 // An explicit override wins, then the configured staging URL when --staging was

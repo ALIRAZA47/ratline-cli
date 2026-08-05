@@ -336,6 +336,25 @@ func (m *Manager) EnsureTarget(ctx context.Context) error {
 // Control runs a systemctl verb against a site's unit.
 func (m *Manager) Control(ctx context.Context, site *state.Site, verb string) error {
 	unitName := validate.UnitName(site.Owner, site.Domain)
+
+	// Clear a stale failure before trying to bring the unit up.
+	//
+	// StartLimitBurst puts a unit that has crash-looped into a state where systemd
+	// refuses to start it at all until the counter is reset. That is right for a
+	// service nobody is attending to, and wrong for the recovery path: a deploy that
+	// fails, reverts the code and restarts is refused by the very limit the failed
+	// deploy just consumed — so the revert reports "the previous version did not
+	// restart either" for code that is perfectly good. Resetting is what an operator
+	// would do by hand, and it changes nothing for a unit that is not in that state.
+	if verb == "start" || verb == "restart" {
+		if _, err := m.Runner.Run(ctx, system.Cmd{
+			Name: "systemctl", Args: []string{"reset-failed", unitName},
+			Mutates: true, OKExit: []int{1, 5}, Timeout: 30 * time.Second,
+		}); err != nil {
+			m.Log.Debug("could not reset the unit's failure counter", "unit", unitName, "err", err)
+		}
+	}
+
 	if _, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "systemctl", Args: []string{verb, unitName},
 		Mutates: true, Label: verb, Timeout: 2 * time.Minute,

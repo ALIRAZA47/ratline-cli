@@ -292,9 +292,13 @@ if "$RATLINE" runtime install node 22 --with-pm2 >/dev/null 2>&1; then
 
         # A WebSocket upgrade needs the Upgrade and Connection headers plus the
         # $connection_upgrade map, which is easy to get silently wrong.
+        # Not `2>&1 | head -1`: a server that answers 101 and then closes makes curl
+        # exit 52 and print to stderr, and merging the streams put that on line one —
+        # failing an assertion about a response that had in fact arrived. Only stdout,
+        # and the whole of it.
         up=$(curl -sSi -H 'Host: app.test' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
                 -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-                http://127.0.0.1/ 2>&1 | head -1)
+                http://127.0.0.1/ 2>/dev/null)
         contains "a WebSocket upgrade succeeds" "101" "$up"
 
         # PM2 is the default, so assert the thing it exists for: a reload that keeps
@@ -466,9 +470,17 @@ else
     # REQUESTS_CA_BUNDLE points certbot's HTTP client at the system trust store,
     # which now holds Pebble's root; certbot otherwise uses certifi's own bundle and
     # cannot verify a private CA.
-    export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+    # Pebble's own endpoint is signed by its static minica, shared in by compose.
+    # This is exactly the private-CA case --acme-ca-bundle exists for.
+    PEBBLE_CA=/pebble-certs/pebble.minica.pem
+    if [ -r "$PEBBLE_CA" ]; then
+        ok "Pebble's minica is available to verify the ACME endpoint"
+    else
+        bad "Pebble's minica is missing" "expected it at $PEBBLE_CA"
+    fi
     if "$RATLINE" --verbose cert issue acme.test --email ops@acme.test \
-            --acme-directory "$DIRECTORY" --dry-run 2>&1 | tail -25; then
+            --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
+            --dry-run 2>&1 | tail -25; then
         ok "cert issue --dry-run passes preflight and validates"
     else
         bad "cert issue --dry-run" "preflight or validation failed; see the output above"
@@ -476,7 +488,7 @@ else
 
     # Now for real, against Pebble.
     if "$RATLINE" cert issue acme.test --email ops@acme.test \
-            --acme-directory "$DIRECTORY" 2>&1 | tail -25; then
+            --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" 2>&1 | tail -25; then
         ok "cert issue completed against the local ACME server"
 
         contains "the certificate is recorded" "acme.test" "$("$RATLINE" cert list)"
@@ -502,10 +514,12 @@ else
         # the CA at all.
         for _ in 1 2 3 4 5 6; do
             "$RATLINE" cert issue acme.test --email ops@acme.test \
-                --acme-directory "$DIRECTORY" --force >/dev/null 2>&1 || true
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
+                --force >/dev/null 2>&1 || true
         done
         if "$RATLINE" cert issue acme.test --email ops@acme.test \
-                --acme-directory "$DIRECTORY" --force 2>&1 | grep -qiE 'rate limit|duplicate'; then
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
+                --force 2>&1 | grep -qiE 'rate limit|duplicate'; then
             ok "the duplicate-certificate budget refuses further attempts"
         else
             printf '  note  the duplicate budget was not reached in this run\n'
@@ -539,6 +553,14 @@ fi
 info "deploy and rollback"
 sudo -u alice git -C /home/alice/api.test/app init -q 2>/dev/null || true
 if [ -d /home/alice/api.test/app/.git ]; then
+    # What any real project has. Without it the first commit captures __pycache__,
+    # and the deploy that imports the application then leaves a tracked .pyc
+    # modified — so ratline correctly refuses to revert, because `git reset --hard`
+    # would discard a tracked change it cannot know is worthless.
+    printf '__pycache__/\n*.pyc\nvenv/\nnode_modules/\n' \
+        > /home/alice/api.test/app/.gitignore
+    chown alice:alice /home/alice/api.test/app/.gitignore
+    sudo -u alice git -C /home/alice/api.test/app rm -r --cached --quiet __pycache__ 2>/dev/null || true
     sudo -u alice git -C /home/alice/api.test/app -c user.email=t@t -c user.name=t add -A
     sudo -u alice git -C /home/alice/api.test/app -c user.email=t@t -c user.name=t commit -qm initial
     good=$(sudo -u alice git -C /home/alice/api.test/app rev-parse HEAD)

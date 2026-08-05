@@ -76,7 +76,7 @@ Running a server that already exists.
 | [troubleshooting.md](operations/troubleshooting.md) | 502, 404, 413, and the order to check in |
 | [backup-and-restore.md](operations/backup-and-restore.md) | What `backup` archives, and the gap where restore should be |
 | [drift-and-reconcile.md](operations/drift-and-reconcile.md) | When someone edited nginx by hand |
-| [upgrading.md](operations/upgrading.md) | Binaries, schema migrations, rolling back |
+| [upgrading.md](operations/upgrading.md) | `ratline update`, rollback, schema migrations |
 
 ### [Reference](reference/)
 

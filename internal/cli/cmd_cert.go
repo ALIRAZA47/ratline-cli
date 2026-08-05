@@ -155,6 +155,8 @@ func newCertIssueCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.Email, "email", "", "ACME contact address")
 	f.StringVar(&opts.DirectoryURL, "acme-directory", "",
 		"ACME directory URL, for a private CA such as step-ca (default: the configured one)")
+	f.StringVar(&opts.CABundle, "acme-ca-bundle", "",
+		"Trust store for a private ACME server (default: the system one, when --acme-directory is set)")
 	f.BoolVar(&opts.Staging, "staging", false, "Use the staging endpoint: real exchange, untrusted certificate, generous limits")
 	f.StringVar(&opts.KeyType, "key-type", "", "ecdsa or rsa (default from config)")
 	f.BoolVar(&opts.Force, "force", false, "Re-issue even if a valid certificate exists, and proceed past preflight")

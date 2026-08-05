@@ -197,6 +197,19 @@ func (m *Manager) Reload(ctx context.Context, name string) (string, error) {
 	return m.Unit.WaitHealthy(ctx, site, m.Cfg.Defaults.HealthTimeout.D())
 }
 
+// putSite records a site unless this is a preview.
+//
+// Every state write on a mutating path goes through here. `--dry-run` promises to
+// change nothing, and a preview that leaves a row behind is worse than no preview:
+// the next real command refuses against a change that was never made.
+func (m *Manager) putSite(ctx context.Context, site *state.Site, what string) error {
+	if m.DryRun {
+		m.Log.Info("would "+what, "domain", site.Domain)
+		return nil
+	}
+	return m.State.PutSite(ctx, site)
+}
+
 // ScaleOptions is the resolved form of `ratline site scale`.
 type ScaleOptions struct {
 	Workers   int
@@ -265,7 +278,7 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 				"--cpu-quota or --client-max-body-size")
 	}
 
-	if err := m.State.PutSite(ctx, site); err != nil {
+	if err := m.putSite(ctx, site, "record the new limits"); err != nil {
 		return nil, err
 	}
 	rb := system.NewRollback(m.Log)
@@ -425,7 +438,9 @@ func (m *Manager) Delete(ctx context.Context, name string, purge bool, backupDir
 			return err
 		}
 	}
-	if err := m.State.DeleteSite(ctx, site.Domain); err != nil {
+	if m.DryRun {
+		m.Log.Info("would remove the site from state", "domain", site.Domain)
+	} else if err := m.State.DeleteSite(ctx, site.Domain); err != nil {
 		return err
 	}
 	m.Log.Info("site deleted", "domain", site.Domain, "purged", purge)
@@ -470,7 +485,7 @@ func (m *Manager) AddAlias(ctx context.Context, name, alias string) (*state.Site
 		return nil, rlerr.Preconditionf("%s is already served by %s", normalised, owner)
 	}
 	site.Aliases = append(site.Aliases, normalised)
-	if err := m.State.PutSite(ctx, site); err != nil {
+	if err := m.putSite(ctx, site, "record the alias"); err != nil {
 		return nil, err
 	}
 	rb := system.NewRollback(m.Log)
@@ -511,7 +526,7 @@ func (m *Manager) RemoveAlias(ctx context.Context, name, alias string) (*state.S
 		return nil, rlerr.Preconditionf("%s is not an alias of %s", normalised, site.Domain)
 	}
 	site.Aliases = kept
-	if err := m.State.PutSite(ctx, site); err != nil {
+	if err := m.putSite(ctx, site, "remove the alias"); err != nil {
 		return nil, err
 	}
 	rb := system.NewRollback(m.Log)

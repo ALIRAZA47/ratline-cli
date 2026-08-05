@@ -64,7 +64,7 @@ func (n Node) pm2Env(c *Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(system.UserEnv(c.Identity),
+	return system.UserEnv(c.Identity,
 		"PATH="+filepath.Dir(nodeBin)+":"+system.DefaultPath,
 		"PM2_HOME="+pm2Home(c),
 	), nil

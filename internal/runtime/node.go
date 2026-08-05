@@ -89,7 +89,7 @@ func (n Node) Install(ctx context.Context, c *Context) error {
 	}
 	// The managed Node's bin directory has to be first on PATH so that a
 	// lifecycle script calling `node` gets the same interpreter the service will.
-	env := append(system.UserEnv(c.Identity),
+	env := system.UserEnv(c.Identity,
 		"PATH="+filepath.Dir(nodeBin)+":"+system.DefaultPath,
 		"NODE_ENV=production",
 		"npm_config_fund=false",
@@ -176,7 +176,7 @@ func (n Node) Build(ctx context.Context, c *Context) error {
 	if err != nil {
 		return err
 	}
-	env := append(system.UserEnv(c.Identity),
+	env := system.UserEnv(c.Identity,
 		"PATH="+filepath.Dir(nodeBin)+":"+filepath.Join(c.AppDir, "node_modules", ".bin")+":"+system.DefaultPath,
 		"NODE_ENV=production",
 	)

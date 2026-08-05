@@ -229,3 +229,59 @@ func TestDryRunAddWritesNoStateRow(t *testing.T) {
 		t.Errorf("%d port(s) reserved under --dry-run", len(ports))
 	}
 }
+
+func TestDryRunLifecycleOperationsWriteNothing(t *testing.T) {
+	// site add was not the only preview that wrote. scale, alias and delete each had
+	// their own unguarded PutSite/DeleteSite, so `--dry-run` on any of them changed
+	// the database it was supposed to be previewing against.
+	dir := t.TempDir()
+	st, err := state.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	if err := st.PutUser(ctx, &state.User{Name: "alice", Home: "/home/alice", Shell: "/bin/sh"}); err != nil {
+		t.Fatal(err)
+	}
+	original := &state.Site{
+		Domain: "app.example.com", Owner: "alice", Runtime: "static", Slug: "alice-app_example_com",
+		Enabled: true, DocRoot: "public", IndexFile: "index.html", Workers: 2, Instances: 1,
+	}
+	if err := st.PutSite(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := testManager()
+	mgr.State = st
+	mgr.DryRun = true
+
+	// A copy, so a mutation of the in-memory struct is not mistaken for a write.
+	changed := *original
+	changed.Workers = 8
+	changed.Aliases = []string{"www.app.example.com"}
+	if err := mgr.putSite(ctx, &changed, "record the new limits"); err != nil {
+		t.Fatalf("putSite under --dry-run = %v", err)
+	}
+
+	back, err := st.GetSite(ctx, original.Domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Workers != original.Workers {
+		t.Errorf("workers = %d, want the original %d — the preview wrote", back.Workers, original.Workers)
+	}
+	if len(back.Aliases) != 0 {
+		t.Errorf("aliases = %v, want none — the preview wrote", back.Aliases)
+	}
+
+	// And the real path still writes, or the guard would have broken the command.
+	mgr.DryRun = false
+	if err := mgr.putSite(ctx, &changed, "record the new limits"); err != nil {
+		t.Fatal(err)
+	}
+	if back, _ = st.GetSite(ctx, original.Domain); back.Workers != 8 {
+		t.Errorf("workers = %d after a real write, want 8", back.Workers)
+	}
+}

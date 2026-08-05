@@ -92,7 +92,10 @@ type IssueOptions struct {
 	// DirectoryURL overrides the ACME directory for this one issuance. Empty means
 	// the configured one — acme.staging_url when Staging, acme.directory_url
 	// otherwise.
-	DirectoryURL  string
+	DirectoryURL string
+	// CABundle is the trust store certbot verifies the ACME server with. Only
+	// meaningful for a private CA; see caBundle.
+	CABundle      string
 	KeyType       string
 	Force         bool
 	Attach        bool
