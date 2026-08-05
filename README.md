@@ -136,5 +136,17 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Licence
 
-Not yet chosen, which means the default applies: all rights reserved. A licence needs to
-be added before anyone can legally use or contribute to this.
+[GNU AGPL-3.0](LICENSE). Copyright © 2026 Ali Raza Khan.
+
+Use it, run it, change it, contribute to it. The one condition is that the freedom
+travels with it: if you distribute a modified version, or **run one as a network
+service**, the people using it are entitled to that version's source under the same
+licence.
+
+That second clause is the reason for AGPL rather than GPL. ratline is the provisioning
+core of a hosting panel, so the obvious way to take it without giving anything back is
+to wrap it in a panel and sell access — which is network use, not distribution, and
+which plain GPL does not reach.
+
+Using ratline to host your own or your clients' sites is not network use of ratline.
+Selling a hosting product whose control plane *is* ratline is.

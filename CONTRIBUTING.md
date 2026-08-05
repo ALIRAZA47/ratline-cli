@@ -135,6 +135,16 @@ Two places, and they must agree:
 `docs/reference/commands.md` is generated. Change the flag's help text in the Go source
 and run `make docs-commands`; do not hand-edit it.
 
+## Licensing of contributions
+
+ratline is [AGPL-3.0](LICENSE). By opening a pull request you agree that your
+contribution is licensed under the same terms — there is no separate CLA to sign.
+
+The practical consequence, in case it is not obvious: anyone may use, modify and build
+on this, including commercially. What they may not do is take it closed. If they
+distribute a modified version, or run one as a network service, that version's source has
+to be available to its users under the same licence.
+
 ## Reporting a bug
 
 Include `ratline version`, the OS, the exact commands, and what you expected. If a
