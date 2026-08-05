@@ -543,10 +543,18 @@ else
         # empty subject CN and puts the identifier in subjectAltName only. Grepping the
         # subject for the domain therefore failed against a certificate that was
         # perfectly correct.
-        served=$(echo | openssl s_client -connect 127.0.0.1:443 -servername acme.test 2>/dev/null \
-            | openssl x509 -noout -ext subjectAltName -issuer 2>/dev/null)
-        contains "the served certificate carries the domain in its SAN" "acme.test" "$served"
-        contains "the served certificate was issued by the local CA" "Pebble" "$served"
+        leafpem=$(echo | openssl s_client -connect 127.0.0.1:443 -servername acme.test 2>/dev/null \
+            | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p')
+        if [ -z "$leafpem" ]; then
+            bad "the served certificate could be read at all" \
+                "openssl s_client returned no certificate; s_client stderr follows"
+            echo | openssl s_client -connect 127.0.0.1:443 -servername acme.test 2>&1 \
+                | tail -12 | sed 's/^/        | /'
+        else
+            served=$(printf '%s\n' "$leafpem" | openssl x509 -noout -text 2>&1)
+            contains "the served certificate carries the domain in its SAN" "DNS:acme.test" "$served"
+            contains "the served certificate was issued by the local CA" "Pebble" "$served"
+        fi
 
         body=$(curl -sS --resolve acme.test:443:127.0.0.1 https://acme.test/ 2>&1)
         contains "HTTPS serves the site with a trusted chain" "acme ok" "$body"
