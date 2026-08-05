@@ -39,6 +39,56 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.5.0',
+    date: '2026-08-06',
+    summary:
+      'Database listing stops hiding databases, `ratline config` edits the config without breaking it, and setting MongoDB up is one command.',
+    assertions: 289,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`db list --live` hid the databases it exists to find',
+        body:
+          'The filter that skips MongoDB’s own admin, local and config databases was also skipping anything ratline had not provisioned — which is the entire reason to pass --live. A database created by hand, or by an older tool, is exactly what you are looking for when you ask the server rather than the index: nothing will revoke its users when the tenant is deleted. It is now listed and marked as unmanaged.',
+        code: 'ratline db list --live',
+      },
+      {
+        kind: 'feature',
+        title: '`ratline config` reads and writes the configuration',
+        body:
+          'show, get, set, unset, edit, validate, reference and path. Every change is validated before it is committed, so a value that would not load leaves the previous file exactly as it was and the error names the setting. The editor is textual rather than a re-encode, which means your comments survive — the shipped defaults.yaml is the reference, and flattening it was a real thing that used to happen.',
+        code: `ratline config set defaults.memory_max 768M
+ratline config get acme.email
+ratline config validate`,
+      },
+      {
+        kind: 'feature',
+        title: 'Setting up databases is one command, not four',
+        body:
+          '`db connect` writes the admin connection string at 0600, creates its directory at 0700, turns provisioning on and proves the credentials work — and if any of that fails, nothing is left behind. Two of the four manual steps it replaces were about the mode of a file holding the root password for every database on the server. `db enable` and `db disable --forget` handle the rest of the lifecycle.',
+        code: `printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \\
+  | ratline db connect --stdin
+ratline db ping`,
+      },
+      {
+        kind: 'security',
+        title: 'The sudo grant path is tested now',
+        body:
+          'GrantSudo is the one function in ratline that can hand a tenant root, and nothing was testing it — not the unit tests, not the integration suite. The behaviour has not changed: still config-gated, still one command at a time, still the full argument list pinned so systemctl cannot be handed arbitrary arguments, still validated with visudo before installation. What is new is that each of those is now proved by breaking it and watching a test fail, and that the integration suite runs a real visudo and then asks sudo itself, with `sudo -l`, whether the rule is as narrow as ratline claims.',
+      },
+      {
+        title: 'The documentation site is organised by subject',
+        body:
+          'Every command has its own page rather than being one of fourteen stacked on a group page, and each sidebar section is a subject that owns everything about itself — its commands, the concepts behind them, the in-depth pages, the runbooks, and the configuration settings that change how it behaves. The thirteen `ratline explain` topics are on the site for the first time and searchable to the sentence: roughly 7,000 words that previously existed only behind a terminal command.',
+      },
+    ],
+    known: [
+      'DNS-01 is covered by the integration suite against a challenge test server, not against a real DNS provider’s API.',
+      'ratline db manages MongoDB only. There is no PostgreSQL or MySQL provisioning.',
+      'No whole-server restore: `restore` handles one site or one tenant, so rebuilding from nothing still means restoring /var/lib/ratline/state.db and /etc/ratline yourself, then `ratline reconcile --fix`.',
+    ],
+  },
+  {
     version: 'v0.4.0',
     date: '2026-08-05',
     summary:
