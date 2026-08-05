@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ALIRAZA47/ratline-cli/security/advisories/new
+    about: >
+      Privately, never as an issue. ratline runs as root and holds every tenant's keys.
+  - name: Diagnose it on the server first
+    url: https://github.com/ALIRAZA47/ratline-cli/blob/main/docs/operations/troubleshooting.md
+    about: >
+      `sudo ratline troubleshoot <site|user|key|cert|nginx|ssh|server>` walks the
+      dependency chain and stops at the cause rather than the symptom.

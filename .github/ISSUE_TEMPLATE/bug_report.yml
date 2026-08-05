@@ -1,0 +1,67 @@
+name: Bug report
+description: Something ratline did that it should not have, or did not do that it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do **not** report security vulnerabilities here — use a
+        [private advisory](https://github.com/ALIRAZA47/ratline-cli/security/advisories/new)
+        instead. See [SECURITY.md](../blob/main/SECURITY.md) for what counts.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: commands
+    attributes:
+      label: The commands
+      description: >
+        The smallest sequence that reproduces it, and the output. If a command failed,
+        include its full error — ratline tries to say what to do next, and an error that
+        failed to do so is itself worth reporting.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Version and host
+      description: >
+        The output of `ratline version`, which names the OS and the runtimes it found.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: What ratline says about it
+      description: >
+        Optional but usually decisive: `sudo ratline troubleshoot <the thing>` walks the
+        dependency chain and stops at the first failure, so the first `FAIL` line is
+        normally the cause. For a whole-server problem, `sudo ratline doctor`.
+      render: shell
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Site runtime
+      description: static, node, python, or not applicable.
+      placeholder: python
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is not a security vulnerability (those go in a private advisory)
+          required: true
+        - label: I have included the exact commands and the error text
+          required: true

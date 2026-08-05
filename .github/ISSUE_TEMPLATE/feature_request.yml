@@ -1,0 +1,54 @@
+name: Feature request
+description: Something ratline should be able to do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A few things are deliberate non-goals — a web UI, a daemon, containers, DNS and
+        mail management. They are listed at the bottom of the
+        [README](../blob/main/README.md); if your idea is one of those, say why the
+        reasoning there does not hold rather than skipping it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do, and what stops you today? Describe the situation
+        rather than the feature — the best version of a feature is often not the one
+        first imagined.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do instead right now
+      description: >
+        Even "I edit the vhost by hand and hope reconcile does not overwrite it" is
+        useful. It says how much the gap costs.
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: What it might look like
+      description: The command and flags you would want, if you have a view.
+      render: shell
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - users and access
+        - sites and runtimes
+        - certificates
+        - deploys
+        - diagnostics
+        - backup and restore
+        - configuration
+        - documentation
+        - something else
+    validations:
+      required: true
