@@ -173,6 +173,9 @@ acme:
   # only this, so a certificate issued with the flag alone can never renew.
   ca_bundle: ""
   key_type: ecdsa
+  # How early to renew. This is the window that decides, not certbot's own: ratline
+  # holds the state and the backoff, so once it judges a certificate due it tells
+  # certbot to act rather than letting certbot apply a second, narrower window on top.
   renew_before_days: 30
   dns_propagation_seconds: 60
   # Set by `ratline init` once the operator has accepted the CA's terms.

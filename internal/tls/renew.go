@@ -107,9 +107,17 @@ func (m *Manager) renewOne(ctx context.Context, cert *state.Certificate, opts Re
 	// much as anything else. The failures then fed the exponential backoff, so a
 	// certificate that lost the dice roll twice would wait hours before trying again.
 	args = append(args, "--no-random-sleep-on-renew")
-	if opts.Force {
-		args = append(args, "--force-renewal")
-	}
+	// Always, not only under --force: renewOne is reached only for a certificate
+	// ratline has already decided is due, by acme.renew_before_days. certbot applies
+	// its own 30-day window on top and answers "Certificate not yet due for renewal",
+	// which ratline recorded as "skipped" — so renew_before_days silently did nothing
+	// above 30 days. The default is 30, which is why the two agreed and nobody saw
+	// it; an operator who widened the window got no renewal and no complaint.
+	//
+	// The decision belongs to ratline: it has the state, it knows the backoff, and it
+	// is the setting the operator actually configured. certbot's job here is to
+	// execute it.
+	args = append(args, "--force-renewal")
 	if opts.DryRun {
 		args = append(args, "--dry-run")
 	}

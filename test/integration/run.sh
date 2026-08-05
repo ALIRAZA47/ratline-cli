@@ -571,8 +571,33 @@ else
         fi
         rm -f "$renewout"
 
+        # Clock skew: a certificate forced to five days out must be picked up by the
+        # renewal window rather than waiting for the timer's own schedule.
+        #
+        # Before the duplicate-budget loop below, not after. That loop exists to
+        # exhaust a rate limit, and anything downstream of it inherits an exhausted
+        # budget — so this was failing on the state its neighbour had deliberately
+        # created, and reporting it as a renewal-window bug.
+        sqlite_bin=$(command -v sqlite3 || true)
+        if [ -n "$sqlite_bin" ]; then
+            near=$(date -u -d '+5 days' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)
+            if [ -n "$near" ]; then
+                "$sqlite_bin" /var/lib/ratline/state.db \
+                    "UPDATE certificates SET not_after='$near' WHERE name='acme.test';" 2>/dev/null || true
+                out=$("$RATLINE" cert renew --all 2>&1)
+                case "$out" in
+                    *renewed*) ok "a certificate five days from expiry is renewed rather than skipped" ;;
+                    # The whole table, not the last two rows: which certificate did
+                    # what is the entire question here.
+                    *) bad "clock-skew renewal" "$(printf '%s' "$out")" ;;
+                esac
+            fi
+        else
+            printf '  skip  sqlite3 unavailable, so the clock-skew case was not exercised\n'
+        fi
+
         # A duplicate request must be refused by the local budget before it reaches
-        # the CA at all.
+        # the CA at all. Last in this section: it leaves the budget spent.
         for _ in 1 2 3 4 5 6; do
             "$RATLINE" cert issue acme.test --email ops@acme.test \
                 --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
@@ -587,25 +612,6 @@ else
         fi
     else
         bad "cert issue against Pebble" "see the output above"
-    fi
-
-    # Clock skew: a certificate forced to five days out must be picked up by the
-    # renewal window rather than waiting for the timer's own schedule.
-    if "$RATLINE" --json cert show acme.test >/dev/null 2>&1; then
-        sqlite_bin=$(command -v sqlite3 || true)
-        if [ -n "$sqlite_bin" ]; then
-            near=$(date -u -d '+5 days' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)
-            if [ -n "$near" ]; then
-                "$sqlite_bin" /var/lib/ratline/state.db                     "UPDATE certificates SET not_after='$near' WHERE name='acme.test';" 2>/dev/null || true
-                out=$("$RATLINE" cert renew --all 2>&1)
-                case "$out" in
-                    *renewed*) ok "a certificate five days from expiry is renewed rather than skipped" ;;
-                    *) bad "clock-skew renewal" "$(printf '%s' "$out" | tail -2)" ;;
-                esac
-            fi
-        else
-            printf '  skip  sqlite3 unavailable, so the clock-skew case was not exercised\n'
-        fi
     fi
 fi
 

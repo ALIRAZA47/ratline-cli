@@ -942,3 +942,48 @@ func TestRenewDoesNotLetCertbotSleepPastTheTimeout(t *testing.T) {
 		t.Errorf("certbot renew must pass --no-random-sleep-on-renew, got: %v", renewArgs)
 	}
 }
+
+func TestRatlineOwnsTheRenewalWindowNotCertbot(t *testing.T) {
+	// acme.renew_before_days is the operator's setting, and renewOne is reached only
+	// for a certificate ratline has already judged due by it. certbot applies its own
+	// 30-day window on top and answers "Certificate not yet due for renewal", which
+	// came back as "skipped" — so any window wider than 30 days silently did nothing.
+	// The default is 30, which is exactly why this stayed hidden.
+	m, st, _ := testManager(t)
+	m.DryRun = false
+	m.Cfg.ACME.RenewBeforeDays = 45 // wider than certbot's own 30
+	ctx := context.Background()
+
+	// 40 days out: inside ratline's window, outside certbot's.
+	cert := &state.Certificate{
+		Name: "wide.example.com", Source: state.CertSourceLetsEncrypt, AutoRenew: true,
+		NotBefore: time.Now().Add(-24 * time.Hour), NotAfter: time.Now().Add(40 * 24 * time.Hour),
+	}
+	if err := st.PutCertificate(ctx, cert); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Renew(ctx, RenewOptions{All: true}); err != nil {
+		t.Fatalf("Renew = %v", err)
+	}
+
+	runner := m.Runner.(*systest.FakeRunner)
+	var renewArgs []string
+	for _, c := range runner.Calls() {
+		if c.Name == "certbot" && len(c.Args) > 0 && c.Args[0] == "renew" {
+			renewArgs = c.Args
+		}
+	}
+	if renewArgs == nil {
+		t.Fatalf("a certificate 40 days out with a 45-day window was never sent to certbot; calls: %v",
+			runner.Keys())
+	}
+	var forced bool
+	for _, a := range renewArgs {
+		if a == "--force-renewal" {
+			forced = true
+		}
+	}
+	if !forced {
+		t.Errorf("ratline decided this was due, so certbot must be told to act: %v", renewArgs)
+	}
+}
