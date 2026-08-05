@@ -164,6 +164,14 @@ acme:
   email: ""
   directory_url: https://acme-v02.api.letsencrypt.org/directory
   staging_url: https://acme-staging-v02.api.letsencrypt.org/directory
+  # Only for a private ACME CA — step-ca, an internal issuer. certbot verifies the
+  # directory against certifi's bundled roots rather than the system trust store, so
+  # a private root installed with update-ca-certificates is not consulted.
+  #
+  # Set this whenever directory_url is not Let's Encrypt. `cert issue --acme-ca-bundle`
+  # covers a single issuance; renewal runs from a timer with no command line and reads
+  # only this, so a certificate issued with the flag alone can never renew.
+  ca_bundle: ""
   key_type: ecdsa
   renew_before_days: 30
   dns_propagation_seconds: 60

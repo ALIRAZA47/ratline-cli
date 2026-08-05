@@ -288,7 +288,24 @@ func systemTrustStore() string {
 // certifi's own roots are the right answer.
 func (m *Manager) caBundle(opts IssueOptions) string {
 	if opts.CABundle != "" {
+		// Renewal has no command line to read this from: it runs from a timer months
+		// later and takes the bundle from config. A one-off --acme-ca-bundle
+		// therefore issues a certificate that cannot renew, and the first sign is an
+		// expired site — so say it now, while someone is watching.
+		if m.Cfg.ACME.CABundle == "" {
+			m.Log.Warn("this bundle applies to the issuance only; renewal will not use it",
+				"bundle", opts.CABundle,
+				"fix", "set acme.ca_bundle in /etc/ratline/config.yaml to the same path")
+		} else if m.Cfg.ACME.CABundle != opts.CABundle {
+			m.Log.Warn("renewal will verify the ACME server with a different bundle than this issuance",
+				"issuing_with", opts.CABundle, "renewing_with", m.Cfg.ACME.CABundle)
+		}
 		return opts.CABundle
+	}
+	// The configured bundle is what renewal will use, so issuance has to agree with
+	// it — otherwise a certificate issues against a store it can never renew with.
+	if m.Cfg.ACME.CABundle != "" {
+		return m.Cfg.ACME.CABundle
 	}
 	// Only for a directory the operator named explicitly. A configured
 	// acme.directory_url pointing at Let's Encrypt must keep using certifi.

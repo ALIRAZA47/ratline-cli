@@ -504,6 +504,21 @@ else
     else
         bad "Pebble's minica is missing" "expected it at $PEBBLE_CA"
     fi
+
+    # And in config, not only on the issuing command line. Renewal runs from a timer
+    # months later with no flags: it reads acme.ca_bundle. Setting only the flag is
+    # how a certificate comes to be issued against a CA it can never renew against,
+    # which is what this suite caught.
+    # Inserted under the existing acme: key rather than appended — a second top-level
+    # acme: is a duplicate mapping key, which yaml.v3 rejects outright, so appending
+    # would break every later command instead of configuring one setting.
+    if grep -q "^  ca_bundle:" /etc/ratline/config.yaml; then
+        sed -i "s|^  ca_bundle:.*|  ca_bundle: $PEBBLE_CA|" /etc/ratline/config.yaml
+    else
+        sed -i "0,/^acme:/s||acme:\n  ca_bundle: $PEBBLE_CA|" /etc/ratline/config.yaml
+    fi
+    contains "the private CA bundle is configured for renewal" "$PEBBLE_CA" \
+        "$("$RATLINE" config show 2>/dev/null | grep -i ca_bundle || grep ca_bundle /etc/ratline/config.yaml)"
     if "$RATLINE" --verbose cert issue acme.test --email ops@acme.test \
             --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
             --dry-run 2>&1 | tail -25; then
@@ -546,7 +561,13 @@ else
             ok "forced renewal succeeded"
             contains "the renewal was recorded" "success" "$("$RATLINE" cert show acme.test)"
         else
-            bad "forced renewal" "$(tail -12 "$renewout")"
+            # certbot puts the reason in its own log and only a summary on stdout, so
+            # a failure here needs both or it takes a rebuild to find out anything.
+            bad "forced renewal" "$(tail -30 "$renewout")"
+            # Raw, not grepped for "error": when certbot *hangs* the interesting part
+            # is the last thing it did, which contains no error at all.
+            printf '        --- letsencrypt.log (last 40 lines) ---\n'
+            tail -40 /var/log/letsencrypt/letsencrypt.log 2>/dev/null | sed 's/^/        | /'
         fi
         rm -f "$renewout"
 

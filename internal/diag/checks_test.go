@@ -3,6 +3,8 @@ package diag
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -325,4 +327,63 @@ func ids(checks []Check) map[string]bool {
 		out[c.ID] = true
 	}
 	return out
+}
+
+func TestRenewalTrustIsOnlyDemandedForAPrivateCA(t *testing.T) {
+	// The check exists because the failure is invisible: issuance takes the bundle
+	// from a flag, renewal has no flag to take it from, and the certificate simply
+	// stops renewing months later. But demanding acme.ca_bundle for Let's Encrypt
+	// would be a false alarm on almost every server there is.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "renewal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, server string) {
+		t.Helper()
+		body := "[renewalparams]\nserver = " + server + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "renewal", name+".conf"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("public.test", "https://acme-v02.api.letsencrypt.org/directory")
+	write("private.test", "https://ca.internal:14000/dir")
+
+	bundle := filepath.Join(dir, "root.pem")
+	if err := os.WriteFile(bundle, []byte("-----BEGIN CERTIFICATE-----\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(certName, configured string) Result {
+		t.Helper()
+		env := &Env{Cfg: config.Default(), Log: log.Discard()}
+		env.Cfg.Paths.LetsEncryptDir = dir
+		env.Cfg.ACME.CABundle = configured
+		cert := &state.Certificate{
+			Name: certName, Source: state.CertSourceLetsEncrypt, AutoRenew: true,
+			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(60 * 24 * time.Hour),
+		}
+		for _, c := range CertChecks(env, cert) {
+			if c.ID == "renewal-trust" {
+				return c.Run(t.Context())
+			}
+		}
+		t.Fatal("there is no renewal-trust check")
+		return Result{}
+	}
+
+	if got := run("public.test", ""); got.Verdict != OK {
+		t.Errorf("Let's Encrypt with no bundle = %v (%s), want a pass", got.Verdict, got.Detail)
+	}
+	if got := run("unknown.test", ""); got.Verdict != OK {
+		t.Errorf("a lineage with no renewal config = %v, want a pass rather than a guess", got.Verdict)
+	}
+	if got := run("private.test", ""); got.Verdict != Failed {
+		t.Errorf("a private CA with no bundle = %v (%s), want a failure", got.Verdict, got.Detail)
+	}
+	if got := run("private.test", bundle); got.Verdict != OK {
+		t.Errorf("a private CA with a bundle = %v (%s), want a pass", got.Verdict, got.Detail)
+	}
+	if got := run("private.test", filepath.Join(dir, "absent.pem")); got.Verdict != Failed {
+		t.Errorf("a bundle that does not exist = %v, want a failure", got.Verdict)
+	}
 }

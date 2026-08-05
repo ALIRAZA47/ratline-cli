@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -140,6 +141,36 @@ func CertChecks(env *Env, c *state.Certificate) []Check {
 			},
 		},
 		{
+			ID:    "renewal-trust",
+			Title: "renewal can verify the certificate authority",
+			Needs: []string{"renewable"},
+			Run: func(context.Context) Result {
+				// certbot verifies the ACME directory against certifi's bundled roots,
+				// not the system trust store, so a private CA needs acme.ca_bundle. This
+				// costs nothing to check and is otherwise invisible until the
+				// certificate expires: issuance passes a bundle on the command line,
+				// renewal has no command line, and the failure is a TLS error inside
+				// certbot that reads as a network problem.
+				server := renewalServerFor(env, c.Name)
+				if server == "" || isPublicACME(server) {
+					return Pass("Let's Encrypt, verified with certbot's own roots")
+				}
+				if bundle := acmeCABundle(env); bundle != "" {
+					if !exists(bundle) {
+						return Fail("acme.ca_bundle points at %s, which does not exist", bundle).
+							WithFix("correct acme.ca_bundle in /etc/ratline/config.yaml").
+							WithTopic("tls")
+					}
+					return Pass("%s, verified with %s", server, bundle)
+				}
+				return Fail("this certificate renews from %s, and no acme.ca_bundle is set", server).
+					WithFix("set acme.ca_bundle in /etc/ratline/config.yaml to the CA's root; "+
+						"certbot cannot verify a private ACME server without it, and "+
+						"'ratline cert renew %s --dry-run' will show it failing", c.Name).
+					WithTopic("tls")
+			},
+		},
+		{
 			ID:    "attached",
 			Title: "the certificate is attached to a vhost",
 			Needs: []string{"parses"},
@@ -214,4 +245,48 @@ func servedCertificate(ctx context.Context, env *Env, domain string) (string, er
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// acmeCABundle is the configured trust store for a private ACME CA, if any.
+func acmeCABundle(env *Env) string {
+	if env == nil || env.Cfg == nil {
+		return ""
+	}
+	return env.Cfg.ACME.CABundle
+}
+
+// renewalServerFor reads the ACME directory out of a lineage's renewal config,
+// which is where certbot reads it from and therefore what renewal will really use.
+func renewalServerFor(env *Env, certName string) string {
+	if env == nil || env.Cfg == nil || env.Cfg.Paths.LetsEncryptDir == "" {
+		return ""
+	}
+	body, err := os.ReadFile(filepath.Join(
+		env.Cfg.Paths.LetsEncryptDir, "renewal", certName+".conf"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if key, value, ok := strings.Cut(line, "="); ok && strings.TrimSpace(key) == "server" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// isPublicACME reports whether certbot's own roots can verify this directory.
+func isPublicACME(server string) bool {
+	for _, host := range []string{
+		"acme-v02.api.letsencrypt.org",
+		"acme-staging-v02.api.letsencrypt.org",
+	} {
+		if strings.Contains(server, host) {
+			return true
+		}
+	}
+	return false
 }

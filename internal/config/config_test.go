@@ -311,3 +311,26 @@ func contains(hay []string, needle string) bool {
 	}
 	return false
 }
+
+func TestACMECABundleRoundTrips(t *testing.T) {
+	// Renewal reads this and nothing else, so a setting that silently fails to load
+	// is a certificate that silently fails to renew.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := "version: 1\nacme:\n  ca_bundle: /etc/ssl/private-ca.pem\n  email: ops@example.com\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load = %v", err)
+	}
+	if cfg.ACME.CABundle != "/etc/ssl/private-ca.pem" {
+		t.Errorf("acme.ca_bundle = %q, want the configured path", cfg.ACME.CABundle)
+	}
+	// Empty is the right default: certifi is the correct store for a public CA, and
+	// widening it by default would be a downgrade.
+	if Default().ACME.CABundle != "" {
+		t.Errorf("the default ca_bundle is %q, want empty", Default().ACME.CABundle)
+	}
+}

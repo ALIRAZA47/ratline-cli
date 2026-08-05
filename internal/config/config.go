@@ -175,9 +175,17 @@ type Runtimes struct {
 
 // ACME is the certificate policy, including the rate-limit budget.
 type ACME struct {
-	Email                 string     `yaml:"email"`
-	DirectoryURL          string     `yaml:"directory_url"`
-	StagingURL            string     `yaml:"staging_url"`
+	Email        string `yaml:"email"`
+	DirectoryURL string `yaml:"directory_url"`
+	StagingURL   string `yaml:"staging_url"`
+	// CABundle verifies the ACME server itself, for a private CA.
+	//
+	// certbot checks the directory's TLS certificate against certifi's bundled
+	// roots, not the system trust store, so a private CA's root installed with
+	// update-ca-certificates is not consulted. `cert issue --ca-bundle` covers one
+	// issuance; this is the setting that makes *renewal* work too, which has no
+	// command line to read it from. Leave it empty for a public CA.
+	CABundle              string     `yaml:"ca_bundle"`
 	KeyType               string     `yaml:"key_type"`
 	RenewBeforeDays       int        `yaml:"renew_before_days"`
 	DNSPropagationSeconds int        `yaml:"dns_propagation_seconds"`

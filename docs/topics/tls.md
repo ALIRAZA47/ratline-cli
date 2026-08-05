@@ -42,6 +42,31 @@ quietly for a week is visible rather than a surprise at expiry.
     ratline cert renew app.example.com --force
     ratline cert show app.example.com
 
+Naming one certificate exits non-zero if that renewal fails, so a script wrapping it
+finds out. `--all`, which is what the timer runs, does not: the existing certificates
+are still valid for weeks, and a timer that reports failure for something recoverable
+is a timer people learn to ignore.
+
+## A private certificate authority
+
+step-ca, an internal issuer, or anything else that is not Let's Encrypt:
+
+    acme:
+      directory_url: https://ca.internal/acme/acme/directory
+      ca_bundle: /etc/ssl/certs/internal-root.pem
+
+Both settings are needed. certbot checks the ACME server's own TLS certificate
+against certifi's bundled roots rather than the system trust store, so a private root
+installed with `update-ca-certificates` is not consulted and issuance fails with
+`CERTIFICATE_VERIFY_FAILED`.
+
+`cert issue --acme-ca-bundle` covers a single issuance. It does not cover renewal —
+renewal runs from a timer months later with no command line, and reads `acme.ca_bundle`.
+A certificate issued with the flag alone renews against nothing and expires, so
+`ratline cert issue` warns when the flag is set and the config is not, and
+`ratline doctor` fails the `renewal-trust` check for any lineage whose recorded ACME
+server is private while `acme.ca_bundle` is empty.
+
 ## Bringing your own
 
     ratline cert import app.example.com --cert fullchain.pem --key privkey.pem

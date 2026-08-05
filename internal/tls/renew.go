@@ -433,6 +433,11 @@ func minInt(a, b int) int {
 // CA it could already verify changes nothing, while missing a private one means the
 // certificate silently stops renewing.
 func (m *Manager) renewalCABundle(certName string) string {
+	// An explicit setting wins: the operator has said which store verifies their CA,
+	// and no inference beats that.
+	if m.Cfg.ACME.CABundle != "" {
+		return m.Cfg.ACME.CABundle
+	}
 	server := m.renewalServer(certName)
 	if server == "" {
 		// No conf, or no server line: certbot's default is Let's Encrypt.
