@@ -24,12 +24,28 @@ type SudoGrant struct {
 	Commands []string
 }
 
+// DefaultSudoersDir is where sudo reads drop-in rules.
+const DefaultSudoersDir = "/etc/sudoers.d"
+
+// sudoersDir is the directory the grants live in.
+//
+// A field rather than the constant everywhere so the tests can point it at a temporary
+// directory. Nothing in production sets it — but the alternative was that the one function
+// in this codebase which can hand a tenant root had no unit test at all, because exercising
+// it meant writing to the real /etc/sudoers.d.
+func (m *Manager) sudoersDir() string {
+	if m.SudoersDir != "" {
+		return m.SudoersDir
+	}
+	return DefaultSudoersDir
+}
+
 // sudoersFile is the drop-in for one tenant. A file per user rather than lines in
 // a shared file, so removing a grant cannot damage another one.
 func (m *Manager) sudoersFile(name string) string {
 	// sudo ignores any file in sudoers.d whose name contains a dot or ends in ~,
 	// which would make the grant silently do nothing.
-	return filepath.Join("/etc/sudoers.d", "ratline-"+strings.ReplaceAll(name, ".", "-"))
+	return filepath.Join(m.sudoersDir(), "ratline-"+strings.ReplaceAll(name, ".", "-"))
 }
 
 // GrantSudo installs a narrow sudo rule for a tenant.
@@ -99,7 +115,7 @@ func (m *Manager) GrantSudo(ctx context.Context, g SudoGrant) error {
 	// Staged to a temporary file and validated there. visudo -cf on the real path
 	// would mean a malformed file had already been installed, and a broken
 	// sudoers locks every sudo user out of the machine.
-	tmp, err := os.CreateTemp("/etc/sudoers.d", ".ratline-sudo-check-*")
+	tmp, err := os.CreateTemp(m.sudoersDir(), ".ratline-sudo-check-*")
 	if err != nil {
 		return rlerr.Wrap(err, rlerr.CodeGeneric, "creating a temporary sudoers file")
 	}
@@ -164,7 +180,7 @@ func (m *Manager) RevokeSudo(ctx context.Context, name string) error {
 // SudoGrants lists the tenants with a ratline-installed grant.
 func (m *Manager) SudoGrants(ctx context.Context) (map[string][]string, error) {
 	out := map[string][]string{}
-	entries, err := os.ReadDir("/etc/sudoers.d")
+	entries, err := os.ReadDir(m.sudoersDir())
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No sudoers.d at all, so there are no grants to list.
@@ -172,13 +188,13 @@ func (m *Manager) SudoGrants(ctx context.Context) (map[string][]string, error) {
 		}
 		// Otherwise the answer is unknown, and an empty map would read as "nobody has
 		// sudo" — the opposite of the safe reading for a privilege audit.
-		return nil, rlerr.Wrap(err, rlerr.CodePrecondition, "could not read /etc/sudoers.d")
+		return nil, rlerr.Wrap(err, rlerr.CodePrecondition, "could not read %s", m.sudoersDir())
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasPrefix(e.Name(), "ratline-") {
 			continue
 		}
-		path := filepath.Join("/etc/sudoers.d", e.Name())
+		path := filepath.Join(m.sudoersDir(), e.Name())
 		data, err := system.ReadFileLimit(path, 1<<20)
 		if err != nil {
 			continue

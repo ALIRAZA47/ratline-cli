@@ -1149,6 +1149,104 @@ else
     printf '  skip  git unavailable\n'
 fi
 
+# ---------------------------------------------------------------- sudo
+#
+# The escape hatch, and the one path in this tool that can hand a tenant root. The unit
+# tests cover the refusals against a fake visudo; this covers the half they cannot — a real
+# visudo, a real /etc/sudoers.d, and whether sudo itself agrees the grant means what
+# ratline says it means.
+#
+# The property that matters most is the last one: after everything here, `visudo -c` on the
+# real file must still pass. A malformed sudoers locks every sudo user out of the machine,
+# which on a server with no console is unrecoverable.
+
+info "sudo grants"
+
+sudoers_ratline() { ls /etc/sudoers.d 2>/dev/null | grep -c '^ratline-' || true; }
+
+# Off by default, and the refusal must come before anything is staged.
+"$RATLINE" config set users.allow_sudo false >/dev/null 2>&1
+refute "a grant is refused while users.allow_sudo is false" \
+    "$RATLINE" user sudo grant alice --command '/usr/bin/systemctl restart nginx' --yes
+if [ "$(sudoers_ratline)" = "0" ]; then
+    ok "and nothing was written to /etc/sudoers.d"
+else
+    bad "a refused grant still wrote to /etc/sudoers.d" "$(ls /etc/sudoers.d)"
+fi
+
+check "turning it on is an explicit config change" "$RATLINE" config set users.allow_sudo true
+
+# A relative name resolves through the caller's PATH at sudo time, which would let the
+# tenant choose what runs as root.
+refute "a relative program is refused" \
+    "$RATLINE" user sudo grant alice --command 'systemctl restart nginx' --yes
+refute "a blanket grant has no spelling that works" \
+    "$RATLINE" user sudo grant alice --command 'ALL' --yes
+refute "a program that does not exist is refused" \
+    "$RATLINE" user sudo grant alice --command '/opt/nothing/here --now' --yes
+if [ "$(sudoers_ratline)" = "0" ]; then
+    ok "none of the refusals left a file behind"
+else
+    bad "a refused grant left a file behind" "$(ls /etc/sudoers.d)"
+fi
+
+check "a narrow grant is installed" \
+    "$RATLINE" user sudo grant alice --command '/usr/bin/systemctl restart nginx' --yes
+
+grant_file=/etc/sudoers.d/ratline-alice
+if [ -f "$grant_file" ]; then
+    ok "the drop-in exists"
+    mode=$(stat -c '%a' "$grant_file")
+    if [ "$mode" = "440" ]; then
+        ok "at 0440, the only mode sudo will read"
+    else
+        bad "the drop-in is mode $mode" "sudo ignores anything that is not 0440"
+    fi
+    contains "the full argv is pinned" \
+        "/usr/bin/systemctl restart nginx" "$(cat "$grant_file")"
+    contains "and it carries the managed header" "managed-by: ratline" "$(cat "$grant_file")"
+else
+    bad "the drop-in was not installed" "$(ls /etc/sudoers.d)"
+fi
+
+# The whole point of validating before installing.
+check "sudoers is still valid" visudo -c
+
+# What sudo itself thinks alice may do — the end-to-end proof that the rule parses and
+# applies to the account it names, rather than merely being a file with the right words in.
+alice_sudo=$(sudo -l -U alice 2>&1 || true)
+contains "sudo agrees she may restart nginx" "/usr/bin/systemctl restart nginx" "$alice_sudo"
+# The narrowness is the feature. `systemctl` with arbitrary arguments is root.
+case "$alice_sudo" in
+    *"(ALL) ALL"*|*"NOPASSWD: ALL"*)
+        bad "sudo reports a blanket grant" "$alice_sudo" ;;
+    *)  ok "and nothing wider than that" ;;
+esac
+
+contains "the audit lists her" "alice" "$("$RATLINE" user sudo list 2>&1)"
+
+# An operator's own rule is not ratline's to delete: it may be their last route back in.
+printf 'bob ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx\n' > /etc/sudoers.d/ratline-bob
+chmod 0440 /etc/sudoers.d/ratline-bob
+refute "revoke refuses a file ratline did not write" "$RATLINE" user sudo revoke bob
+if [ -f /etc/sudoers.d/ratline-bob ]; then
+    ok "and the hand-written rule is still there"
+else
+    bad "revoke deleted a hand-written sudoers rule"
+fi
+rm -f /etc/sudoers.d/ratline-bob
+
+check "revoke removes its own grant" "$RATLINE" user sudo revoke alice
+if [ ! -f "$grant_file" ]; then
+    ok "the drop-in is gone"
+else
+    bad "the drop-in survived the revoke"
+fi
+check "sudoers is valid after the revoke" visudo -c
+refute "revoking again says there is nothing to revoke" "$RATLINE" user sudo revoke alice
+
+"$RATLINE" config set users.allow_sudo false >/dev/null 2>&1
+
 # ---------------------------------------------------------------- backup/restore
 
 info "backup and restore"

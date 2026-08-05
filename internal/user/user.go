@@ -30,6 +30,10 @@ type Manager struct {
 	State   *state.Store
 	Invoker string
 	DryRun  bool
+
+	// SudoersDir overrides where sudo drop-ins are written. Empty means
+	// DefaultSudoersDir; only the tests set it.
+	SudoersDir string
 }
 
 // AddOptions is the resolved form of `ratline user add`.

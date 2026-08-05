@@ -127,6 +127,10 @@ nginx, real systemd units and a real certificate issued over a real ACME exchang
 against [Pebble](https://github.com/letsencrypt/pebble). It is where the bugs that
 matter get found.
 
+Where a guarantee is enforced by another program, that program checks it: sudo grants
+are validated by real `visudo` and then read back with `sudo -l` to confirm the rule is
+as narrow as ratline says it is.
+
 ## Non-goals
 
 No web UI, no daemon, no API server — though the internal packages are structured so an
