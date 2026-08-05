@@ -74,7 +74,7 @@ Running a server that already exists.
 |---|---|
 | [monitoring.md](operations/monitoring.md) | `status` vs `doctor`, and the audit log |
 | [troubleshooting.md](operations/troubleshooting.md) | 502, 404, 413, and the order to check in |
-| [backup-and-restore.md](operations/backup-and-restore.md) | What `backup` archives, and the gap where restore should be |
+| [backup-and-restore.md](operations/backup-and-restore.md) | What `backup` archives, what `restore` rebuilds, and what neither covers |
 | [drift-and-reconcile.md](operations/drift-and-reconcile.md) | When someone edited nginx by hand |
 | [upgrading.md](operations/upgrading.md) | `ratline update`, rollback, schema migrations |
 
