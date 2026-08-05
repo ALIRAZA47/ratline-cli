@@ -518,7 +518,7 @@ else
         sed -i "0,/^acme:/s||acme:\n  ca_bundle: $PEBBLE_CA|" /etc/ratline/config.yaml
     fi
     contains "the private CA bundle is configured for renewal" "$PEBBLE_CA" \
-        "$("$RATLINE" config show 2>/dev/null | grep -i ca_bundle || grep ca_bundle /etc/ratline/config.yaml)"
+        "$(grep ca_bundle /etc/ratline/config.yaml)"
     if "$RATLINE" --verbose cert issue acme.test --email ops@acme.test \
             --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
             --dry-run 2>&1 | tail -25; then
@@ -585,9 +585,14 @@ else
             # Asserted on the ca_bundle findings specifically, not on doctor's overall
             # verdict: this box carries self-signed certificates on purpose, so the
             # sweep always has warnings and `healthy` is never true.
+            # Walked with `..` rather than reaching for `.findings`, because --json wraps
+            # every payload in an {ok, command, version, data} envelope — so `.findings`
+            # matched nothing and the assertion passed for a certificate that had no
+            # trust store at all. A filter that silently finds nothing is worse than no
+            # filter, because it reads as a passing test.
             bundle_findings() {
                 "$RATLINE" --json doctor 2>/dev/null \
-                    | jq -r '[.findings[]?|select(.detail|test("ca_bundle"))]|length' 2>/dev/null
+                    | jq -r '[..|objects|select((.detail? // "")|test("ca_bundle"))]|length' 2>/dev/null
             }
             contains "the sweep says nothing about ca_bundle when it is right" "0" "$(bundle_findings)"
 
