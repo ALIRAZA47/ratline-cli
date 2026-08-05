@@ -379,3 +379,47 @@ func MkdirAllMode(path string, mode fs.FileMode) error {
 	// idempotent for a directory whose mode has drifted.
 	return Chmod(clean, mode)
 }
+
+// ChownTree sets ownership on a directory and everything under it.
+//
+// Symlinks are changed with lchown, not followed. Following them would let a symlink
+// inside a restored archive — pointing at /etc/shadow, say — hand a tenant ownership of
+// a file outside their own tree, which is a privilege escalation delivered by tarball.
+//
+// Errors on individual entries are collected rather than fatal on the first one: a tree
+// left half-owned is worse than one where a single unreadable entry is reported.
+func ChownTree(root string, uid, gid int) error {
+	if uid == KeepUnchanged && gid == KeepUnchanged {
+		return nil
+	}
+	var failed []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// Recorded and skipped rather than returned: aborting the walk on the first
+			// unreadable entry would leave the tree half-owned, which is worse than one
+			// entry being reported. Every failure is collected and reported below.
+			failed = append(failed, path)
+			//nolint:nilerr // collected in `failed` and reported after the walk
+			return nil
+		}
+		// os.Lchown on a non-symlink behaves exactly like os.Chown, so this is the
+		// correct call for every entry rather than a special case for links.
+		if lerr := os.Lchown(path, uid, gid); lerr != nil {
+			failed = append(failed, path)
+		}
+		_ = d
+		return nil
+	})
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "walking %s to set ownership", root)
+	}
+	if len(failed) > 0 {
+		shown := failed
+		if len(shown) > 3 {
+			shown = shown[:3]
+		}
+		return rlerr.Genericf("could not set ownership on %d path(s) under %s, including %s",
+			len(failed), root, strings.Join(shown, ", "))
+	}
+	return nil
+}

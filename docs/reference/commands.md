@@ -146,6 +146,7 @@ RUNTIMES
 OPERATIONS
   init         Set up this server: configuration, directories and defaults
   backup       Archive a user's home or a single site
+  restore      Put a backup archive back, and rebuild what serves it
   doctor       Check the server, or diagnose one thing on it
   status       Show everything on this server on one screen
   troubleshoot Find why something is broken, in the order things depend on each other
@@ -453,6 +454,51 @@ Global Flags:
 Examples:
   ratline backup acme --out /var/backups/ratline
   ratline backup example.com --out /mnt/backup
+```
+
+### `ratline restore`
+
+```
+The counterpart to 'ratline backup'. Reads the archive, works out whether it is a
+site or a whole home, and puts it back.
+
+An archive holds a directory — code, logs, .env and, for a site, its manifest. It
+does not hold the state database, the nginx vhost, the systemd unit or the
+tenant's uid, so those are rebuilt: the state row comes from the manifest that
+travelled with the files, the vhost and unit are re-rendered from it, and
+ownership is set from the account as it exists on *this* server rather than from
+the uids in the archive.
+
+The owning account has to exist first. An account is a uid, a group, a shell and
+a set of keys, none of which is in the archive — 'ratline user add' is what knows
+how to make one.
+
+The extraction is staged and the swap is a rename, so a failure leaves what was
+there before. Restoring a home rebuilds every site inside it.
+
+Usage:
+  ratline restore <archive.tar.gz> [flags]
+
+Flags:
+      --force      Replace the directory if it already exists
+  -h, --help       help for restore
+      --no-start   Restore without starting the service
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline restore /var/backups/ratline/example.com-20260105T120000Z.tar.gz
+  ratline restore acme-20260105T120000Z.tar.gz --force
+  ratline restore example.com-20260105T120000Z.tar.gz --no-start
+  ratline restore example.com-20260105T120000Z.tar.gz --dry-run
 ```
 
 ### `ratline doctor`

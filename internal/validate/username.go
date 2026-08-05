@@ -61,21 +61,35 @@ type UserPolicy struct {
 	GroupExists func(string) bool
 }
 
-// UsernameAvailable applies the reserved list and the on-disk checks.
-func UsernameAvailable(name string, p UserPolicy) error {
-	if err := Username(name); err != nil {
-		return err
-	}
-	reserved := make(map[string]bool, len(DefaultReservedNames)+len(p.Reserved))
+// UsernameNotReserved refuses a name ratline must never treat as a tenant.
+//
+// Split out from UsernameAvailable because that also refuses a name that *exists*,
+// which is the opposite of what some callers need: restoring a site requires its owner
+// to be present already, and still must not accept "root" as one. Syntax alone does not
+// catch that — "root" is a perfectly well-formed username, and a site owned by it would
+// render a unit with User=root and chown a tenant's files to uid 0.
+func UsernameNotReserved(name string, extra []string) error {
+	reserved := make(map[string]bool, len(DefaultReservedNames)+len(extra))
 	for _, r := range DefaultReservedNames {
 		reserved[r] = true
 	}
-	for _, r := range p.Reserved {
+	for _, r := range extra {
 		reserved[strings.ToLower(strings.TrimSpace(r))] = true
 	}
 	if reserved[name] {
 		return rlerr.Preconditionf("%q is a reserved name", name).
 			WithHint("pick a different name; the reserved list lives under users.reserved in /etc/ratline/config.yaml")
+	}
+	return nil
+}
+
+// UsernameAvailable applies the reserved list and the on-disk checks.
+func UsernameAvailable(name string, p UserPolicy) error {
+	if err := Username(name); err != nil {
+		return err
+	}
+	if err := UsernameNotReserved(name, p.Reserved); err != nil {
+		return err
 	}
 	if p.UserExists != nil && p.UserExists(name) {
 		return rlerr.Preconditionf("the system user %q already exists", name).

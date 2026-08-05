@@ -11,6 +11,7 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/runtime"
+	"github.com/ALIRAZA47/ratline-cli/internal/site"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/validate"
@@ -495,4 +496,85 @@ func validateRelaxNames(names []string) error {
 		}
 	}
 	return nil
+}
+
+// newRestoreCommand puts a backup archive back.
+func newRestoreCommand(g *Globals) *cobra.Command {
+	var opts site.RestoreOptions
+	cmd := &cobra.Command{
+		Use:     "restore <archive.tar.gz>",
+		Short:   "Put a backup archive back, and rebuild what serves it",
+		GroupID: GroupOps,
+		Args:    cobra.ExactArgs(1),
+		Long: "The counterpart to 'ratline backup'. Reads the archive, works out whether it is a\n" +
+			"site or a whole home, and puts it back.\n\n" +
+			"An archive holds a directory — code, logs, .env and, for a site, its manifest. It\n" +
+			"does not hold the state database, the nginx vhost, the systemd unit or the\n" +
+			"tenant's uid, so those are rebuilt: the state row comes from the manifest that\n" +
+			"travelled with the files, the vhost and unit are re-rendered from it, and\n" +
+			"ownership is set from the account as it exists on *this* server rather than from\n" +
+			"the uids in the archive.\n\n" +
+			"The owning account has to exist first. An account is a uid, a group, a shell and\n" +
+			"a set of keys, none of which is in the archive — 'ratline user add' is what knows\n" +
+			"how to make one.\n\n" +
+			"The extraction is staged and the swap is a rename, so a failure leaves what was\n" +
+			"there before. Restoring a home rebuilds every site inside it.",
+		Example: "  ratline restore /var/backups/ratline/example.com-20260105T120000Z.tar.gz\n" +
+			"  ratline restore acme-20260105T120000Z.tar.gz --force\n" +
+			"  ratline restore example.com-20260105T120000Z.tar.gz --no-start\n" +
+			"  ratline restore example.com-20260105T120000Z.tar.gz --dry-run",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.Archive = args[0]
+			mgr, err := g.siteManager(cmd.Context())
+			if err != nil {
+				return err
+			}
+			// Replacing a directory that is serving is destructive, so it is confirmed
+			// like every other destructive operation rather than only flag-gated.
+			if opts.Force && !g.DryRun {
+				ok, err := g.Confirm("Replace the directory this archive restores over?")
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return ErrCancelled
+				}
+			}
+			res, err := mgr.Restore(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			if g.JSON {
+				return g.EmitJSON(res)
+			}
+			if g.DryRun {
+				g.Printf("Would restore %s %s to %s\n", res.Kind, res.Name, res.Target)
+				return nil
+			}
+			g.Printf("Restored %s %s\n", res.Kind, res.Name)
+			fields := [][2]string{
+				{"target", res.Target},
+				{"from", validate.FormatSize(res.Bytes) + " archive"},
+			}
+			if res.Replaced {
+				fields = append(fields, [2]string{"replaced", "the previous directory"})
+			}
+			if res.Health != "" {
+				fields = append(fields, [2]string{"health", res.Health})
+			}
+			if err := g.Fields(fields...); err != nil {
+				return err
+			}
+			g.Printf("\nWorth confirming:\n  ratline troubleshoot %s\n", res.Name)
+			if res.Site != nil && res.Site.HSTS {
+				g.Printf("\nThis site had HSTS. It needs a certificate before a browser will reach it:\n"+
+					"  ratline cert issue %s\n", res.Name)
+			}
+			return nil
+		},
+	}
+	f := cmd.Flags()
+	f.BoolVar(&opts.Force, "force", false, "Replace the directory if it already exists")
+	f.BoolVar(&opts.SkipStart, "no-start", false, "Restore without starting the service")
+	return Mutating(cmd)
 }

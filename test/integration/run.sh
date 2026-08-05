@@ -707,6 +707,116 @@ else
     printf '  skip  git unavailable\n'
 fi
 
+# ---------------------------------------------------------------- backup/restore
+
+info "backup and restore"
+
+# The round trip is the whole point. A backup nobody has restored is a file, not a
+# backup — and until `ratline restore` existed, recovery was a paragraph in the
+# documentation that had never once been executed.
+#
+# On its own site rather than static.test: this destroys what it restores, and the
+# certificate and operations sections downstream assume static.test is still there.
+BK=/var/backups/ratline
+check "a site to back up" "$RATLINE" site add restore.test --user alice --runtime static --ssl none
+echo 'hello restored' > /home/alice/restore.test/public/index.html
+chown alice:alice /home/alice/restore.test/public/index.html
+printf 'SECRET=in-the-archive\n' > /home/alice/restore.test/.env
+chown alice:alice /home/alice/restore.test/.env
+
+if "$RATLINE" backup restore.test --out "$BK" >/dev/null 2>&1; then
+    ok "backup writes an archive"
+    arch=$(ls -1t "$BK"/restore.test-*.tar.gz 2>/dev/null | head -1)
+    check "the archive is 0600, because it holds .env" \
+        bash -c "[ \"\$(stat -c %a '$arch')\" = 600 ]"
+    listing=$(tar -tzf "$arch")
+    contains "it carries the manifest restore reads"  ".ratline/site.yaml" "$listing"
+    contains "and the .env"                           "restore.test/.env"  "$listing"
+    contains "with relative paths only"               "restore.test/"      "$listing"
+
+    # Destroy it completely — files, vhost, unit, state row — then put it back from the
+    # archive alone. Whatever restore fails to rebuild shows up in the assertions below.
+    "$RATLINE" site delete restore.test --purge --yes >/dev/null 2>&1
+    check "the site is really gone"  bash -c '[ ! -d /home/alice/restore.test ]'
+    refute "and nginx no longer has it" test -f /etc/nginx/sites-enabled/restore.test.conf
+
+    if "$RATLINE" restore "$arch" 2>&1 | tail -20; then
+        ok "restore completes"
+        check "the files are back"    bash -c '[ -d /home/alice/restore.test/public ]'
+        check "owned by the tenant"   bash -c '[ "$(stat -c %U /home/alice/restore.test)" = alice ]'
+        check "and still 0750"        bash -c '[ "$(stat -c %a /home/alice/restore.test)" = 750 ]'
+        check ".env came back 0600"   bash -c '[ "$(stat -c %a /home/alice/restore.test/.env)" = 600 ]'
+        contains "the state row was rebuilt from the manifest" \
+            "restore.test" "$("$RATLINE" site list)"
+        check "the vhost was re-rendered" test -f /etc/nginx/sites-enabled/restore.test.conf
+        check "nginx still validates"     nginx -t
+        # The assertion that matters: it serves what it served before.
+        served=$(curl -sS -H 'Host: restore.test' http://127.0.0.1/ 2>&1)
+        contains "and it serves what it did before the delete" "hello restored" "$served"
+        # And the secret survived, which is the reason the archive is 0600.
+        contains "the .env contents survived" "in-the-archive" \
+            "$(cat /home/alice/restore.test/.env)"
+        check "doctor is happy with the restored site" "$RATLINE" troubleshoot restore.test
+    else
+        bad "restore" "see the output above"
+    fi
+
+    # Refusals. This runs as root and extracts an archive of unknown provenance.
+    exits_with 3 "an archive that is not there is refused" \
+        "$RATLINE" restore "$BK/does-not-exist.tar.gz"
+    printf 'not a tar at all\n' > "$BK/junk.tar.gz"
+    refute "something that is not an archive is refused" "$RATLINE" restore "$BK/junk.tar.gz"
+    rm -f "$BK/junk.tar.gz"
+    refute "restoring over a live site without --force is refused" "$RATLINE" restore "$arch"
+    check "--force replaces it" "$RATLINE" restore "$arch" --force --yes
+
+    work=$(mktemp -d)
+    tar -xzf "$arch" -C "$work"
+
+    # An archive whose manifest names an account this server does not have. Restore has
+    # to refuse rather than invent a tenant: an account is a uid, a group, a shell and a
+    # set of keys, none of which is in the archive.
+    sed -i 's/^owner: .*/owner: nosuchtenant/' "$work/restore.test/.ratline/site.yaml"
+    tar -C "$work" -czf "$BK/orphan.tar.gz" restore.test
+    out=$("$RATLINE" restore "$BK/orphan.tar.gz" --force --yes 2>&1 || true)
+    contains "an archive for an unknown account is refused" "does not exist" "$out"
+    contains "and it names the command that creates one"    "user add"      "$out"
+
+    # And one naming root as the owner, which is syntactically a fine username and
+    # would render a unit with User=root over a tenant's files.
+    sed -i 's/^owner: .*/owner: root/' "$work/restore.test/.ratline/site.yaml"
+    tar -C "$work" -czf "$BK/rooted.tar.gz" restore.test
+    out=$("$RATLINE" restore "$BK/rooted.tar.gz" --force --yes 2>&1 || true)
+    contains "an archive claiming root as the owner is refused" "reserved" "$out"
+
+    # One that would write outside the directory it is extracted into.
+    if tar -C "$work" -czf "$BK/evil.tar.gz" \
+            --transform 's|^restore.test|../../../etc/ratline-evil|' restore.test 2>/dev/null \
+            && tar -tzf "$BK/evil.tar.gz" | grep -q '\.\.'; then
+        out=$("$RATLINE" restore "$BK/evil.tar.gz" --force --yes 2>&1 || true)
+        contains "an archive with a traversing path is refused" "traversing" "$out"
+        check "and nothing was written outside" bash -c '[ ! -e /etc/ratline-evil ]'
+    else
+        printf '  skip  this tar cannot build a traversing archive to test against\n'
+    fi
+    rm -rf "$work" "$BK"/orphan.tar.gz "$BK"/rooted.tar.gz "$BK"/evil.tar.gz
+
+    # A whole-home archive rebuilds every site inside it, not merely the files.
+    if "$RATLINE" backup alice --out "$BK" >/dev/null 2>&1; then
+        ok "a home can be archived too"
+        contains "the home archive contains a site manifest" ".ratline/site.yaml" \
+            "$(tar -tzf "$(ls -1t "$BK"/alice-*.tar.gz | head -1)")"
+    else
+        bad "backup of a home" "see the output above"
+    fi
+
+    # Leave nothing behind for the sections after this one.
+    "$RATLINE" site delete restore.test --purge --yes >/dev/null 2>&1
+    check "the restore fixture is cleaned up" bash -c '[ ! -d /home/alice/restore.test ]'
+else
+    bad "backup" "see the output above"
+fi
+
 # ---------------------------------------------------------------- operations
 
 info "operations"
