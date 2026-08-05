@@ -436,14 +436,27 @@ if [ -z "$DIRECTORY" ]; then
 elif ! command -v certbot >/dev/null 2>&1; then
     printf '  skip  certbot is not installed in this image\n'
 else
-    # Pebble signs with its own root, so certbot has to trust it. Fetching the
-    # root from the management API is how Pebble intends this to be done.
-    if curl -sSk -o /tmp/pebble-root.pem "${DIRECTORY%/dir}/roots/0" 2>/dev/null             || curl -sSk -o /tmp/pebble-root.pem "https://10.30.50.2:15000/roots/0" 2>/dev/null; then
-        cp /tmp/pebble-root.pem /usr/local/share/ca-certificates/pebble-root.crt 2>/dev/null || true
-        update-ca-certificates >/dev/null 2>&1 || true
-        ok "the Pebble root is in the trust store"
+    # Pebble signs with its own root, via an intermediate, and *both* are needed.
+    #
+    # The root alone is not enough: Pebble issues from an intermediate and nginx
+    # serves the chain it was given, so a client with only the root cannot build a
+    # path and every verification of the served certificate fails — which looks like
+    # a broken site rather than an incomplete trust store.
+    MGMT="https://pebble:15000"
+    trusted=0
+    for pair in "roots/0 pebble-root" "intermediates/0 pebble-intermediate"; do
+        set -- $pair
+        if curl -sSk -o "/tmp/$2.pem" "$MGMT/$1" 2>/dev/null && [ -s "/tmp/$2.pem" ]; then
+            cp "/tmp/$2.pem" "/usr/local/share/ca-certificates/$2.crt"
+            trusted=$((trusted+1))
+        fi
+    done
+    update-ca-certificates >/dev/null 2>&1 || true
+    if [ "$trusted" = "2" ]; then
+        ok "Pebble's root and intermediate are in the trust store"
     else
-        bad "could not fetch the Pebble root" "TLS verification against it will fail"
+        bad "could not fetch Pebble's issuance chain" \
+            "got $trusted of 2 certificates; verifying the served chain will fail"
     fi
 
     # Point the challenge server's DNS at this container, so Pebble resolves the
