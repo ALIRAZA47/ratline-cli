@@ -35,6 +35,10 @@ export interface NavSection {
  */
 const searchKeywords: Record<string, string[]> = {
   '/': ['what is ratline', 'overview', 'ploi', 'runcloud', 'dokku', 'vps', 'ubuntu', 'scope'],
+  '/releases': [
+    'changelog', 'release notes', 'whats new', 'what is new', 'versions', 'upgrade',
+    'update', 'history', 'v0.1.0', 'v0.2.0', 'v0.3.0', 'v0.4.0',
+  ],
   '/quickstart': [
     'install', 'getting started', 'first site', 'go build', 'ratline init', 'https', 'setup',
   ],
@@ -164,6 +168,11 @@ const rawNav: NavSection[] = [
         label: 'Command surface at a glance',
         to: '/reference',
         blurb: 'Every group, every verb, with build status.',
+      },
+      {
+        label: 'Release notes',
+        to: '/releases',
+        blurb: 'What changed in each version, and what is still missing.',
       },
     ],
   },

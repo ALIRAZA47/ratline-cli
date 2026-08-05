@@ -12,6 +12,7 @@ import { JsonEnvelope } from './pages/JsonEnvelope';
 import { ConfigReference } from './pages/ConfigReference';
 import { ValidationPage } from './pages/ValidationPage';
 import { NotFound } from './pages/NotFound';
+import { Releases } from './pages/Releases';
 
 import { ConceptModel } from './pages/concepts/Model';
 import { ConceptSshScopes } from './pages/concepts/SshScopes';
@@ -44,6 +45,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="quickstart" element={<Quickstart />} />
 
+        <Route path="releases" element={<Releases />} />
         <Route path="reference" element={<ReferenceIndex />} />
         <Route path="reference/global-flags" element={<GlobalFlags />} />
         <Route path="reference/exit-codes" element={<ExitCodesPage />} />
