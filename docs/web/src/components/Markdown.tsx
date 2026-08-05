@@ -254,6 +254,77 @@ export function Markdown({ source, skipTitle = false }: MarkdownProps) {
   );
 }
 
+/**
+ * plain strips the inline markers, so indexed text matches what a reader would type.
+ *
+ * Backticks and asterisks only — deliberately not underscores. Stripping `_` as an
+ * emphasis marker turns `max_memory_restart` into `maxmemoryrestart`, and an identifier
+ * with underscores in it is precisely what somebody searches a CLI reference for. It cost
+ * ten terms before this was noticed. None of the topics use `_emphasis_` anyway; they use
+ * asterisks, and intra-word underscores are not emphasis in any flavour that matters.
+ */
+function plain(text: string): string {
+  return text.replace(/[`*]/g, '');
+}
+
+/** textOf flattens one block to searchable prose. */
+function textOf(b: Block): string {
+  switch (b.kind) {
+    case 'heading':
+      return plain(b.text);
+    case 'quote':
+    case 'code':
+    case 'para':
+      return plain(b.lines.join(' '));
+    case 'list':
+      return plain(b.items.join(' '));
+    case 'table':
+      return plain(b.rows.flat().join(' '));
+  }
+}
+
+export interface Section {
+  /** The anchor, matching what the rendered heading gets. Empty for the preamble. */
+  id: string;
+  title: string;
+  text: string;
+}
+
+/**
+ * Split a topic into its level-two sections, for the search index.
+ *
+ * Without this the index held each topic's title and its one-line summary and nothing
+ * else, so 6,801 words of the best-written documentation in the project were the least
+ * findable text on the site: of 510 distinctive terms in those bodies, 190 returned no
+ * results at all — `readWriteAnyDatabase` and `authSource` among them.
+ *
+ * Sections rather than whole pages, because a hit in a 900-word page that scrolls you to
+ * the top has told you the answer is somewhere on it. Level three folds into its parent:
+ * the anchor exists, but a subsection is rarely what somebody means.
+ */
+export function sectionsOf(source: string): Section[] {
+  const blocks = parseBlocks(source);
+  const out: Section[] = [];
+  let current: Section = { id: '', title: '', text: '' };
+
+  for (const b of blocks) {
+    if (b.kind === 'heading' && b.level === 1) {
+      current.title ||= plain(b.text);
+      continue;
+    }
+    if (b.kind === 'heading' && b.level === 2) {
+      out.push(current);
+      current = { id: slug(b.text), title: plain(b.text), text: '' };
+      continue;
+    }
+    current.text += (current.text ? ' ' : '') + textOf(b);
+  }
+  out.push(current);
+  // A section with a heading and no prose under it is still worth finding by its heading;
+  // an empty preamble is not.
+  return out.filter((s) => s.id !== '' || s.text !== '');
+}
+
 /** headingsOf extracts the level-two headings, for an on-this-page index. */
 export function headingsOf(source: string): { id: string; text: string }[] {
   return parseBlocks(source)

@@ -1,12 +1,14 @@
 import { nav } from '../data/nav';
 import { allCommands } from '../data/groups';
+import { topics } from '../data/topics';
+import { sectionsOf } from '../components/Markdown';
 import { configSections } from '../data/config';
 import { exitCodes, globalFlags } from '../data/globals';
 import { rules } from '../data/validation';
 import type { Command } from '../data/types';
 import { flatAnchoredFlags } from './flags';
 
-export type ResultKind = 'page' | 'command' | 'flag' | 'setting' | 'exit' | 'rule';
+export type ResultKind = 'page' | 'command' | 'topic' | 'flag' | 'setting' | 'exit' | 'rule';
 
 export interface Doc {
   kind: ResultKind;
@@ -40,8 +42,10 @@ export const index: Doc[] = (() => {
 
   // A command appears in the navigation too, now that each one is a page. It is indexed
   // below instead, where it gets its status badge and its flags — so pages that are really
-  // commands are skipped here rather than indexed twice with weaker context.
+  // commands are skipped here rather than indexed twice with weaker context. Topics are
+  // skipped for the same reason: they are indexed section by section, from their text.
   const commandPaths = new Set(allCommands.map((c) => c.path));
+  const topicPaths = new Set(topics.map((t) => t.path));
 
   for (const section of nav) {
     const blocks = [
@@ -52,7 +56,7 @@ export const index: Doc[] = (() => {
       for (const item of block.items) {
         // A hash link is a section of a page that is itself indexed — the settings entries
         // point into the configuration page, whose settings are indexed one by one below.
-        if (commandPaths.has(item.to) || item.to.includes('#')) continue;
+        if (commandPaths.has(item.to) || topicPaths.has(item.to) || item.to.includes('#')) continue;
         docs.push({
           kind: 'page',
           title: item.label,
@@ -62,6 +66,32 @@ export const index: Doc[] = (() => {
           exact: [item.label.toLowerCase(), ...(item.keywords ?? []).map((k) => k.toLowerCase())],
         });
       }
+    }
+  }
+
+  // The in-depth topics, section by section. The first entry a topic yields is its
+  // preamble, which stands for the page itself; the rest deep-link to their heading.
+  for (const t of topics) {
+    const [preamble, ...sections] = sectionsOf(t.body);
+    if (preamble) {
+      docs.push({
+        kind: 'topic',
+        title: t.title,
+        context: `ratline explain ${t.name}`,
+        to: t.path,
+        hay: `${t.title} ${t.summary} ${preamble.text} ${t.name}`.toLowerCase(),
+        exact: [t.title.toLowerCase(), t.name.toLowerCase()],
+      });
+    }
+    for (const sec of sections) {
+      docs.push({
+        kind: 'topic',
+        title: sec.title,
+        context: t.title,
+        to: `${t.path}#${sec.id}`,
+        hay: `${sec.title} ${sec.text} ${t.title}`.toLowerCase(),
+        exact: [sec.title.toLowerCase()],
+      });
     }
   }
 
@@ -133,6 +163,9 @@ const kindWeight: Record<ResultKind, number> = {
   command: 6,
   flag: 5,
   page: 5,
+  // Below a page: a topic section is the right answer to "why does it do that" and the
+  // wrong one to "what is the flag called", and the second question is asked far more.
+  topic: 4,
   setting: 3,
   exit: 3,
   rule: 3,
@@ -226,6 +259,7 @@ export function suggest(query: string, limit = 4): Doc[] {
 export const kindLabel: Record<ResultKind, string> = {
   page: 'Page',
   command: 'Command',
+  topic: 'In depth',
   flag: 'Flag',
   setting: 'Config',
   exit: 'Exit code',

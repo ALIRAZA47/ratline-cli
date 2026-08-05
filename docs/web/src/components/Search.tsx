@@ -6,6 +6,7 @@ const KIND_CLS: Record<Doc['kind'], string> = {
   command: 'bg-accent-soft text-accent',
   flag: 'bg-info-soft text-info',
   page: 'bg-sunken text-muted',
+  topic: 'bg-sunken text-muted',
   setting: 'bg-ok-soft text-ok',
   exit: 'bg-warn-soft text-warn',
   rule: 'bg-sunken text-muted',
