@@ -128,10 +128,65 @@ func Seed(path string) (bool, error) {
 	return true, nil
 }
 
-// Save writes the configuration back out. Comments from the reference file are
-// not preserved: this is used by `ratline init` and `runtime default`, which
-// change values an operator set through the CLI rather than by hand.
+// Save writes the configuration back out, preserving the file's comments.
+//
+// It used to re-encode the struct, which destroyed every comment — including on the very
+// first `ratline init`, which records the ACME email and so flattened the commented
+// reference the documentation calls "the reference". An operator who then opened the file
+// found a bare list of values with nothing explaining any of them.
+//
+// So when a file already exists, each value that differs from it is edited in place by
+// SetValue and everything else is left alone. A full encode is the fallback for a file
+// that does not exist yet or that this cannot safely edit — and in that case the header
+// says so, rather than pretending the comments were never there.
 func (c *Config) Save(path string) error {
+	if existing, err := os.ReadFile(path); err == nil {
+		if merged, err := c.mergeInto(existing); err == nil {
+			return system.WriteFileAtomic(path, merged, 0o644, system.KeepUnchanged, system.KeepUnchanged)
+		}
+		// Fall through to a full encode. The values are what matter; losing the comments
+		// is worse than losing the operator's settings, not worse than failing outright.
+	}
+	return c.encode(path)
+}
+
+// mergeInto applies this configuration's values to an existing file, one key at a time.
+func (c *Config) mergeInto(existing []byte) ([]byte, error) {
+	// Encoded first, so the comparison is between two renderings of the same shape
+	// rather than between a struct and text.
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(c); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+
+	out := existing
+	for _, key := range KnownKeys() {
+		want, ok, err := GetValue(buf.Bytes(), key)
+		if err != nil || !ok {
+			continue
+		}
+		have, present, err := GetValue(out, key)
+		if err != nil {
+			return nil, err
+		}
+		// Only what actually changed. Rewriting an unchanged line would churn the file
+		// and lose a hand-written trailing comment for nothing.
+		if present && have == want {
+			continue
+		}
+		if out, err = SetValue(out, key, want); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (c *Config) encode(path string) error {
 	var buf bytes.Buffer
 	buf.WriteString("# ratline configuration\n")
 	buf.WriteString("# Written by ratline. The commented reference is available from 'ratline config reference'.\n")
@@ -205,3 +260,18 @@ func (c *Config) ResolvePath(p string) string {
 
 // EnvConfigPath honours RATLINE_CONFIG for automation that cannot pass --config.
 func EnvConfigPath() string { return os.Getenv("RATLINE_CONFIG") }
+
+// Check reports whether a configuration body would load and validate.
+//
+// Used before committing an edit, so a change that would break every other command is
+// refused by the command that made it rather than discovered by the next one.
+func Check(body []byte) error {
+	// Decoded over the defaults, exactly as Load does — otherwise a file that omits a
+	// setting because the default is fine would fail validation here and pass there.
+	c := Default()
+	if err := decodeStrict(body, c); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeUsage, "the configuration is not valid YAML").
+			WithHint("YAML is whitespace-sensitive; check the indentation around the line named above")
+	}
+	return c.Validate()
+}

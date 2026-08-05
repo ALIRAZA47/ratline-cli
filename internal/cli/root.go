@@ -133,6 +133,7 @@ func NewRootCommand(g *Globals) *cobra.Command {
 		newBackupCommand(g),
 		newRestoreCommand(g),
 		newDBCommand(g),
+		newConfigCommand(g),
 		newDoctorCommand(g),
 		newStatusCommand(g),
 		newTroubleshootCommand(g),

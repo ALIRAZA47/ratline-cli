@@ -148,6 +148,7 @@ OPERATIONS
   backup       Archive a user's home or a single site
   restore      Put a backup archive back, and rebuild what serves it
   db           Provision MongoDB databases and users
+  config       Read and change ratline's own configuration
   doctor       Check the server, or diagnose one thing on it
   status       Show everything on this server on one screen
   troubleshoot Find why something is broken, in the order things depend on each other
@@ -529,6 +530,9 @@ Usage:
   ratline db [command]
 
 Available Commands:
+  connect     Point ratline at a MongoDB server and turn provisioning on
+  enable      Turn database provisioning on
+  disable     Turn database provisioning off
   ping        Check that the MongoDB server is reachable and enforcing authentication
   create      Create a database, a user scoped to it, and optionally attach it to a site
   list        List databases ratline provisioned, or everything on the server
@@ -558,6 +562,57 @@ Examples:
   ratline db list --live
 
 Use "ratline db [command] --help" for more information about a command.
+```
+
+### `ratline config`
+
+```
+The configuration lives at /etc/ratline/config.yaml and is read on every
+invocation, so there is nothing to reload after a change.
+
+Editing it by hand is still fine — these commands exist because some settings are
+easy to get subtly wrong, and because a file that no longer loads breaks every
+other command. Every change here is validated before it is committed, and the
+previous file is put back if the result would not load.
+
+Comments are preserved. The shipped file is the reference — every setting carries
+an explanation — so a change that flattened it would cost more than it saved.
+
+Usage:
+  ratline config [command]
+
+Available Commands:
+  show        Show the settings in effect
+  get         Print one setting's value
+  set         Change one setting
+  unset       Remove a setting, so its built-in default applies again
+  path        Print the path of the configuration file in use
+  reference   Print the shipped configuration, with every setting explained
+  edit        Open the configuration in $EDITOR, and refuse to save it broken
+  validate    Check a configuration file without applying it
+
+Flags:
+  -h, --help   help for config
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline config get acme.email
+  ratline config set acme.email ops@example.com
+  ratline config set features.db_provisioning true
+  ratline config unset defaults.memory_max     # back to the default
+  ratline config show --changed
+  ratline config reference | less
+
+Use "ratline config [command] --help" for more information about a command.
 ```
 
 ### `ratline doctor`
@@ -2340,6 +2395,106 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 ```
 
+#### `ratline db connect`
+
+```
+Stores the admin connection string, turns on features.db_provisioning, and proves
+the credentials work before committing either. If the server cannot be reached, or
+rejects them, nothing is left behind.
+
+The string is read from stdin, not from a flag. Anything in argv is world-readable
+through /proc, so a password passed as an argument is visible to every account on
+the box for as long as the command runs — and it lands in your shell history, which
+outlives the password.
+
+It is written to paths.mongo_uri_file at 0600, root-owned, in a 0700 directory.
+
+Usage:
+  ratline db connect [flags]
+
+Flags:
+      --force              Replace an existing connection string
+      --from-file string   Read the connection string from a file
+  -h, --help               help for connect
+      --stdin              Read the connection string from stdin (the usual way)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  # from a password manager, or a file, never as an argument
+  printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' | \
+    ratline db connect --stdin
+
+  ratline db connect --from-file /root/atlas.uri
+  ratline db ping
+```
+
+#### `ratline db enable`
+
+```
+Sets features.db_provisioning. Use 'ratline db connect' instead if you have not
+stored a connection string yet — that does both, and proves the credentials work
+before committing to either.
+
+This checks that a usable connection string exists first, because turning the
+feature on without one produces a command group that only ever refuses.
+
+Usage:
+  ratline db enable [flags]
+
+Flags:
+  -h, --help   help for enable
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db disable`
+
+```
+Clears features.db_provisioning, so the db commands refuse rather than acting.
+
+Nothing on the MongoDB server is touched: the databases, the users and their
+credentials all keep working, and the sites holding those credentials keep
+connecting. This only stops ratline managing them.
+
+--forget also removes the stored admin connection string. Worth doing when handing
+a server over, and worth not doing otherwise, because it is the one copy ratline
+has.
+
+Usage:
+  ratline db disable [flags]
+
+Flags:
+      --forget   Also remove the stored admin connection string
+  -h, --help     help for disable
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
 #### `ratline db ping`
 
 ```
@@ -2541,6 +2696,222 @@ Usage:
 
 Flags:
   -h, --help   help for roles
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline config show`
+
+```
+Every setting, with where its value came from. A prefix narrows it to one
+section — 'ratline config show acme' — and --changed shows only what differs from
+the shipped defaults, which is usually the question being asked.
+
+Usage:
+  ratline config show [prefix] [flags]
+
+Flags:
+      --changed   Only settings that differ from the shipped defaults
+  -h, --help      help for show
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline config show --changed
+  ratline config show databases
+```
+
+#### `ratline config get`
+
+```
+Prints the value in effect, and says whether it comes from the file or from the
+built-in default. That difference is the useful part: a setting absent from the
+file behaves as the default today and would change if the default ever did.
+
+Usage:
+  ratline config get <setting> [flags]
+
+Flags:
+  -h, --help   help for get
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline config get acme.renew_before_days
+```
+
+#### `ratline config set`
+
+```
+Edits the file in place, preserving its comments, then validates the result. If
+the change would produce a file that does not load, the previous one is put back
+and the error names the setting.
+
+An unknown setting is refused rather than written. A typo like paths.systemdir
+would otherwise sit in the file being silently ignored, and the misconfiguration
+would surface as ratline writing units somewhere nobody looks.
+
+Usage:
+  ratline config set <setting> <value> [flags]
+
+Flags:
+  -h, --help   help for set
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline config set acme.email ops@example.com
+  ratline config set features.db_provisioning true
+  ratline config set defaults.memory_max 1G
+```
+
+#### `ratline config unset`
+
+```
+Deletes the line rather than blanking it. Those are different: an absent setting
+takes the built-in default, and an empty one is an explicit empty value — which
+for a path or an address is usually not what anybody wants.
+
+Usage:
+  ratline config unset <setting> [flags]
+
+Flags:
+  -h, --help   help for unset
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline config unset defaults.memory_max
+```
+
+#### `ratline config path`
+
+```
+Useful in a script, and worth checking when a change appears not to have taken:
+--config and the built-in default can disagree about which file is being read.
+
+Usage:
+  ratline config path [flags]
+
+Flags:
+  -h, --help   help for path
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline config reference`
+
+```
+The commented file ratline ships, with every default and the reasoning behind it.
+
+This is what 'ratline init' writes on a fresh server. Print it to recover a block
+you deleted, or to read the explanation of a setting without a browser:
+
+    ratline config reference | grep -A 4 renew_before_days
+
+Usage:
+  ratline config reference [flags]
+
+Flags:
+  -h, --help   help for reference
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline config edit`
+
+```
+Opens a copy in $EDITOR. On exit the copy is validated, and only replaces the
+real file if it loads — so a typo cannot leave every other command broken.
+
+The point of going through ratline rather than opening the file directly is that
+last part. A configuration file that no longer parses takes the whole tool with it,
+and the failure arrives on the next unrelated command.
+
+Usage:
+  ratline config edit [flags]
+
+Flags:
+  -h, --help   help for edit
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline config validate`
+
+```
+Loads the file and reports every problem at once rather than the first. Useful
+before copying a configuration onto a server, and in CI.
+
+Usage:
+  ratline config validate [path] [flags]
+
+Flags:
+  -h, --help   help for validate
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)

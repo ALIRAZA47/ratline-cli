@@ -835,12 +835,48 @@ if [ -z "${RATLINE_TEST_MONGO_URI:-}" ]; then
 elif ! command -v mongosh >/dev/null 2>&1; then
     printf '  skip  mongosh is not installed\n'
 else
-    # The admin connection string goes in a 0600 file, never on a command line: it is the
-    # root password for every database on the server, and argv is world-readable.
-    install -d -o root -g root -m 0700 /etc/ratline/db
-    printf '%s' "$RATLINE_TEST_MONGO_URI" > /etc/ratline/db/mongodb.uri
-    chmod 0600 /etc/ratline/db/mongodb.uri
-    sed -i 's/^\( *db_provisioning:\).*/\1 true/' /etc/ratline/config.yaml
+    # Set up through `db connect` rather than by hand, so the suite exercises the path an
+    # operator actually takes. It creates the 0700 directory, writes the string at 0600,
+    # turns the feature on, and proves the credentials before committing any of it.
+    #
+    # Waited for first: compose starts mongod in parallel, and `db connect` refuses when
+    # the server is not answering — correctly, but it means the setup has to be retried
+    # rather than the failure being the suite's answer.
+    mongo_ready=0
+    for _ in $(seq 1 30); do
+        if mongosh "$RATLINE_TEST_MONGO_URI" --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then
+            mongo_ready=1; break
+        fi
+        sleep 2
+    done
+    if [ "$mongo_ready" = "1" ]; then
+        connectout=$(printf '%s' "$RATLINE_TEST_MONGO_URI" | "$RATLINE" db connect --stdin 2>&1)
+        case "$connectout" in
+            *Connected*) ok "db connect stored the credentials and turned provisioning on" ;;
+            *) bad "db connect failed" "$(printf '%s' "$connectout" | tail -3)" ;;
+        esac
+        # The mode is the whole reason this is one command rather than four steps.
+        check "the connection string is 0600"  bash -c '[ "$(stat -c %a /etc/ratline/db/mongodb.uri)" = 600 ]'
+        check "its directory is 0700"          bash -c '[ "$(stat -c %a /etc/ratline/db)" = 700 ]'
+        check "and both are root-owned"        bash -c '[ "$(stat -c %U:%G /etc/ratline/db/mongodb.uri)" = root:root ]'
+        contains "provisioning is on" "true" "$("$RATLINE" config get features.db_provisioning)"
+        # And it must not have echoed the password it was given.
+        case "$connectout" in
+            *integration*) bad "db connect echoed the admin password" "it appears in its output" ;;
+            *) ok "db connect does not echo the password" ;;
+        esac
+        # Credentials that do not work must leave nothing behind, because a stored string
+        # that fails is indistinguishable from a server that is down.
+        "$RATLINE" db disable --forget >/dev/null 2>&1
+        bad_uri=$(printf '%s' "$RATLINE_TEST_MONGO_URI" | sed 's/:integration@/:wrong@/')
+        printf '%s' "$bad_uri" | "$RATLINE" db connect --stdin >/dev/null 2>&1
+        refute "bad credentials leave no stored string" test -f /etc/ratline/db/mongodb.uri
+        contains "and leave provisioning off" "false" "$("$RATLINE" config get features.db_provisioning)"
+        # Put the working one back for the rest of the section.
+        printf '%s' "$RATLINE_TEST_MONGO_URI" | "$RATLINE" db connect --stdin >/dev/null 2>&1
+    else
+        bad "mongod never answered" "the database section cannot run"
+    fi
 
     # Wait for mongod: compose starts it in parallel and it takes a moment to accept
     # connections. Bounded, so a genuinely broken server fails rather than hanging.
@@ -1028,6 +1064,53 @@ else
         sed -i 's/^\( *db_provisioning:\).*/\1 false/' /etc/ratline/config.yaml
     fi
 fi
+
+# ---------------------------------------------------------------- config
+#
+# The file every other command reads. A change that leaves it unparseable takes the whole
+# tool with it, and the failure arrives on the next unrelated command — so the tests here
+# are about what survives an edit rather than about the edit landing.
+
+info "configuration"
+
+check "config path"       "$RATLINE" config path
+check "config validate"   "$RATLINE" config validate
+check "config reference"  bash -c "$RATLINE config reference | head -1 | grep -q ratline"
+
+comments_before=$(grep -c '^ *#' /etc/ratline/config.yaml)
+check "config set"        "$RATLINE" config set defaults.memory_max 768M
+contains "it took"        "768M" "$("$RATLINE" config get defaults.memory_max)"
+contains "and it is recorded as coming from the file" "file" \
+    "$("$RATLINE" config show defaults.memory_max 2>&1)"
+# The reason the editor is textual rather than a re-encode: the shipped file is the
+# reference, and `init` used to flatten every comment out of it.
+comments_after=$(grep -c '^ *#' /etc/ratline/config.yaml)
+if [ "$comments_after" -ge "$comments_before" ]; then
+    ok "the comments survived the edit ($comments_after)"
+else
+    bad "the edit destroyed comments" "$comments_before before, $comments_after after"
+fi
+
+# A boolean typed as a word, which is what people type.
+check "a boolean accepts yes"  "$RATLINE" config set features.strict_isolation yes
+contains "and lands as true"   "true" "$("$RATLINE" config get features.strict_isolation)"
+"$RATLINE" config set features.strict_isolation false >/dev/null 2>&1
+
+# An unknown setting must not be written: it would sit in the file being ignored.
+refute "an unknown setting is refused" "$RATLINE" config set paths.systemdir /tmp
+contains "and it suggests the real one" "paths.systemd_dir" \
+    "$("$RATLINE" config set paths.systemdir /tmp 2>&1)"
+
+# A value that would not load must leave the file exactly as it was.
+before_email=$("$RATLINE" config get acme.email)
+refute "a value that would not load is refused" "$RATLINE" config set acme.email not-an-email
+contains "and the file is unchanged" "$before_email" "$("$RATLINE" config get acme.email)"
+check "the file still validates"   "$RATLINE" config validate
+
+check "config unset"      "$RATLINE" config unset defaults.memory_max
+contains "the default applies again" "512M" "$("$RATLINE" config get defaults.memory_max)"
+contains "and it is reported as a default" "default" \
+    "$("$RATLINE" --json config get defaults.memory_max | jq -r '..|objects|.source? // empty' | head -1)"
 
 info "deploy and rollback"
 sudo -u alice git -C /home/alice/api.test/app init -q 2>/dev/null || true

@@ -13,6 +13,72 @@ export const databases: CommandGroup = {
   ],
   commands: [
     {
+      id: 'db-connect',
+      name: 'ratline db connect',
+      status: 'built',
+      summary: 'Point ratline at a MongoDB server and turn provisioning on.',
+      description: [
+        'Creates the directory at 0700, writes the connection string at 0600 root-owned, turns on features.db_provisioning, and proves the credentials work before committing any of it. If the server cannot be reached, or rejects them, nothing is left behind — a stored string that does not work is indistinguishable from a server that is down.',
+        'This replaces four manual steps, two of which were about the mode of a file holding the root password for every database on the server. Getting that wrong is not a typo, it is every tenant able to read every other tenant’s data.',
+      ],
+      flags: [
+        {
+          name: '--stdin',
+          type: 'bool',
+          description: 'Read the connection string from stdin. The usual way.',
+          note: 'It is not a flag value on purpose. Anything in argv is world-readable through /proc, so a password passed as an argument is visible to every account on the box for as long as the command runs — and it lands in your shell history, which outlives the password.',
+        },
+        {
+          name: '--from-file',
+          arg: '<path>',
+          type: 'path',
+          description: 'Read the connection string from a file instead.',
+        },
+        {
+          name: '--force',
+          type: 'bool',
+          default: 'false',
+          description: 'Replace a connection string that is already stored.',
+        },
+      ],
+      examples: [
+        {
+          title: 'From a password manager, or a file — never as an argument',
+          lang: 'shell',
+          code: `printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \\
+  | ratline db connect --stdin
+
+ratline db ping`,
+        },
+        { lang: 'shell', code: 'ratline db connect --from-file /root/atlas.uri' },
+      ],
+    },
+    {
+      id: 'db-enable',
+      name: 'ratline db enable',
+      status: 'built',
+      summary: 'Turn database provisioning on.',
+      description: [
+        'Sets features.db_provisioning. Prefer `db connect` if no connection string is stored yet — that does both and proves the credentials first.',
+        'It checks a usable connection string exists before turning the feature on, because a command group that only ever refuses is worse than one that is plainly off.',
+      ],
+      examples: [{ lang: 'shell', code: 'ratline db enable' }],
+    },
+    {
+      id: 'db-disable',
+      name: 'ratline db disable',
+      status: 'built',
+      summary: 'Turn database provisioning off.',
+      description: [
+        'Nothing on the MongoDB server is touched: the databases, their users and every site holding a credential keep working. This only stops ratline managing them.',
+        '--forget also removes the stored admin connection string, which is what handing a server over looks like — and worth not doing otherwise, because it is the one copy ratline has.',
+      ],
+      flags: [
+        { name: '--forget', type: 'bool', default: 'false', description: 'Also remove the stored admin connection string.' },
+      ],
+      examples: [{ lang: 'shell', code: 'ratline db disable' }],
+    },
+    {
       id: 'db-ping',
       name: 'ratline db ping',
       status: 'built',

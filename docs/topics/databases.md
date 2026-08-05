@@ -15,27 +15,34 @@ connection string.
 
 ## Setting it up
 
-The admin connection string lives in a file, not in `config.yaml`:
+One command:
 
-    install -d -o root -g root -m 0700 /etc/ratline/db
     printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \
-      > /etc/ratline/db/mongodb.uri
-    chmod 0600 /etc/ratline/db/mongodb.uri
+      | ratline db connect --stdin
 
-That is deliberate. The string is the root password for every database on the server, and
-`config.yaml` is a file operators paste into support tickets. ratline refuses to read it
-at any mode that lets another account see it.
+That creates the directory at `0700`, writes the connection string at `0600` root-owned,
+turns on `features.db_provisioning`, and proves the credentials work before committing any
+of it. If the server cannot be reached, or rejects them, nothing is left behind — a stored
+string that does not work is indistinguishable from a server that is down.
 
-Then turn the feature on and check the server:
+The string arrives on **stdin, not as a flag**. Anything in argv is world-readable through
+`/proc`, so a password passed as an argument is visible to every account on the box for as
+long as the command runs — and it lands in your shell history, which outlives the password.
+`--from-file` is the other way in.
 
-    features:
-      db_provisioning: true
+It lives in a file rather than in `config.yaml` because it is the root password for every
+database on the server, and `config.yaml` is a file operators paste into support tickets.
+ratline refuses to read it at any mode that lets another account see it.
 
     ratline db ping
 
 `ping` reports the version, the topology, and whether the server enforces authentication.
 That last one is worth reading: a `mongod` started without `--auth` answers every command
 from anyone who can reach the port, so the users ratline creates would restrict nothing.
+
+`ratline db disable` turns provisioning back off without touching anything on the MongoDB
+server — the databases, their users and every site holding a credential keep working.
+`--forget` also removes the stored string, which is what handing a server over looks like.
 
 ## A database per tenant
 

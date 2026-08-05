@@ -2,12 +2,13 @@ import { users } from './commands/users';
 import { keys } from './commands/keys';
 import { sites } from './commands/sites';
 import { certs } from './commands/certs';
+import { configuration } from './commands/configuration';
 import { databases } from './commands/databases';
 import { runtimes } from './commands/runtimes';
 import { ops } from './commands/ops';
 import type { CommandGroup } from './types';
 
-export const commandGroups: CommandGroup[] = [users, keys, sites, certs, runtimes, databases, ops];
+export const commandGroups: CommandGroup[] = [users, keys, sites, certs, runtimes, databases, configuration, ops];
 
 export const groupByPath = new Map(commandGroups.map((g) => [g.path, g]));
 
@@ -35,6 +36,10 @@ export interface NavSection {
  */
 const searchKeywords: Record<string, string[]> = {
   '/': ['what is ratline', 'overview', 'ploi', 'runcloud', 'dokku', 'vps', 'ubuntu', 'scope'],
+  '/reference/configure': [
+    'config set', 'change a setting', 'configure', 'db_provisioning', 'feature flag',
+    'editor', 'validate config', 'config get', 'config unset', 'ratline config',
+  ],
   '/releases': [
     'changelog', 'release notes', 'whats new', 'what is new', 'versions', 'upgrade',
     'update', 'history', 'v0.1.0', 'v0.2.0', 'v0.3.0', 'v0.4.0',

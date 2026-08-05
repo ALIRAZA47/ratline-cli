@@ -51,6 +51,9 @@ func newDBCommand(g *Globals) *cobra.Command {
 			"  ratline db list --live",
 	}
 	cmd.AddCommand(
+		newDBConnectCommand(g),
+		newDBEnableCommand(g),
+		newDBDisableCommand(g),
 		newDBPingCommand(g),
 		newDBCreateCommand(g),
 		newDBListCommand(g),
