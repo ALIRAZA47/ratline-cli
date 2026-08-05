@@ -70,3 +70,31 @@ features:
 refuse an attempt with a countdown instead of discovering the limit the hard way. They
 do change. If a refusal looks wrong, check the CA's documentation and update the
 numbers.
+
+## A private certificate authority needs two settings
+
+```yaml
+acme:
+  directory_url: https://ca.internal/acme/acme/directory
+  ca_bundle: /etc/ssl/certs/internal-root.pem
+```
+
+`ca_bundle` is the one that is easy to miss, and missing it is not visible until a
+certificate expires. certbot verifies the ACME server's own TLS certificate against
+certifi's bundled roots rather than the system trust store, so a private root installed
+with `update-ca-certificates` is not consulted.
+
+`cert issue --acme-ca-bundle` covers one issuance. Renewal runs from a timer months
+later with no command line and reads `ca_bundle` — so a certificate issued with the
+flag alone can never renew. `ratline cert issue` warns when the flag is set and this is
+empty. `ratline doctor` reports it as a problem against the certificate, and
+`ratline doctor server` carries the same check under the name `acme-trust` — both read
+the lineage's own renewal config, which is the file certbot reads, rather than
+`directory_url`, which may have changed since the certificate was issued.
+
+## `renew_before_days` is the window that decides
+
+ratline holds the certificate state and the failure backoff, so once it judges a
+certificate due it tells certbot to act. certbot's own 30-day window does not get a
+second vote: before this was true, raising `renew_before_days` above 30 changed nothing
+and said nothing.

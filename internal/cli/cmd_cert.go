@@ -156,7 +156,8 @@ func newCertIssueCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.DirectoryURL, "acme-directory", "",
 		"ACME directory URL, for a private CA such as step-ca (default: the configured one)")
 	f.StringVar(&opts.CABundle, "acme-ca-bundle", "",
-		"Trust store for a private ACME server (default: the system one, when --acme-directory is set)")
+		"Trust store for a private ACME server, for this issuance only; "+
+			"set acme.ca_bundle in config or renewal cannot verify the CA")
 	f.BoolVar(&opts.Staging, "staging", false, "Use the staging endpoint: real exchange, untrusted certificate, generous limits")
 	f.StringVar(&opts.KeyType, "key-type", "", "ecdsa or rsa (default from config)")
 	f.BoolVar(&opts.Force, "force", false, "Re-issue even if a valid certificate exists, and proceed past preflight")
@@ -389,7 +390,12 @@ func newCertRenewCommand(g *Globals) *cobra.Command {
 		Long: "Run twice daily by ratline-cert-renew.timer.\n\n" +
 			"A failure is not an emergency: the existing certificate is valid for weeks yet,\n" +
 			"which is why the window is 30 days. One certificate failing never stops the\n" +
-			"others; the failure is recorded and surfaced by 'ratline doctor'.",
+			"others; the failure is recorded and surfaced by 'ratline doctor'.\n\n" +
+			"Naming one certificate exits non-zero if that renewal fails, so a script\n" +
+			"wrapping it finds out. --all does not: it is what the timer runs, and a timer\n" +
+			"reporting failure for something recoverable is one people learn to ignore.\n\n" +
+			"acme.renew_before_days decides what is due. certbot's own window does not get\n" +
+			"a second vote.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				opts.Name = args[0]

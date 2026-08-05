@@ -568,6 +568,46 @@ else
         if "$RATLINE" cert renew acme.test --force >"$renewout" 2>&1; then
             ok "forced renewal succeeded"
             contains "the renewal was recorded" "success" "$("$RATLINE" cert show acme.test)"
+
+            # The private-CA trust check must actually see this configuration. A
+            # diagnostic that silently skips still exits 0, so "doctor passed" is not
+            # evidence that it looked — and this is the only box in the suite with a
+            # private ACME directory, so nowhere else can prove it either way.
+            #
+            # Both spellings, because they are two implementations: the bare sweep
+            # reports findings, and `doctor server` walks ServerChecks. A gap in
+            # either one is a gap for whoever types that command.
+            trust=$("$RATLINE" --json doctor server 2>/dev/null \
+                | jq -r '..|objects|select(.id=="acme-trust")|.verdict+" "+(.detail//"")' 2>/dev/null)
+            contains "the acme-trust check ran and passed" "ok" "$trust"
+            contains "and it named the bundle it verified with" "$PEBBLE_CA" "$trust"
+
+            # Asserted on the ca_bundle findings specifically, not on doctor's overall
+            # verdict: this box carries self-signed certificates on purpose, so the
+            # sweep always has warnings and `healthy` is never true.
+            bundle_findings() {
+                "$RATLINE" --json doctor 2>/dev/null \
+                    | jq -r '[.findings[]?|select(.detail|test("ca_bundle"))]|length' 2>/dev/null
+            }
+            contains "the sweep says nothing about ca_bundle when it is right" "0" "$(bundle_findings)"
+
+            # And it must speak up when the bundle is wrong, or a passing check proves
+            # nothing. This is the case that silently costs a certificate.
+            sed -i "s|^  ca_bundle:.*|  ca_bundle: /nonexistent/root.pem|" /etc/ratline/config.yaml
+            broke=$(bundle_findings)
+            if [ "${broke:-0}" -ge 1 ]; then
+                ok "a ca_bundle that does not exist is reported, not ignored"
+            else
+                bad "a missing ca_bundle is ignored" "doctor reported '${broke:-<jq failed>}'"
+                printf '        --- what doctor actually said ---\n'
+                "$RATLINE" --json doctor 2>&1 | head -40 | sed 's/^/        | /'
+                printf '        --- config and lineage ---\n'
+                { grep -n ca_bundle /etc/ratline/config.yaml
+                  grep -n '^server' /etc/letsencrypt/renewal/acme.test.conf
+                } 2>&1 | sed 's/^/        | /'
+            fi
+            sed -i "s|^  ca_bundle:.*|  ca_bundle: $PEBBLE_CA|" /etc/ratline/config.yaml
+            contains "and the sweep goes quiet again once it is corrected" "0" "$(bundle_findings)"
         else
             # certbot puts the reason in its own log and only a summary on stdout, so
             # a failure here needs both or it takes a rebuild to find out anything.

@@ -373,21 +373,53 @@ func (m *Manager) Reload(ctx context.Context) error {
 //
 // Read from the master's children rather than from a pid file, because the pid file
 // only names the master and it is the workers that carry the configuration.
+// nginxWorkers maps each nginx worker PID to whether it is still accepting.
+//
+// A worker that has been told to shut down renames itself to "nginx: worker process
+// is shutting down". That distinction is the whole point: a draining worker no longer
+// takes new connections, so it does not matter how long it lingers, whereas one still
+// titled "worker process" is answering requests with whatever configuration it was
+// started with.
 func (m *Manager) nginxWorkers(ctx context.Context) map[string]bool {
 	out := map[string]bool{}
 	res, err := m.Runner.Run(ctx, system.Cmd{
-		Name: "pgrep", Args: []string{"-f", "nginx: worker process"},
+		// -a prints the command line beside the PID, which is what makes a draining
+		// worker distinguishable from a live one.
+		Name: "pgrep", Args: []string{"-a", "-f", "nginx: worker process"},
 	})
 	if err != nil || res == nil {
 		return out
 	}
-	for _, line := range strings.Fields(res.Out()) {
-		out[line] = true
+	for _, line := range strings.Split(res.Out(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		pid, rest, ok := strings.Cut(line, " ")
+		if !ok {
+			// No command line to judge by: assume it is live, which is the
+			// conservative reading — it makes the wait longer, never shorter.
+			pid, rest = line, ""
+		}
+		out[pid] = !strings.Contains(rest, "shutting down")
 	}
 	return out
 }
 
-// waitForReload blocks until nginx has workers that did not exist before the reload.
+// waitForReload blocks until no worker from before the reload is still accepting.
+//
+// Not "until a new worker exists", which is what this did and which returns too early:
+// nginx's master starts the new workers *first* and only then tells the old ones to
+// stop accepting, so in that window both are taking connections and a request can be
+// answered with the previous configuration. `site add` and `cert issue` returned inside
+// it, and a script that immediately requested the site saw the pre-change behaviour — a
+// missing redirect, a stale document root, the old certificate.
+//
+// Waiting for the old workers to *exit* would be wrong in the other direction: a
+// draining worker can hold a long-lived connection for as long as the client keeps it,
+// and blocking a provisioning command on someone's websocket is not acceptable. Once a
+// worker is titled "shutting down" it takes no new connections, which is all that
+// matters here.
 //
 // Best effort by design: if pgrep is unavailable, or nginx is not running as a
 // conventional master-plus-workers, this returns promptly rather than failing a
@@ -408,17 +440,28 @@ func (m *Manager) waitForReload(ctx context.Context, before map[string]bool, tim
 		}
 		now := m.nginxWorkers(ctx)
 		if len(now) == 0 {
+			// Unobservable, or nginx is not running. Either way there is nothing to
+			// learn by waiting.
 			return
 		}
-		for pid := range now {
-			if !before[pid] {
-				return
-			}
+		if !anyStaleWorkerAccepting(before, now) {
+			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	m.Log.Debug("nginx did not appear to start new workers within the reload timeout, "+
-		"so the new configuration may take a moment longer to serve", "timeout", timeout)
+	m.Log.Debug("nginx was still serving the previous configuration when the reload timeout "+
+		"elapsed, so a request made immediately may see it", "timeout", timeout)
+}
+
+// anyStaleWorkerAccepting reports whether a worker from before the reload is still
+// taking new connections.
+func anyStaleWorkerAccepting(before, now map[string]bool) bool {
+	for pid, accepting := range now {
+		if accepting && before[pid] {
+			return true
+		}
+	}
+	return false
 }
 
 // Remove deletes a site's vhost and its symlink.

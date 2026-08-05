@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -455,25 +456,40 @@ func (m *Manager) renewalCABundle(certName string) string {
 	if m.Cfg.ACME.CABundle != "" {
 		return m.Cfg.ACME.CABundle
 	}
-	server := m.renewalServer(certName)
-	if server == "" {
-		// No conf, or no server line: certbot's default is Let's Encrypt.
+	server := RenewalServer(m.Cfg, certName)
+	if server == "" || IsPublicACME(server) {
+		// No conf, no server line, or a public CA: certifi is the right store.
 		return ""
-	}
-	for _, public := range []string{
-		"acme-v02.api.letsencrypt.org",
-		"acme-staging-v02.api.letsencrypt.org",
-	} {
-		if strings.Contains(server, public) {
-			return ""
-		}
 	}
 	return systemTrustStore()
 }
 
-// renewalServer reads the `server = ...` line from a lineage's renewal config.
-func (m *Manager) renewalServer(certName string) string {
-	path := filepath.Join(m.Cfg.Paths.LetsEncryptDir, "renewal", certName+".conf")
+// IsPublicACME reports whether certbot's own bundled roots can verify a directory.
+//
+// Anything that is not Let's Encrypt counts as private. That is deliberately the wide
+// side of the judgement: pointing certbot at the system trust store for a public CA it
+// could already verify changes nothing, while missing a private one loses the site.
+func IsPublicACME(server string) bool {
+	for _, host := range []string{
+		"acme-v02.api.letsencrypt.org",
+		"acme-staging-v02.api.letsencrypt.org",
+	} {
+		if strings.Contains(server, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// RenewalServer reads the `server = ...` line from a lineage's renewal config.
+//
+// This is the file certbot itself reads, so it is the authority on which CA a renewal
+// will really talk to — not acme.directory_url, which may have changed since.
+func RenewalServer(cfg *config.Config, certName string) string {
+	if cfg == nil || cfg.Paths.LetsEncryptDir == "" {
+		return ""
+	}
+	path := filepath.Join(cfg.Paths.LetsEncryptDir, "renewal", certName+".conf")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return ""

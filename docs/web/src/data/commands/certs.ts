@@ -113,6 +113,19 @@ export const certs: CommandGroup = {
           description: 'Full validation with no rate-limit cost.',
           note: 'This is the flag to reach for first. It exercises preflight and the CA’s validation without spending a certificate.',
         },
+        {
+          name: '--acme-directory',
+          type: 'string',
+          default: 'the configured one',
+          description: 'ACME directory URL, for a private CA such as step-ca or an internal issuer.',
+        },
+        {
+          name: '--acme-ca-bundle',
+          type: 'string',
+          default: 'the system store, when --acme-directory is set',
+          description: 'Trust store to verify the private ACME server with — for this issuance only.',
+          note: 'Set acme.ca_bundle in config as well, or the certificate can never renew. certbot verifies the directory against certifi’s bundled roots rather than the system trust store, and renewal runs from a timer with no command line to read this from. `cert issue` warns when the flag is set and the config is not, and `doctor` fails the renewal-trust check.',
+        },
       ],
       refuses: [
         'A DNS mismatch: A/AAAA records for the domain and every SAN are resolved, following CNAMEs, and compared against this server’s public addresses. The refusal prints the observed values. Override with --force only when you know why they differ.',
@@ -252,7 +265,9 @@ export const certs: CommandGroup = {
       summary: 'Renew one certificate, or every certificate inside the renewal window.',
       description: [
         'A timer runs twice daily with a randomised delay. certbot’s own timer is neutralised at install time so the two never race. Renewal is attempted under acme.renew_before_days (30) remaining.',
+        'acme.renew_before_days is the window that decides. ratline holds the state and the backoff, so once it judges a certificate due it tells certbot to act — certbot’s own 30-day window does not get a second vote. Raising the setting above 30 used to change nothing and say nothing.',
         'On failure: exponential backoff, the previous certificate is retained, the certificate is marked degraded in state, and `doctor` surfaces it. A failed renewal never leaves you with no certificate at all.',
+        'Naming one certificate exits non-zero if that renewal fails, so a script wrapping it finds out. `--all` does not: it is what the timer runs, and a timer that reports failure for something recoverable is a timer people learn to ignore.',
       ],
       flags: [
         { name: '--all', type: 'bool', default: 'false', description: 'Every certificate inside the renewal window.' },

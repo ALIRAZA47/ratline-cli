@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -255,38 +254,14 @@ func acmeCABundle(env *Env) string {
 	return env.Cfg.ACME.CABundle
 }
 
-// renewalServerFor reads the ACME directory out of a lineage's renewal config,
-// which is where certbot reads it from and therefore what renewal will really use.
+// renewalServerFor is the ACME directory a lineage will really renew from, read from
+// the same file certbot reads. Delegated so the sweep, the walk and the renewal itself
+// cannot come to different conclusions about the same certificate.
 func renewalServerFor(env *Env, certName string) string {
-	if env == nil || env.Cfg == nil || env.Cfg.Paths.LetsEncryptDir == "" {
+	if env == nil {
 		return ""
 	}
-	body, err := os.ReadFile(filepath.Join(
-		env.Cfg.Paths.LetsEncryptDir, "renewal", certName+".conf"))
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(body), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		if key, value, ok := strings.Cut(line, "="); ok && strings.TrimSpace(key) == "server" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
+	return rtls.RenewalServer(env.Cfg, certName)
 }
 
-// isPublicACME reports whether certbot's own roots can verify this directory.
-func isPublicACME(server string) bool {
-	for _, host := range []string{
-		"acme-v02.api.letsencrypt.org",
-		"acme-staging-v02.api.letsencrypt.org",
-	} {
-		if strings.Contains(server, host) {
-			return true
-		}
-	}
-	return false
-}
+func isPublicACME(server string) bool { return rtls.IsPublicACME(server) }

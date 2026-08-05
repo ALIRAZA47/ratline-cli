@@ -149,6 +149,20 @@ ratline cert show example.com
 openssl s_client -connect example.com:443 -servername example.com </dev/null 2>/dev/null \\
   | openssl x509 -noout -dates`,
           },
+          {
+            n: 9,
+            t: 'A private CA, issued with a flag instead of a setting',
+            b: 'Only for step-ca, an internal issuer, or anything else that is not Let’s Encrypt. certbot verifies the ACME directory against certifi’s bundled roots rather than the system trust store, so a private root installed with update-ca-certificates is not consulted. cert issue --acme-ca-bundle covers one issuance; renewal runs from a timer with no command line and reads acme.ca_bundle. Set only the flag and the certificate issues perfectly and never renews — the failure is a TLS error inside certbot, which reads as a network problem. doctor checks this directly.',
+            check: `# Which CA this lineage really renews from — certbot's own record, not config:
+grep '^server' /etc/letsencrypt/renewal/example.com.conf
+
+# If that is not Let's Encrypt, this must be set:
+grep ca_bundle /etc/ratline/config.yaml
+
+# doctor checks both together, before the first renewal has had a chance to fail:
+ratline doctor                 # reports it as a problem against the certificate
+ratline doctor server          # the same check by name: acme-trust`,
+          },
         ].map((row) => (
           <section key={row.n} className="rounded-[var(--radius-card)] border border-line bg-raised">
             <div className="flex gap-3 border-b border-line px-4 py-3">

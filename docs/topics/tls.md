@@ -63,9 +63,11 @@ installed with `update-ca-certificates` is not consulted and issuance fails with
 `cert issue --acme-ca-bundle` covers a single issuance. It does not cover renewal —
 renewal runs from a timer months later with no command line, and reads `acme.ca_bundle`.
 A certificate issued with the flag alone renews against nothing and expires, so
-`ratline cert issue` warns when the flag is set and the config is not, and
-`ratline doctor` fails the `renewal-trust` check for any lineage whose recorded ACME
-server is private while `acme.ca_bundle` is empty.
+`ratline cert issue` warns when the flag is set and the config is not. `ratline doctor`
+reports it against the certificate, and `ratline doctor server` carries the same check
+as `acme-trust`. Both read the lineage's own renewal config — the file certbot reads —
+rather than `acme.directory_url`, which may have changed since the certificate was
+issued.
 
 ## Bringing your own
 

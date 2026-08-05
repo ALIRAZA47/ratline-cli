@@ -1,6 +1,7 @@
 package nginx
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
+	"github.com/ALIRAZA47/ratline-cli/internal/system/systest"
 )
 
 func testManager() *Manager {
@@ -377,5 +379,95 @@ func TestHTTPSnippetEmitsEverythingWhenNothingCollides(t *testing.T) {
 func TestHTTPSnippetEmitsNothingWhenCompressionIsOff(t *testing.T) {
 	if lines := compressionLines(false, false, map[string]bool{}); len(lines) != 0 {
 		t.Errorf("compression is off, so no directives should be emitted: %v", lines)
+	}
+}
+
+// A reload is only finished when nothing is still answering with the old
+// configuration. Waiting for a *new* worker to appear is not that: nginx starts the
+// new workers before it tells the old ones to stop accepting, so `site add` and
+// `cert issue` returned inside a window where a request could still be served the
+// previous vhost — a missing redirect, a stale root, the old certificate.
+
+func TestADrainingWorkerDoesNotHoldUpAReload(t *testing.T) {
+	before := map[string]bool{"100": true, "101": true}
+	for _, tc := range []struct {
+		name  string
+		now   map[string]bool
+		stale bool
+	}{
+		{
+			"the old workers are still accepting",
+			map[string]bool{"100": true, "101": true},
+			true,
+		},
+		{
+			// The window this exists for: new workers up, old ones not yet signalled.
+			"new workers exist but the old ones still accept",
+			map[string]bool{"100": true, "101": true, "200": true, "201": true},
+			true,
+		},
+		{
+			// A draining worker takes no new connections, so its lingering — possibly
+			// for as long as a client holds a websocket — must not block provisioning.
+			"the old workers are draining",
+			map[string]bool{"100": false, "101": false, "200": true, "201": true},
+			false,
+		},
+		{
+			"the old workers are gone",
+			map[string]bool{"200": true, "201": true},
+			false,
+		},
+		{
+			"one of the two is still accepting",
+			map[string]bool{"100": false, "101": true, "200": true},
+			true,
+		},
+	} {
+		if got := anyStaleWorkerAccepting(before, tc.now); got != tc.stale {
+			t.Errorf("%s: anyStaleWorkerAccepting = %v, want %v", tc.name, got, tc.stale)
+		}
+	}
+}
+
+func TestWorkerStatesAreReadFromPgrep(t *testing.T) {
+	// pgrep -a prints "<pid> <command line>", and a worker that has been told to stop
+	// renames itself. Parsing only the PID loses the one distinction that matters.
+	cfg := config.Default()
+	runner := systest.NewFakeRunner()
+	runner.ExpectOutput("pgrep -a -f nginx: worker process",
+		"100 nginx: worker process is shutting down\n"+
+			"200 nginx: worker process\n"+
+			"201 nginx: worker process\n")
+	m := &Manager{Cfg: cfg, Log: log.Discard(), Runner: runner}
+
+	got := m.nginxWorkers(context.Background())
+	want := map[string]bool{"100": false, "200": true, "201": true}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %d workers, want %d: %v", len(got), len(want), got)
+	}
+	for pid, accepting := range want {
+		if got[pid] != accepting {
+			t.Errorf("worker %s accepting = %v, want %v", pid, got[pid], accepting)
+		}
+	}
+}
+
+func TestAnUnobservableReloadDoesNotBlock(t *testing.T) {
+	// If pgrep is missing, or nginx is not a conventional master-plus-workers, the
+	// reload almost certainly worked and refusing to return would break provisioning
+	// on that host.
+	cfg := config.Default()
+	runner := systest.NewFakeRunner()
+	runner.ExpectFailure("pgrep -a -f nginx: worker process", 127, "pgrep: not found")
+	m := &Manager{Cfg: cfg, Log: log.Discard(), Runner: runner}
+
+	if got := m.nginxWorkers(context.Background()); len(got) != 0 {
+		t.Errorf("with pgrep unavailable = %v, want no workers", got)
+	}
+	start := time.Now()
+	m.waitForReload(context.Background(), map[string]bool{"100": true}, 2*time.Second)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("waited %s for an unobservable reload; it should return promptly", elapsed)
 	}
 }

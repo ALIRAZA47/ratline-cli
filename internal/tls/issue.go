@@ -331,10 +331,38 @@ func (m *Manager) directoryURL(opts IssueOptions) string {
 }
 
 // of a server_name collision, looks identical on disk to a working one.
+//
+// Retried briefly, because `nginx -s reload` is asynchronous: the master starts new
+// workers and the old ones keep serving until their current connections drain, so a
+// connection opened immediately afterwards can still be answered by a worker holding
+// the previous certificate. Verifying once reported that as "serving a different
+// certificate than the one just installed" — on a correct installation, every time.
+//
+// A real collision or a genuinely unreloaded nginx does not resolve itself, so the
+// retry costs nothing there beyond the deadline.
 func (m *Manager) VerifyServed(ctx context.Context, domain string, expected *state.Certificate) (string, error) {
 	if m.DryRun {
 		return "skipped under --dry-run", nil
 	}
+	deadline := time.Now().Add(5 * time.Second)
+	for attempt := 1; ; attempt++ {
+		summary, err := m.verifyServedOnce(ctx, domain, expected)
+		if err == nil || time.Now().After(deadline) || ctx.Err() != nil {
+			if err != nil && attempt > 1 {
+				m.Log.Debug("the served certificate did not settle",
+					"domain", domain, "attempts", attempt)
+			}
+			return summary, err
+		}
+		select {
+		case <-ctx.Done():
+			return summary, err
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func (m *Manager) verifyServedOnce(ctx context.Context, domain string, expected *state.Certificate) (string, error) {
 	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", domain)
 	target := "127.0.0.1:443"
 	if err == nil && len(addrs) > 0 {

@@ -276,9 +276,17 @@ func (m *Manager) Attach(ctx context.Context, domain, certName string) (err erro
 	// Verify for real. A certificate on disk that is not being served is a
 	// failure, not a success.
 	if summary, verr := m.VerifyServed(ctx, site.Domain, cert); verr != nil {
+		// The advice depends on how far it got. "DNS may not point here yet" is the
+		// right thing to say when nothing answered; it is actively misleading when a
+		// handshake completed and the wrong certificate came back, which is a
+		// server_name collision or an nginx that did not reload.
+		note := "this is normal if DNS does not yet resolve to this server"
+		if strings.Contains(verr.Error(), "serving a different certificate") {
+			note = "a handshake succeeded, so DNS is fine: another vhost claims this " +
+				"server_name, or nginx is still serving the old certificate"
+		}
 		m.Log.Warn("the certificate was attached but could not be verified over the network",
-			"domain", site.Domain, "err", verr,
-			"note", "this is normal if DNS does not yet resolve to this server")
+			"domain", site.Domain, "err", verr, "note", note)
 	} else {
 		m.Log.Info("verified", "domain", site.Domain, "served", summary)
 	}

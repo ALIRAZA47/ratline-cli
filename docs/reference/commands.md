@@ -1803,7 +1803,7 @@ Usage:
   ratline cert issue <domain> [flags]
 
 Flags:
-      --acme-ca-bundle string    Trust store for a private ACME server (default: the system one, when --acme-directory is set)
+      --acme-ca-bundle string    Trust store for a private ACME server, for this issuance only; set acme.ca_bundle in config or renewal cannot verify the CA
       --acme-directory string    ACME directory URL, for a private CA such as step-ca (default: the configured one)
       --alias stringArray        SAN to include, replacing the site's own aliases (repeatable)
       --challenge string         http (webroot) or dns; a wildcard forces dns (default "http")
@@ -1939,6 +1939,13 @@ Run twice daily by ratline-cert-renew.timer.
 A failure is not an emergency: the existing certificate is valid for weeks yet,
 which is why the window is 30 days. One certificate failing never stops the
 others; the failure is recorded and surfaced by 'ratline doctor'.
+
+Naming one certificate exits non-zero if that renewal fails, so a script
+wrapping it finds out. --all does not: it is what the timer runs, and a timer
+reporting failure for something recoverable is one people learn to ignore.
+
+acme.renew_before_days decides what is due. certbot's own window does not get
+a second vote.
 
 Usage:
   ratline cert renew [<domain>] [flags]

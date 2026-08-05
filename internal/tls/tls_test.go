@@ -821,7 +821,7 @@ func TestRenewalReadsTheServerFromTheLineageConfig(t *testing.T) {
 		{"commented.test", ""},
 		{"absent.test", ""},
 	} {
-		if got := m.renewalServer(tc.name); got != tc.want {
+		if got := RenewalServer(m.Cfg, tc.name); got != tc.want {
 			t.Errorf("renewalServer(%s) = %q, want %q", tc.name, got, tc.want)
 		}
 	}

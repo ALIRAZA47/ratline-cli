@@ -295,6 +295,49 @@ func ServerChecks(env *Env) []Check {
 			},
 		},
 		{
+			ID:    "acme-trust",
+			Title: "every certificate can verify the CA it renews from",
+			Needs: []string{"certificates"},
+			Run: func(ctx context.Context) Result {
+				// The certificates check above only fires once renewals have already
+				// failed, because it reads the failure counter. This one is about the
+				// cause, and it can be seen the day the server is set up: certbot
+				// verifies an ACME directory against certifi's bundled roots rather than
+				// the system trust store, so a private CA needs acme.ca_bundle, and
+				// without it every renewal fails months later for no visible reason.
+				if env.TLS == nil {
+					return Skip("the certificate inventory is unavailable")
+				}
+				rows, err := env.TLS.List(ctx, 0, false)
+				if err != nil {
+					return Skip("the certificate inventory could not be read")
+				}
+				var private []string
+				for _, r := range rows {
+					if server := renewalServerFor(env, r.Name); server != "" && !isPublicACME(server) {
+						private = append(private, r.Name)
+					}
+				}
+				if len(private) == 0 {
+					return Pass("all from a public CA")
+				}
+				bundle := acmeCABundle(env)
+				if bundle == "" {
+					return Fail("%s renew from a private CA and acme.ca_bundle is not set",
+						strings.Join(private, ", ")).
+						WithFix("set acme.ca_bundle in /etc/ratline/config.yaml to that CA's root; "+
+							"'ratline cert renew %s --dry-run' shows it failing today", private[0]).
+						WithTopic("tls")
+				}
+				if !exists(bundle) {
+					return Fail("acme.ca_bundle points at %s, which does not exist", bundle).
+						WithFix("correct acme.ca_bundle in /etc/ratline/config.yaml").
+						WithTopic("tls")
+				}
+				return Pass("%s verified with %s", plural(len(private), "private-CA certificate"), bundle)
+			},
+		},
+		{
 			ID:    "drift",
 			Title: "the filesystem matches what state describes",
 			Needs: []string{"state"},

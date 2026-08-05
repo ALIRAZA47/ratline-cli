@@ -387,3 +387,39 @@ func TestRenewalTrustIsOnlyDemandedForAPrivateCA(t *testing.T) {
 		t.Errorf("a bundle that does not exist = %v, want a failure", got.Verdict)
 	}
 }
+
+func TestTheSweepCatchesAPrivateCAWithNoTrustStore(t *testing.T) {
+	// The `certificates` check reads the failure counter, so it can only speak after
+	// renewals have already failed. This one is about the cause and can see it the day
+	// the server is set up — which is the difference between a warning and an outage.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "renewal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "renewal", "private.test.conf"),
+		[]byte("[renewalparams]\nserver = https://ca.internal/dir\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	find := func(env *Env) *Check {
+		for i, c := range ServerChecks(env) {
+			if c.ID == "acme-trust" {
+				return &ServerChecks(env)[i]
+			}
+		}
+		return nil
+	}
+	env := &Env{Cfg: config.Default(), Log: log.Discard()}
+	env.Cfg.Paths.LetsEncryptDir = dir
+	if find(env) == nil {
+		t.Fatal("the sweep has no acme-trust check")
+	}
+	// With no TLS manager wired in there is no inventory, so the honest answer is a
+	// skip with a reason rather than a pass that means nothing.
+	if got := find(env).Run(t.Context()); got.Verdict != Skipped {
+		t.Errorf("with no certificate inventory = %v (%s), want a skip", got.Verdict, got.Detail)
+	}
+	if got := find(env); got.Needs == nil || got.Needs[0] != "certificates" {
+		t.Errorf("acme-trust should depend on the certificates check, got %v", got.Needs)
+	}
+}

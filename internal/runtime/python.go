@@ -40,7 +40,7 @@ func (p Python) Provision(ctx context.Context, c *Context) error {
 		return err
 	}
 	c.Log.Info("creating the virtualenv", "path", c.VenvDir, "python", interpreter)
-	_, err = runAsOwner(ctx, c, system.Cmd{
+	res, err := runAsOwner(ctx, c, system.Cmd{
 		Path:    interpreter,
 		Args:    []string{"-m", "venv", "--upgrade-deps", c.VenvDir},
 		Dir:     c.SiteDir,
@@ -48,10 +48,41 @@ func (p Python) Provision(ctx context.Context, c *Context) error {
 		Label:   "create venv",
 	})
 	if err != nil {
-		return rlerr.Wrap(err, rlerr.CodeExternal, "could not create the virtualenv").
-			WithHint("the python3-venv package may be missing: apt-get install python3-venv")
+		wrapped := rlerr.Wrap(err, rlerr.CodeExternal, "could not create the virtualenv")
+		// --upgrade-deps makes pip reach the index, so the most common failure here is
+		// not a missing package at all: it is no route to PyPI. Sending an operator to
+		// `apt-get install python3-venv` when the venv was created fine and pip could
+		// not resolve a hostname is a wrong answer that reads like a confident one.
+		if unreachableIndex(res) {
+			return wrapped.WithHint("pip could not reach the package index, so this is " +
+				"a network or DNS problem on the server rather than a missing package. " +
+				"Check outbound HTTPS and /etc/resolv.conf, then retry")
+		}
+		return wrapped.WithHint("the python3-venv package may be missing: apt-get install python3-venv")
 	}
 	return nil
+}
+
+// unreachableIndex reports whether a pip failure was a failure to reach the index.
+func unreachableIndex(res *system.Result) bool {
+	if res == nil {
+		return false
+	}
+	out := strings.ToLower(res.Stdout + res.Stderr)
+	for _, sign := range []string{
+		"name or service not known",
+		"no address associated with hostname",
+		"temporary failure in name resolution",
+		"max retries exceeded",
+		"network is unreachable",
+		"no route to host",
+		"connection timed out",
+	} {
+		if strings.Contains(out, sign) {
+			return true
+		}
+	}
+	return false
 }
 
 // interpreter resolves the Python to build the venv from.

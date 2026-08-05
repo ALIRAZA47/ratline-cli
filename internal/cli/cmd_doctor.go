@@ -15,6 +15,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/tls"
 	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
@@ -347,6 +348,25 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		if len(c.Attached) == 0 {
 			add("warning", "certificate", c.Name, "not attached to any site",
 				"ratline cert attach <domain> --cert "+c.Name+", or delete it")
+		}
+		// A private ACME CA with no trust store configured. Every check above waits
+		// for something to have gone wrong — an expiry, a failure count. This one is
+		// visible the day the server is set up, and it is the cause of those: certbot
+		// verifies the ACME directory against certifi's bundled roots rather than the
+		// system trust store, so a private CA needs acme.ca_bundle, and without it
+		// every renewal fails months later with a TLS error that reads as a network
+		// problem.
+		if server := tls.RenewalServer(g.Cfg, c.Name); server != "" && !tls.IsPublicACME(server) {
+			switch bundle := g.Cfg.ACME.CABundle; {
+			case bundle == "":
+				add("problem", "certificate", c.Name,
+					"renews from "+server+" and acme.ca_bundle is not set, so certbot cannot verify it",
+					"set acme.ca_bundle in "+g.Cfg.SourcePath+" to that CA's root")
+			case !system.Exists(bundle):
+				add("problem", "certificate", c.Name,
+					"acme.ca_bundle points at "+bundle+", which does not exist",
+					"correct acme.ca_bundle in "+g.Cfg.SourcePath)
+			}
 		}
 		// A certificate whose SANs no longer cover the site it serves means
 		// browsers see a name mismatch.
