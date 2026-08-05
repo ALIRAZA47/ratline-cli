@@ -115,12 +115,19 @@ jobs:
           cache: true
       # Short runs on every push; a crash found here is a real input that would
       # have reached a config file or a command line.
+      #
+      # Budgeted in executions rather than seconds. With `-fuzztime 20s` the coordinator
+      # can cancel its context while a worker call is still in flight and report
+      # "context deadline exceeded" as a FAIL — no crasher, no failing input, just the
+      # deadline landing badly. It failed a build that way after 1.1M executions of
+      # FuzzAppModule. A red CI job that means nothing is worse than no job, because the
+      # next real failure gets ignored with it.
       - name: Fuzz
         run: |
           for target in FuzzUsername FuzzDomain FuzzResolveWithin FuzzAppModule FuzzSlug; do
-            go test -run '^$' -fuzz "$target" -fuzztime 20s ./internal/validate
+            go test -run '^$' -fuzz "$target" -fuzztime 300000x ./internal/validate
           done
-          go test -run '^$' -fuzz FuzzParseCommand -fuzztime 20s ./internal/system
+          go test -run '^$' -fuzz FuzzParseCommand -fuzztime 300000x ./internal/system
 
       - name: Upload any crashers
         if: failure()
