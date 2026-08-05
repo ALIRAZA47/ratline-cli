@@ -898,6 +898,31 @@ else
             bad "no connection string came back from a rotation" "see the output above"
         fi
 
+        # A database ratline would never create is still listed by --live. This is what
+        # that flag is for: one created by another tool, or by hand, is precisely the case
+        # worth surfacing, because nothing will revoke its users when the tenant goes.
+        # Filtering on "would ratline create this name" hid exactly those.
+        legacy=legacy_reporting_warehouse_archive_2019_2020
+        mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval "db.getSiblingDB(\"$legacy\").marker.insertOne({a:1})" >/dev/null 2>&1
+        live=$("$RATLINE" db list --live 2>&1)
+        contains "an unmanaged database is listed, not hidden" "$legacy" "$live"
+        contains "and it is marked unmanaged"                  "no"      "$live"
+        contains "with a warning about its users"              "not recorded here" "$live"
+        # ratline still refuses to create that name itself: listing is not permission.
+        refute "but ratline still will not create such a name" "$RATLINE" db create "$legacy" --owner alice
+        # MongoDB's own three are the only ones skipped.
+        case "$live" in
+            *admin*|*config*|*local*) bad "db list --live shows MongoDB's own databases" "they are not provisioning targets" ;;
+            *) ok "MongoDB's own databases are still skipped" ;;
+        esac
+
+        # --attach needs a credential, and --no-user says not to create one. Accepting both
+        # silently dropped the attach, so a site appeared to have been given a connection
+        # string it never received.
+        refute "--attach with --no-user is refused" \
+            "$RATLINE" db create contradiction --owner alice --no-user --attach static.test
+
         # A second, narrower user on the same database — the reason per-database users
         # exist rather than one credential per database.
         check "db user add, read-only"   "$RATLINE" db user add reports --database shop --role read

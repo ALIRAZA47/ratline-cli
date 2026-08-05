@@ -194,6 +194,16 @@ func newDBCreateCommand(g *Globals) *cobra.Command {
 				collection = g.Cfg.Databases.MongoDB.InitialCollection
 			}
 
+			// --attach needs a credential to write, and --no-user is the instruction not
+			// to create one. Accepting both silently dropped the attach, which is how an
+			// operator comes to believe a site was given a connection string it never
+			// received — and then debugs the application instead of the provisioning.
+			if attach != "" && noUser {
+				return rlerr.Usagef("--attach and --no-user contradict each other").
+					WithHint("--attach writes a user's connection string into %s, and "+
+						"--no-user means there is no user to write. Drop one of them", attach)
+			}
+
 			// Idempotence, the same as everywhere else: an existing row with the same
 			// owner is reported rather than failed.
 			if existing, gerr := st.GetDatabase(ctx, name); gerr == nil {
@@ -256,7 +266,7 @@ func newDBCreateCommand(g *Globals) *cobra.Command {
 			// Attaching writes the URI into the site's .env, which keeps the password out
 			// of the terminal entirely.
 			var attached string
-			if attach != "" && !noUser {
+			if attach != "" {
 				if attached, err = g.dbAttach(ctx, st, attach, username, name, envKey, uri); err != nil {
 					return err
 				}
@@ -378,9 +388,14 @@ func newDBListCommand(g *Globals) *cobra.Command {
 			}
 			var rows []row
 			for _, d := range onServer {
-				// The server's own databases are not provisioning targets, and listing
-				// them as unmanaged would be noise on every run.
-				if validate.DatabaseName(d.Name) != nil {
+				// Only MongoDB's own three are skipped. Filtering on whether ratline
+				// *would* create the name hid the databases this command exists to
+				// surface: one created outside ratline — by another tool, or by hand,
+				// with a name ratline would have refused — is precisely the case worth
+				// knowing about, because nothing will revoke its users when the tenant
+				// goes. Hiding it made `--live` agree with the index it was meant to be
+				// checked against.
+				if validate.IsMongoSystemDatabase(d.Name) {
 					continue
 				}
 				r := row{Name: d.Name, SizeBytes: d.SizeOnDisk}

@@ -21,6 +21,21 @@ import (
 // how an operator destroys their cluster's credentials or its oplog.
 var mongoReservedDatabases = []string{"admin", "local", "config"}
 
+// IsMongoSystemDatabase reports whether a name is one of MongoDB's own.
+//
+// Separate from DatabaseName because the two questions differ: "may ratline create this"
+// is a policy, and "does this belong to the server" is a fact. Conflating them made
+// `db list --live` hide every database whose name ratline would not have chosen, which is
+// the opposite of what that flag is for.
+func IsMongoSystemDatabase(name string) bool {
+	for _, reserved := range mongoReservedDatabases {
+		if strings.EqualFold(name, reserved) {
+			return true
+		}
+	}
+	return false
+}
+
 // DatabaseName checks a MongoDB database name.
 func DatabaseName(name string) error {
 	if name == "" {
@@ -49,12 +64,10 @@ func DatabaseName(name string) error {
 			return rlerr.Usagef("the database name contains %q; use letters, digits, hyphen or underscore", r)
 		}
 	}
-	for _, reserved := range mongoReservedDatabases {
-		if strings.EqualFold(name, reserved) {
-			return rlerr.Usagef("%q is one of MongoDB's own databases", name).
-				WithHint("admin, local and config belong to the server; provisioning inside " +
-					"them can destroy its credentials or its replication log")
-		}
+	if IsMongoSystemDatabase(name) {
+		return rlerr.Usagef("%q is one of MongoDB's own databases", name).
+			WithHint("admin, local and config belong to the server; provisioning inside " +
+				"them can destroy its credentials or its replication log")
 	}
 	return nil
 }

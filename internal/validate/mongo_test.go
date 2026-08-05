@@ -116,3 +116,32 @@ func TestEveryGrantableRoleIsDescribed(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemDatabasesAreAFactSeparateFromThePolicy(t *testing.T) {
+	// Two different questions. "May ratline create this name" is a policy — 38 characters,
+	// no dots, no spaces. "Does this database belong to the server" is a fact about
+	// MongoDB. Conflating them made `db list --live` hide every database whose name
+	// ratline would not have chosen, which is the opposite of what that flag is for: a
+	// database created outside ratline is exactly the one worth surfacing, because nothing
+	// will revoke its users when the tenant goes.
+	for _, name := range []string{"admin", "local", "config", "ADMIN", "Local", "CONFIG"} {
+		if !IsMongoSystemDatabase(name) {
+			t.Errorf("IsMongoSystemDatabase(%q) = false; it belongs to the server", name)
+		}
+	}
+	// Names ratline would refuse to create, but which are still somebody's data and must
+	// therefore be listed rather than hidden.
+	for _, name := range []string{
+		"legacy.reporting", // a dot: ratline refuses it, mongod accepted it
+		"a-name-far-longer-than-ratline-would-ever-choose-to-create",
+		"Mixed Case With Spaces",
+		"shop",
+	} {
+		if IsMongoSystemDatabase(name) {
+			t.Errorf("IsMongoSystemDatabase(%q) = true; it is not one of MongoDB's own", name)
+		}
+		if name != "shop" && DatabaseName(name) == nil {
+			t.Errorf("DatabaseName(%q) should still refuse to *create* it", name)
+		}
+	}
+}
