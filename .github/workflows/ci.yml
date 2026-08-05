@@ -99,6 +99,12 @@ jobs:
         with:
           version: v2.12.2
 
+      # The docs site's CSP lists the sha256 of its one inline script. The hash changes
+      # whenever that script does, and the failure is silent — theme flashes, console
+      # error nobody reads, page otherwise fine.
+      - name: Check the docs CSP hash
+        run: ./scripts/check-csp-hash.sh
+
   fuzz:
     name: fuzz the validators
     runs-on: ubuntu-24.04
