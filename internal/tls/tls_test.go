@@ -892,3 +892,53 @@ func TestTheRenewalEnvironmentCarriesBothVariables(t *testing.T) {
 		t.Errorf("the environment replaces the process's own, so it must carry PATH: %v", env)
 	}
 }
+
+func TestRenewDoesNotLetCertbotSleepPastTheTimeout(t *testing.T) {
+	// certbot renew --non-interactive sleeps a random 0-480s before doing anything,
+	// so that the world's cron jobs do not arrive at the CA together. ratline bounds
+	// the call with acme.issue_timeout, five minutes by default — so every draw above
+	// five minutes was killed and recorded as a renewal failure. Not a rare edge:
+	// most of a third of all renewals, on every server, against Let's Encrypt as much
+	// as against anything else. The recorded failures then fed the exponential
+	// backoff, so losing the dice roll twice cost hours.
+	//
+	// ratline's own timer carries RandomizedDelaySec=3h, so the spreading certbot is
+	// trying to provide is already there and this gives up nothing.
+	m, st, _ := testManager(t)
+	m.DryRun = false
+	ctx := context.Background()
+
+	due := &state.Certificate{
+		Name: "due.example.com", Source: state.CertSourceLetsEncrypt, AutoRenew: true,
+		NotBefore: time.Now().Add(-24 * time.Hour), NotAfter: time.Now().Add(5 * 24 * time.Hour),
+	}
+	if err := st.PutCertificate(ctx, due); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Renew(ctx, RenewOptions{All: true}); err != nil {
+		t.Fatalf("Renew = %v", err)
+	}
+
+	runner, ok := m.Runner.(*systest.FakeRunner)
+	if !ok {
+		t.Fatalf("the fixture's runner is a %T, which cannot be inspected", m.Runner)
+	}
+	var renewArgs []string
+	for _, c := range runner.Calls() {
+		if c.Name == "certbot" && len(c.Args) > 0 && c.Args[0] == "renew" {
+			renewArgs = c.Args
+		}
+	}
+	if renewArgs == nil {
+		t.Fatalf("certbot renew was never invoked; calls: %v", runner.Keys())
+	}
+	var sawFlag bool
+	for _, a := range renewArgs {
+		if a == "--no-random-sleep-on-renew" {
+			sawFlag = true
+		}
+	}
+	if !sawFlag {
+		t.Errorf("certbot renew must pass --no-random-sleep-on-renew, got: %v", renewArgs)
+	}
+}

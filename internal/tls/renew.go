@@ -98,6 +98,15 @@ func (m *Manager) renewOne(ctx context.Context, cert *state.Certificate, opts Re
 	}
 
 	args := []string{"renew", "--cert-name", cert.Name, "--non-interactive"}
+	// certbot sleeps a random 0-480 seconds under --non-interactive, to keep the
+	// world's cron jobs from arriving at the CA on the same minute. Sound reasoning,
+	// wrong layer here: ratline schedules its own renewals and spreads them itself,
+	// and it bounds this call with acme.issue_timeout — five minutes by default. So
+	// every draw above five minutes was killed and recorded as a renewal failure,
+	// which is most of a third of them, on every server, against Let's Encrypt as
+	// much as anything else. The failures then fed the exponential backoff, so a
+	// certificate that lost the dice roll twice would wait hours before trying again.
+	args = append(args, "--no-random-sleep-on-renew")
 	if opts.Force {
 		args = append(args, "--force-renewal")
 	}
