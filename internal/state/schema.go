@@ -229,4 +229,56 @@ var migrations = [][]string{
 	{
 		`ALTER TABLE sites ADD COLUMN process_manager TEXT NOT NULL DEFAULT ''`,
 	},
+
+	// 3 — MongoDB databases and their users.
+	//
+	// State is an index, not the truth: the truth is what the MongoDB server says, and
+	// `db list --live` asks it. What state adds is ownership and intent — which tenant a
+	// database belongs to, which site was given its URI, and which users ratline created
+	// as opposed to which were already there. Without that, `user delete --purge` cannot
+	// know what to revoke, and a shared cluster slowly fills with credentials nobody can
+	// account for.
+	{
+		`CREATE TABLE databases (
+			name        TEXT PRIMARY KEY,
+			owner       TEXT NOT NULL,
+			server      TEXT NOT NULL DEFAULT '',
+			created_at  TEXT NOT NULL,
+			created_by  TEXT NOT NULL DEFAULT '',
+			notes       TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY (owner) REFERENCES users(name) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX idx_databases_owner ON databases(owner)`,
+
+		// A user belongs to the database it authenticates against, which for a
+		// ratline-created user is always the database it has a role on. auth_db is
+		// recorded anyway, because a user adopted from an existing cluster may
+		// authenticate somewhere else and the URI has to say so.
+		`CREATE TABLE database_users (
+			username    TEXT NOT NULL,
+			auth_db     TEXT NOT NULL,
+			database    TEXT NOT NULL,
+			role        TEXT NOT NULL,
+			created_at  TEXT NOT NULL,
+			created_by  TEXT NOT NULL DEFAULT '',
+			rotated_at  TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (username, auth_db),
+			FOREIGN KEY (database) REFERENCES databases(name) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX idx_database_users_database ON database_users(database)`,
+
+		// Which site was handed which user's connection string. A site can be given a
+		// database it does not own — a reporting job reading another tenant's data with a
+		// read role — so this is its own table rather than a column.
+		`CREATE TABLE database_attachments (
+			domain      TEXT NOT NULL,
+			username    TEXT NOT NULL,
+			auth_db     TEXT NOT NULL,
+			env_key     TEXT NOT NULL,
+			attached_at TEXT NOT NULL,
+			PRIMARY KEY (domain, env_key),
+			FOREIGN KEY (domain) REFERENCES sites(domain) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX idx_database_attachments_user ON database_attachments(username, auth_db)`,
+	},
 }

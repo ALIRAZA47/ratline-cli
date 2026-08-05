@@ -12,6 +12,7 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/buildinfo"
 	"github.com/ALIRAZA47/ratline-cli/internal/diag"
+	"github.com/ALIRAZA47/ratline-cli/internal/mongo"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -298,6 +299,14 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		}
 	}
 
+	// MongoDB, when provisioning is on. A database server that has become unreachable
+	// is invisible otherwise: the sites keep serving, their connection strings keep
+	// looking correct, and the first sign is an application error nobody attributes to
+	// the database until they read its logs.
+	if g.Cfg.Features.DBProvisioning {
+		g.diagnoseMongo(ctx, st, add)
+	}
+
 	// Ports allocated in state but not used by any site.
 	ports, err := st.ListPorts(ctx)
 	if err != nil {
@@ -554,5 +563,99 @@ func newExportCommand(g *Globals) *cobra.Command {
 			defer func() { g.JSON = was }()
 			return g.EmitJSON(export)
 		},
+	}
+}
+
+// diagnoseMongo checks the database server and the credentials pointing at it.
+//
+// Deliberately a warning rather than a problem when the server is simply unreachable:
+// that may be a network blip, and `doctor` exits non-zero on problems, which would make
+// a cron job page somebody for something that fixed itself. A missing admin file, or one
+// that other accounts can read, is a different matter.
+func (g *Globals) diagnoseMongo(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
+	if !g.Bins.Available("mongosh") {
+		add("warning", "mongodb", "mongosh", "not installed, so ratline cannot manage databases",
+			"apt-get install mongodb-mongosh")
+		return
+	}
+	mgr := &mongo.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, State: st, DryRun: true}
+
+	if _, err := mgr.AdminURI(); err != nil {
+		// The file's mode is the part worth being firm about: a URI other accounts can
+		// read is the admin password for every database on the server.
+		severity := "warning"
+		if strings.Contains(err.Error(), "mode") {
+			severity = "problem"
+		}
+		add(severity, "mongodb", g.Cfg.Paths.MongoURIFile, firstLine(err.Error()),
+			"see 'ratline db --help' for the two commands that write it")
+		return
+	}
+
+	info, err := mgr.Ping(ctx)
+	if err != nil {
+		add("warning", "mongodb", "server", firstLine(err.Error()),
+			"ratline db ping shows the detail")
+		return
+	}
+	if !info.AuthEnabled {
+		add("problem", "mongodb", "server",
+			"the server does not appear to enforce authentication, so any process that "+
+				"can reach the port has full access to every database",
+			"start mongod with --auth, or security.authorization: enabled in mongod.conf")
+	}
+
+	// A database recorded here but gone from the server, or the other way round. Both
+	// matter: the first breaks an application that still holds a connection string, and
+	// the second is a database nothing will clean up when its tenant is deleted.
+	recorded, err := st.ListDatabases(ctx, "")
+	if err != nil {
+		return
+	}
+	live, err := mgr.LiveDatabases(ctx)
+	if err != nil {
+		return
+	}
+	onServer := map[string]bool{}
+	for _, d := range live {
+		onServer[d.Name] = true
+	}
+	for _, d := range recorded {
+		if !onServer[d.Name] {
+			add("problem", "mongodb", d.Name,
+				"recorded as "+d.Owner+"'s database but the server does not have it",
+				"ratline db drop "+d.Name+" --keep-database, if it is gone for good")
+		}
+	}
+	// Users whose credentials a site holds, but which the server no longer has: the
+	// application is failing to authenticate right now.
+	for _, d := range recorded {
+		for _, u := range d.Users {
+			if len(u.Attachments) == 0 {
+				continue
+			}
+			users, err := mgr.LiveUsers(ctx, u.AuthDB)
+			if err != nil {
+				continue
+			}
+			var present bool
+			for _, lu := range users {
+				if lu.Username == u.Username {
+					present = true
+					break
+				}
+			}
+			if !present {
+				var sites []string
+				for _, a := range u.Attachments {
+					sites = append(sites, a.Domain)
+				}
+				add("problem", "mongodb", u.Username,
+					"gone from the server, but "+strings.Join(sites, ", ")+" still has its "+
+						"connection string, so that site cannot authenticate",
+					"ratline db user add "+u.Username+" --database "+u.Database+
+						" --attach "+sites[0])
+			}
+		}
 	}
 }

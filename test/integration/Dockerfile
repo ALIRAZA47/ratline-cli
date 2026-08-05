@@ -30,6 +30,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         certbot \
     && rm -rf /var/lib/apt/lists/*
 
+# mongosh, for the database section. From MongoDB's own repository because Ubuntu does
+# not package it, and pinned to the major version so a new release cannot change the
+# suite's behaviour on an unrelated commit.
+RUN set -eu; \
+    apt-get update && apt-get install -y --no-install-recommends gnupg; \
+    arch="$(dpkg --print-architecture)"; \
+    curl -fsSL https://pgp.mongodb.com/server-8.0.asc \
+      | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg; \
+    echo "deb [ arch=$arch signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] \
+https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" \
+      > /etc/apt/sources.list.d/mongodb-org-8.0.list; \
+    apt-get update && apt-get install -y --no-install-recommends mongodb-mongosh; \
+    rm -rf /var/lib/apt/lists/*; \
+    mongosh --version
+
 # The units systemd would otherwise spend the container's life failing on.
 RUN find /etc/systemd/system /lib/systemd/system \
         -path '*.wants/*' \

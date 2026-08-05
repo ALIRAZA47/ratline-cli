@@ -39,6 +39,10 @@ paths:
   letsencrypt_dir: /etc/letsencrypt
   imported_certs: /etc/ratline/certs
   dns_credentials: /etc/ratline/dns
+  # The MongoDB admin connection string, 0600 and root-owned. Not a setting in this
+  # file: it is the root password for every database on the server, and config.yaml
+  # is a file operators paste into support tickets.
+  mongo_uri_file: /etc/ratline/db/mongodb.uri
   ssh_dir: /etc/ratline/ssh
   sshd_dropin: /etc/ssh/sshd_config.d/60-ratline.conf
   runtimes_dir: /opt/ratline/runtimes
@@ -206,8 +210,26 @@ logging:
   level: info
   color: auto
 
+databases:
+  mongodb:
+    # Granted to a user created without --role. readWrite rather than dbOwner: an
+    # application reads and writes its own collections, and does not need to create
+    # users or drop the database it lives in.
+    default_role: readWrite
+    # The variable a connection string is written to in a site's .env.
+    env_key: MONGODB_URI
+    # One mongosh invocation. A managed cluster behind an access list does not refuse
+    # a connection, it hangs — so this is what turns that into an error naming the
+    # access list rather than a command that never returns.
+    timeout: 30s
+    # Created so a new database is visible to `db list`. MongoDB has no
+    # createDatabase; a database exists once something is written into it.
+    initial_collection: ratline
+
 features:
-  # `ratline db` is a stub until database provisioning lands.
+  # Turns `ratline db` on. Off by default because it needs a MongoDB server and an
+  # admin connection string at paths.mongo_uri_file, and a command that cannot work
+  # is better hidden than offered.
   db_provisioning: false
   # Adds a chroot and a bind mount to site-scoped SSH keys. Off by default
   # because a misconfigured chroot generates support tickets.

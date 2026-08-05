@@ -58,6 +58,8 @@ type Config struct {
 	Logging  Logging  `yaml:"logging"`
 	Features Features `yaml:"features"`
 
+	Databases Databases `yaml:"databases"`
+
 	// SourcePath and Loaded describe where this config came from. Loaded is
 	// false when no file exists and the built-in defaults are in use.
 	SourcePath string `yaml:"-"`
@@ -91,11 +93,16 @@ type Paths struct {
 	LetsEncryptDir      string `yaml:"letsencrypt_dir"`
 	ImportedCerts       string `yaml:"imported_certs"`
 	DNSCredentials      string `yaml:"dns_credentials"`
-	SSHDir              string `yaml:"ssh_dir"`
-	SSHDDropIn          string `yaml:"sshd_dropin"`
-	RuntimesDir         string `yaml:"runtimes_dir"`
-	ShellWrapper        string `yaml:"shell_wrapper"`
-	BackupDir           string `yaml:"backup_dir"`
+	// MongoURIFile holds the admin connection string. A file rather than a setting
+	// in this one, held to the same 0600 rule as the DNS credentials: it is the
+	// root password for every database on the server, and config.yaml is a file
+	// operators paste into support tickets.
+	MongoURIFile string `yaml:"mongo_uri_file"`
+	SSHDir       string `yaml:"ssh_dir"`
+	SSHDDropIn   string `yaml:"sshd_dropin"`
+	RuntimesDir  string `yaml:"runtimes_dir"`
+	ShellWrapper string `yaml:"shell_wrapper"`
+	BackupDir    string `yaml:"backup_dir"`
 }
 
 // Defaults are the per-site values `site add` starts from and `site scale`
@@ -228,6 +235,38 @@ type Logging struct {
 }
 
 // Features gates work that is not finished. `ratline db` is stubbed behind one.
+// Databases groups the database servers ratline can provision inside.
+//
+// It provisions rather than installs. A database server is a stateful thing with
+// backups and a replication topology, and a tool that silently apt-gets one has made a
+// decision belonging to whoever owns the data — the same reasoning that has ratline
+// configure nginx and drive certbot without installing either.
+type Databases struct {
+	MongoDB MongoDB `yaml:"mongodb"`
+}
+
+// MongoDB is how ratline reaches the MongoDB server it manages.
+type MongoDB struct {
+	// DefaultRole is granted to a user created without --role. readWrite rather than
+	// dbOwner: an application needs to read and write its own collections, and does not
+	// need to create users or drop the database it lives in.
+	DefaultRole string `yaml:"default_role"`
+
+	// EnvKey is the variable a connection string is written to in a site's .env.
+	EnvKey string `yaml:"env_key"`
+
+	// Timeout bounds one mongosh invocation. A managed cluster behind an access list
+	// does not refuse a connection, it hangs, so this is what turns that into an error
+	// naming the access list rather than a command that never returns.
+	Timeout Duration `yaml:"timeout"`
+
+	// InitialCollection is created so a new database is visible to `db list`. MongoDB
+	// has no createDatabase — a database exists once something is written into it — so
+	// without this a freshly created one is invisible until the application writes,
+	// which reads as the create having silently failed.
+	InitialCollection string `yaml:"initial_collection"`
+}
+
 type Features struct {
 	DBProvisioning  bool `yaml:"db_provisioning"`
 	StrictIsolation bool `yaml:"strict_isolation"`

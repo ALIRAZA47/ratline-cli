@@ -147,6 +147,7 @@ OPERATIONS
   init         Set up this server: configuration, directories and defaults
   backup       Archive a user's home or a single site
   restore      Put a backup archive back, and rebuild what serves it
+  db           Provision MongoDB databases and users
   doctor       Check the server, or diagnose one thing on it
   status       Show everything on this server on one screen
   troubleshoot Find why something is broken, in the order things depend on each other
@@ -499,6 +500,64 @@ Examples:
   ratline restore acme-20260105T120000Z.tar.gz --force
   ratline restore example.com-20260105T120000Z.tar.gz --no-start
   ratline restore example.com-20260105T120000Z.tar.gz --dry-run
+```
+
+### `ratline db`
+
+```
+Creates databases and least-privilege users on a MongoDB server, and writes the
+connection string into a site's .env so the application picks it up on restart.
+
+ratline does not install MongoDB. It manages what lives inside a server you point
+it at — a local mongod or a managed cluster, the only difference being the admin
+connection string. That string lives in a file rather than in config.yaml, at
+paths.mongo_uri_file, mode 0600: it is the root password for every database on
+the server.
+
+    install -d -o root -g root -m 0700 /etc/ratline/db
+    printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \
+      > /etc/ratline/db/mongodb.uri && chmod 0600 /etc/ratline/db/mongodb.uri
+
+Then turn it on with features.db_provisioning, and check the server is reachable
+with 'ratline db ping'.
+
+Every role ratline grants is scoped to a single database. The cluster-wide ones —
+root, readWriteAnyDatabase — are deliberately not offered: granting one to a
+tenant's application hands it every other tenant's data.
+
+Usage:
+  ratline db [command]
+
+Available Commands:
+  ping        Check that the MongoDB server is reachable and enforcing authentication
+  create      Create a database, a user scoped to it, and optionally attach it to a site
+  list        List databases ratline provisioned, or everything on the server
+  show        Show a database, its users and what it holds
+  drop        Drop a database and its users
+  user        Add, inspect, re-role and remove MongoDB users
+  roles       List the roles ratline will grant, and what each allows
+
+Flags:
+  -h, --help   help for db
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db ping
+  ratline db create shop --owner acme --attach shop.example.com
+  ratline db user add reports --database shop --role read
+  ratline db user password shop_app --attach shop.example.com
+  ratline db list --live
+
+Use "ratline db [command] --help" for more information about a command.
 ```
 
 ### `ratline doctor`
@@ -2281,6 +2340,219 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 ```
 
+#### `ratline db ping`
+
+```
+Connects with the configured admin credentials and reports the server's version
+and topology.
+
+It also reports whether the server enforces authentication, which is worth knowing:
+a mongod started without it answers every command from anyone who can reach the
+port, so the users ratline creates would be decoration.
+
+Usage:
+  ratline db ping [flags]
+
+Flags:
+  -h, --help   help for ping
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db create`
+
+```
+Creates the database, creates a user whose only role is on that database, and
+prints the connection string once.
+
+MongoDB has no createDatabase — a database exists once something is written into
+it — so an initial collection is created too. Without it a new database is
+invisible to 'db list' until the application writes, which reads as the create
+having silently failed.
+
+With --attach the connection string is written into that site's .env instead of
+being printed, which keeps it out of your shell history and the terminal
+scrollback. An application reads its environment at startup, so the variable
+takes effect on the next deploy or restart.
+
+Usage:
+  ratline db create <name> [flags]
+
+Flags:
+      --attach string       Write the connection string into this site's .env
+      --collection string   Initial collection, so the database is visible
+      --env-key string      Variable name for --attach (default: databases.mongodb.env_key)
+  -h, --help                help for create
+      --no-user             Create the database only, without a user
+      --owner string        Tenant that owns this database (required)
+      --role string         Role on this database (default: databases.mongodb.default_role)
+      --user string         Username to create (default: <database>_app)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db create shop --owner acme
+  ratline db create shop --owner acme --attach shop.example.com
+  ratline db create analytics --owner acme --role dbOwner
+  ratline db create legacy --owner acme --no-user   # adopt an existing schema
+```
+
+#### `ratline db list`
+
+```
+By default this lists what ratline recorded, with the tenant that owns each.
+
+--live asks the server instead and marks anything it does not recognise. That
+difference is the useful part: a database on the server with no row was created
+outside ratline, and nothing will revoke its users when the tenant is deleted.
+
+Usage:
+  ratline db list [flags]
+
+Flags:
+  -h, --help           help for list
+      --live           Ask the server rather than reading ratline's index
+      --owner string   Only this tenant's databases
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db show`
+
+```
+Show a database, its users and what it holds
+
+Usage:
+  ratline db show <name> [flags]
+
+Flags:
+  -h, --help   help for show
+      --live   Also ask the server for its statistics and users (default true)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db drop`
+
+```
+Drops the database, every collection in it, and every user ratline created for
+it. This destroys data and cannot be undone, so it asks first and needs the
+database's name typed back.
+
+--keep-database removes the users and ratline's record but leaves the data, which
+is what you want when handing a database over to someone else's tooling.
+
+Usage:
+  ratline db drop <name> [flags]
+
+Flags:
+      --force           Skip the confirmation
+  -h, --help            help for drop
+      --keep-database   Remove the users but leave the data
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db user`
+
+```
+Users are scoped to one database. A password is shown once — MongoDB stores a
+hash, so nothing can print it again — and --attach writes it straight into a
+site's .env instead, which keeps it out of your shell history entirely.
+
+Usage:
+  ratline db user [command]
+
+Available Commands:
+  add         Create a MongoDB user scoped to one database
+  list        List MongoDB users
+  password    Rotate a user's password
+  grant       Change a user's role on its database
+  delete      Remove a MongoDB user
+
+Flags:
+  -h, --help   help for user
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Use "ratline db user [command] --help" for more information about a command.
+```
+
+#### `ratline db roles`
+
+```
+Every one of these is scoped to a single database.
+
+The cluster-wide roles — root, readWriteAnyDatabase, userAdminAnyDatabase — are
+deliberately absent. Granting one to a tenant's application would give it every
+other tenant's data, which is the thing ratline exists to prevent, and it would
+be one flag away if the list were open.
+
+Usage:
+  ratline db roles [flags]
+
+Flags:
+  -h, --help   help for roles
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
 ##### `ratline user password set`
 
 ```
@@ -2735,6 +3007,170 @@ Usage:
 Flags:
       --email string   Contact address (required)
   -h, --help           help for register
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline db user add`
+
+```
+Creates a user whose only role is on the named database, and prints the
+connection string once.
+
+A second user on the same database is the way to give something narrower access
+than the application has: a reporting job with 'read', a migration tool with
+'dbAdmin', each with its own credential that can be revoked on its own.
+
+Usage:
+  ratline db user add <username> [flags]
+
+Flags:
+      --attach string     Write the connection string into this site's .env
+      --database string   Database this user has a role on (required)
+      --env-key string    Variable name for --attach
+  -h, --help              help for add
+      --role string       Role to grant (default: databases.mongodb.default_role)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db user add reports --database shop --role read
+  ratline db user add worker --database shop --attach worker.example.com
+```
+
+##### `ratline db user list`
+
+```
+By default this lists the users ratline created, with the sites holding their
+credentials.
+
+--live asks the server, which needs --database: MongoDB stores users per database
+and there is no server-wide listing that does not require reading the admin
+database directly. Anything the server has that ratline does not is worth
+knowing — it will survive a tenant deletion.
+
+Usage:
+  ratline db user list [flags]
+
+Flags:
+      --database string   Only users of this database
+  -h, --help              help for list
+      --live              Ask the server rather than reading ratline's index
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline db user password`
+
+```
+Generates a new password, sets it on the server, and prints it once.
+
+The old password stops working immediately, so anything still using it fails
+until it gets the new one. --all-sites updates every site recorded as holding this
+user's credentials, which is usually what you want and is the difference between
+a rotation and an outage. The applications still need restarting: an environment
+variable is read at startup.
+
+Usage:
+  ratline db user password <username> [flags]
+
+Flags:
+      --all-sites        Update every site already holding this credential
+      --attach string    Also write the new string into this site's .env
+      --auth-db string   Authentication database, when the username is ambiguous
+      --env-key string   Variable name for --attach
+  -h, --help             help for password
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db user password shop_app --all-sites
+  ratline db user password shop_app --attach shop.example.com
+```
+
+##### `ratline db user grant`
+
+```
+Replaces the user's roles with exactly the one named.
+
+Replaced rather than added to, deliberately: 'grant' means "this user should have
+exactly this access", and accumulating roles quietly is how a read-only user ends
+up able to write.
+
+Usage:
+  ratline db user grant <username> [flags]
+
+Flags:
+      --auth-db string   Authentication database, when the username is ambiguous
+  -h, --help             help for grant
+      --role string      Role to grant, replacing any existing (required)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Prompt for whatever was not supplied as a flag
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db user grant reports --role read
+  ratline db user grant shop_app --role readWrite
+```
+
+##### `ratline db user delete`
+
+```
+Removes the user from the server. Its data is untouched — a user is a credential,
+not a container.
+
+If any site holds this user's connection string, that is named before anything
+happens: removing the user takes the site's database access with it.
+
+Usage:
+  ratline db user delete <username> [flags]
+
+Aliases:
+  delete, remove, rm
+
+Flags:
+      --auth-db string   Authentication database, when the username is ambiguous
+      --force            Do not ask, even when a site depends on it
+  -h, --help             help for delete
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)

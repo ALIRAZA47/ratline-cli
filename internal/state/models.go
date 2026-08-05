@@ -279,3 +279,49 @@ func splitList(s string) []string {
 }
 
 func joinList(v []string) string { return strings.Join(v, ",") }
+
+// Database is a MongoDB database ratline provisioned, and the tenant that owns it.
+//
+// The row is an index rather than the truth. MongoDB is the authority on what exists;
+// this records what ratline created and for whom, which is what makes a purge on
+// `user delete` possible and what stops a shared cluster accumulating credentials
+// nobody can account for.
+type Database struct {
+	Name      string    `json:"name"`
+	Owner     string    `json:"owner"`
+	Server    string    `json:"server,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	Notes     string    `json:"notes,omitempty"`
+
+	// Users is filled by the queries that join; it is not a column.
+	Users []*DatabaseUser `json:"users,omitempty"`
+}
+
+// DatabaseUser is a MongoDB user, scoped to one database.
+//
+// There is no password here, and there never will be. MongoDB stores a hash and will
+// not give it back, so ratline cannot know a user's password after it is set — which is
+// the right shape: a lost password is rotated, not recovered.
+type DatabaseUser struct {
+	Username  string    `json:"username"`
+	AuthDB    string    `json:"auth_db"`
+	Database  string    `json:"database"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	RotatedAt time.Time `json:"rotated_at,omitempty"`
+
+	// Attachments is filled by the queries that join.
+	Attachments []*DatabaseAttachment `json:"attachments,omitempty"`
+}
+
+// DatabaseAttachment records that a site was given a user's connection string, and
+// under which environment variable.
+type DatabaseAttachment struct {
+	Domain     string    `json:"domain"`
+	Username   string    `json:"username"`
+	AuthDB     string    `json:"auth_db"`
+	EnvKey     string    `json:"env_key"`
+	AttachedAt time.Time `json:"attached_at"`
+}

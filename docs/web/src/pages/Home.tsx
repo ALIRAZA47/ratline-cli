@@ -119,9 +119,10 @@ export function Home() {
             than a convention.
           </li>
           <li>
-            <strong>No database provisioning yet.</strong>{' '}
-            <code>features.db_provisioning</code> is <code>false</code> and{' '}
-            <code>ratline db</code> is a stub.
+            <strong>Databases are MongoDB only.</strong>{' '}
+            <code>ratline db</code> provisions databases and least-privilege users, behind{' '}
+            <code>features.db_provisioning</code> because it needs an admin connection
+            string. Nothing else — Postgres, MySQL, Redis — is supported.
           </li>
         </ul>
       </div>

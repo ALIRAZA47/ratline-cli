@@ -29,6 +29,7 @@ sudo ratline doctor        # validates it
 | `runtimes` | Default node and python versions, the node process manager, mirrors, timeouts |
 | `acme` | Contact address, directory URLs, key type, renewal window, the CA's rate limits |
 | `ports` | The allocation window for sites that listen on TCP |
+| `databases` | The MongoDB server `ratline db` provisions inside |
 | `logging` | Level and colour |
 | `features` | Opt-in behaviour that is off by default |
 
@@ -53,13 +54,44 @@ users:
   allow_sudo: false             # turning this on only permits the escape hatch to exist
 ```
 
+## `databases`
+
+```yaml
+paths:
+  mongo_uri_file: /etc/ratline/db/mongodb.uri   # 0600, root-owned
+
+databases:
+  mongodb:
+    default_role: readWrite     # granted to a user created without --role
+    env_key: MONGODB_URI        # the variable --attach writes
+    timeout: 30s                # one mongosh invocation
+    initial_collection: ratline # so a new database is visible to `db list`
+
+features:
+  db_provisioning: true         # off by default
+```
+
+The admin connection string is a file rather than a setting, held to the same rule as the
+DNS provider credentials: it is the root password for every database on the server, and
+`config.yaml` is a file operators paste into support tickets. ratline refuses to read it at
+any mode that lets another account see it.
+
+`default_role` is `readWrite` rather than `dbOwner` because an application reads and writes
+its own collections and does not need to create users or drop the database it lives in.
+Cluster-wide roles cannot be configured here at all — see
+[the databases topic](../topics/databases.md) for why.
+
+`timeout` is what turns an unreachable managed cluster into an error naming its access list.
+A cluster that has not allowed this server's address does not refuse the connection; it
+ignores it, so without a bound the command never returns.
+
 ## `features`
 
 Off by default, each for a stated reason:
 
 ```yaml
 features:
-  db_provisioning: false     # `ratline db` is a stub until this lands
+  db_provisioning: false     # turns on `ratline db`; needs a MongoDB admin URI
   strict_isolation: false    # adds a chroot and a bind mount to site-scoped SSH keys;
                              # off because a misconfigured chroot generates support tickets
 ```

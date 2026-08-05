@@ -7,9 +7,10 @@ commands, flags, defaults or exit codes that are not written here.
 Invocation is always `ratline <group> <verb> [args]`.
 
 Every command listed here is implemented. What remains unbuilt is noted
-explicitly where it applies: `ratline db` is a stub behind
-`features.db_provisioning`, and PHP, Go and Ruby runtimes are not present (the
-runtime package is an interface, so each is a new file rather than a refactor).
+explicitly where it applies: `ratline db` provisions MongoDB only and is behind
+`features.db_provisioning` because it needs an admin connection string, and PHP,
+Go and Ruby runtimes are not present (the runtime package is an interface, so
+each is a new file rather than a refactor).
 
 ---
 

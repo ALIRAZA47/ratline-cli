@@ -45,6 +45,19 @@ services:
       acmenet:
         ipv4_address: 10.30.50.3
 
+  # A real MongoDB with authentication on, so the database section exercises the
+  # actual server rather than a mock. Auth matters: a mongod without it accepts every
+  # command from anyone, and the users ratline creates would restrict nothing — so a
+  # suite running against one would pass while proving nothing about isolation.
+  mongo:
+    image: mongo:8
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: integration
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.5
+
   harness:
     build:
       context: ../..
@@ -76,9 +89,13 @@ services:
       # service name and resolves on this network.
       RATLINE_TEST_ACME_DIRECTORY: https://pebble:14000/dir
       RATLINE_TEST_CHALLTESTSRV: http://10.30.50.3:8055
+      # By hostname for the same reason as Pebble. The suite writes this into
+      # paths.mongo_uri_file at 0600 rather than passing it on a command line.
+      RATLINE_TEST_MONGO_URI: mongodb://admin:integration@mongo:27017/?authSource=admin
     depends_on:
       - pebble
       - challtestsrv
+      - mongo
     networks:
       acmenet:
         ipv4_address: 10.30.50.4

@@ -59,14 +59,15 @@ jobs:
           # not be something a server discovers. Covers the commands the integration
           # suite never reaches — backup, status, troubleshoot, explain, update — for
           # which this is the only automated exercise they get.
-          for group in user key site cert runtime init backup doctor status \
+          for group in user key site cert runtime db init backup doctor status \
                        troubleshoot explain reconcile export update version man; do
             ./bin/ratline "$group" --help >/dev/null
           done
           # Subcommands too, which is where a bad annotation actually hides. Both
           # spellings: `help <cmd>` is a different code path from `<cmd> --help`, and
           # it used to refuse without root.
-          for sub in "user add" "site add" "cert issue" "key add" "cert renew" "site deploy"; do
+          for sub in "user add" "site add" "cert issue" "key add" "cert renew" "site deploy" \
+                     "db create" "db user add" "db user password" "db user grant"; do
             ./bin/ratline help $sub >/dev/null
             ./bin/ratline $sub --help >/dev/null
           done
@@ -157,6 +158,11 @@ jobs:
       # the hash and gets the script blocked with only a console error to say so.
       - name: The CSP hash still matches the build
         run: sh scripts/check-csp-hash.sh
+      # A dangling internal link is invisible until a reader clicks it, and the site is
+      # the project's public face. Adding the databases group nearly shipped a link to a
+      # concepts page that was never written.
+      - name: Every internal documentation link resolves
+        run: python3 scripts/check-doc-links.py
       # The installer is served from the site, so it has to survive the build and stay
       # syntactically valid: it is piped straight into a root shell.
       - name: The installer is present and valid

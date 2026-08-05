@@ -55,6 +55,10 @@ var defaultCandidates = map[string][]string{
 	"ssh":         {"/usr/bin/ssh", "/bin/ssh"},
 	"sftp-server": {"/usr/lib/openssh/sftp-server", "/usr/libexec/openssh/sftp-server", "/usr/lib/ssh/sftp-server"},
 
+	// databases. ratline provisions inside a MongoDB server; it does not install one,
+	// so an absent mongosh is a precondition to report rather than a bug.
+	"mongosh": {"/usr/bin/mongosh", "/usr/local/bin/mongosh", "/snap/bin/mongosh", "/opt/mongodb/bin/mongosh"},
+
 	// tls
 	"certbot": {"/usr/bin/certbot", "/snap/bin/certbot", "/usr/local/bin/certbot"},
 	"openssl": {"/usr/bin/openssl", "/bin/openssl"},

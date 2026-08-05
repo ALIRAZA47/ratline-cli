@@ -2,11 +2,12 @@ import { users } from './commands/users';
 import { keys } from './commands/keys';
 import { sites } from './commands/sites';
 import { certs } from './commands/certs';
+import { databases } from './commands/databases';
 import { runtimes } from './commands/runtimes';
 import { ops } from './commands/ops';
 import type { CommandGroup } from './types';
 
-export const commandGroups: CommandGroup[] = [users, keys, sites, certs, runtimes, ops];
+export const commandGroups: CommandGroup[] = [users, keys, sites, certs, runtimes, databases, ops];
 
 export const groupByPath = new Map(commandGroups.map((g) => [g.path, g]));
 

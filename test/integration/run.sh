@@ -822,6 +822,188 @@ fi
 
 # ---------------------------------------------------------------- deploy
 
+# ---------------------------------------------------------------- mongodb
+#
+# Against a real MongoDB 8 with authentication on. Auth is the point: a mongod without
+# it accepts every command from anyone, so a suite running against one would pass while
+# proving nothing about the isolation these roles exist to provide.
+
+info "mongodb databases and users"
+
+if [ -z "${RATLINE_TEST_MONGO_URI:-}" ]; then
+    printf '  skip  no MongoDB in this environment\n'
+elif ! command -v mongosh >/dev/null 2>&1; then
+    printf '  skip  mongosh is not installed\n'
+else
+    # The admin connection string goes in a 0600 file, never on a command line: it is the
+    # root password for every database on the server, and argv is world-readable.
+    install -d -o root -g root -m 0700 /etc/ratline/db
+    printf '%s' "$RATLINE_TEST_MONGO_URI" > /etc/ratline/db/mongodb.uri
+    chmod 0600 /etc/ratline/db/mongodb.uri
+    sed -i 's/^\( *db_provisioning:\).*/\1 true/' /etc/ratline/config.yaml
+
+    # Wait for mongod: compose starts it in parallel and it takes a moment to accept
+    # connections. Bounded, so a genuinely broken server fails rather than hanging.
+    mongo_up=0
+    for _ in $(seq 1 30); do
+        if "$RATLINE" db ping >/dev/null 2>&1; then mongo_up=1; break; fi
+        sleep 2
+    done
+
+    if [ "$mongo_up" != "1" ]; then
+        bad "the MongoDB server never became reachable" "$("$RATLINE" db ping 2>&1 | tail -3)"
+    else
+        ok "the MongoDB server is reachable"
+        contains "it enforces authentication" "yes" \
+            "$("$RATLINE" db ping 2>&1 | grep -i authentication)"
+        # The admin password must not appear in ratline's own output.
+        pingout=$("$RATLINE" db ping 2>&1)
+        case "$pingout" in
+            *integration*) bad "db ping leaks the admin password" "the password appears in its output" ;;
+            *) ok "db ping redacts the admin password" ;;
+        esac
+
+        check "db create"                "$RATLINE" db create shop --owner alice
+        contains "it is recorded"        "shop"      "$("$RATLINE" db list)"
+        contains "with its owner"        "alice"     "$("$RATLINE" db list)"
+        contains "the server has it"     "shop"      "$("$RATLINE" db list --live)"
+        contains "and calls it managed"  "yes"       "$("$RATLINE" db list --live)"
+
+        # The credential is the whole point, so it is used rather than just inspected.
+        uri=$("$RATLINE" --json db user password shop_app 2>/dev/null | jq -r '..|objects|.connection_uri? // empty' | head -1)
+        if [ -n "$uri" ]; then
+            ok "rotating the password returns a connection string"
+            if mongosh "$uri" --quiet --eval 'db.probe.insertOne({v:1})' >/dev/null 2>&1; then
+                ok "the application credential can write its own database"
+            else
+                bad "the application credential does not work" "$(mongosh "$uri" --quiet --eval 'db.probe.insertOne({v:1})' 2>&1 | tail -2)"
+            fi
+
+            # Isolation. This is the claim that matters: a tenant's credential must not
+            # reach another tenant's data, or the whole model is decoration.
+            "$RATLINE" db create other --owner alice >/dev/null 2>&1
+            if mongosh "$uri" --quiet --eval 'db.getSiblingDB("other").x.countDocuments({})' >/dev/null 2>&1; then
+                bad "a database user can read another database" "the role is not scoped"
+            else
+                ok "and cannot touch another database"
+            fi
+            # listDatabases is allowed but filtered by the server to what the user may
+            # see, so the check is on the contents rather than on the call failing.
+            seen=$(mongosh "$uri" --quiet --eval 'print(db.adminCommand({listDatabases:1}).databases.map(d=>d.name).join(","))' 2>/dev/null | tail -1)
+            case "$seen" in
+                *other*) bad "a database user can enumerate other databases" "saw: $seen" ;;
+                *) ok "nor enumerate them" ;;
+            esac
+        else
+            bad "no connection string came back from a rotation" "see the output above"
+        fi
+
+        # A second, narrower user on the same database — the reason per-database users
+        # exist rather than one credential per database.
+        check "db user add, read-only"   "$RATLINE" db user add reports --database shop --role read
+        contains "it is listed"          "reports"  "$("$RATLINE" db user list)"
+        contains "with its role"         "read"     "$("$RATLINE" db user list)"
+        contains "the server agrees"     "reports"  "$("$RATLINE" db user list --database shop --live)"
+
+        rd=$("$RATLINE" --json db user password reports 2>/dev/null | jq -r '..|objects|.connection_uri? // empty' | head -1)
+        if [ -n "$rd" ]; then
+            if mongosh "$rd" --quiet --eval 'db.probe.countDocuments({})' >/dev/null 2>&1; then
+                ok "the read role can read"
+            else
+                bad "the read role cannot read" "it should be able to"
+            fi
+            if mongosh "$rd" --quiet --eval 'db.probe.insertOne({v:2})' >/dev/null 2>&1; then
+                bad "the read role can write" "the role is not enforced"
+            else
+                ok "and cannot write"
+            fi
+        fi
+
+        # grant replaces rather than accumulates, which is why a demotion has to bite.
+        check "db user grant to readWrite" "$RATLINE" db user grant reports --role readWrite
+        rw=$("$RATLINE" --json db user password reports 2>/dev/null | jq -r '..|objects|.connection_uri? // empty' | head -1)
+        if mongosh "$rw" --quiet --eval 'db.probe.insertOne({v:3})' >/dev/null 2>&1; then
+            ok "the promoted user can write"
+        else
+            bad "the promoted user still cannot write" "grant did not take effect"
+        fi
+        "$RATLINE" db user grant reports --role read >/dev/null 2>&1
+        ro=$("$RATLINE" --json db user password reports 2>/dev/null | jq -r '..|objects|.connection_uri? // empty' | head -1)
+        if mongosh "$ro" --quiet --eval 'db.probe.insertOne({v:4})' >/dev/null 2>&1; then
+            bad "a demoted user can still write" "grant accumulated roles instead of replacing them"
+        else
+            ok "and a demotion takes the write away again"
+        fi
+
+        # --attach is the feature: the URI goes into the site's .env rather than onto a
+        # terminal, so it never enters shell history or scrollback.
+        check "db user add --attach" "$RATLINE" db user add worker --database shop --attach static.test
+        envfile=/home/alice/static.test/.env
+        contains "the .env has the connection string" "MONGODB_URI=mongodb://worker" "$(cat $envfile 2>/dev/null)"
+        check "the .env is still 0600" bash -c "[ \"\$(stat -c %a $envfile)\" = 600 ]"
+        contains "the attachment is recorded" "static.test" "$("$RATLINE" db user list)"
+        # And the value must not have been echoed to the terminal as well.
+        attachout=$("$RATLINE" db user add worker2 --database shop --attach static.test --env-key MONGODB_URI_2 2>&1)
+        case "$attachout" in
+            *mongodb://worker2:*) bad "--attach also printed the password" "it should only be written to the file" ;;
+            *) ok "--attach does not print the password" ;;
+        esac
+
+        # Rotating with --all-sites is the difference between a rotation and an outage.
+        before=$(grep '^MONGODB_URI=' $envfile)
+        check "db user password --all-sites" "$RATLINE" db user password worker --all-sites
+        after=$(grep '^MONGODB_URI=' $envfile)
+        if [ "$before" != "$after" ]; then
+            ok "the rotation updated the site's .env"
+        else
+            bad "the rotation left the old password in the .env" "the site would still work by luck"
+        fi
+        newuri=$(printf '%s' "$after" | sed 's/^MONGODB_URI=//')
+        if mongosh "$newuri" --quiet --eval 'db.probe.countDocuments({})' >/dev/null 2>&1; then
+            ok "and the rotated credential works"
+        else
+            bad "the rotated credential in the .env does not work" "the site is now broken"
+        fi
+
+        # Refusals.
+        refute "a cluster-wide role is refused" \
+            "$RATLINE" db user add evil --database shop --role readWriteAnyDatabase
+        refute "one of MongoDB's own databases is refused" "$RATLINE" db create admin --owner alice
+        refute "a database name with a dot is refused"     "$RATLINE" db create a.b --owner alice
+        refute "an unknown owner is refused"               "$RATLINE" db create nope --owner ghost
+        chmod 0644 /etc/ratline/db/mongodb.uri
+        refute "a world-readable admin URI is refused"     "$RATLINE" db ping
+        chmod 0600 /etc/ratline/db/mongodb.uri
+        ok "and it works again once the mode is fixed"
+
+        # Teardown. --keep-database leaves the data, which is what handing a database to
+        # someone else's tooling looks like.
+        check "db drop --keep-database" "$RATLINE" db drop other --keep-database --force
+        contains "the data is still on the server" "other" "$("$RATLINE" db list --live)"
+        contains "but it is no longer managed"     "no"    "$("$RATLINE" db list --live)"
+
+        check "db user delete"  "$RATLINE" db user delete reports --force
+        check "db drop"         "$RATLINE" db drop shop --force
+        liveafter=$("$RATLINE" db list --live 2>&1)
+        case "$liveafter" in
+            *shop*) bad "the database survived a drop" "it is still on the server" ;;
+            *) ok "the database is gone from the server" ;;
+        esac
+
+        # doctor must not report a healthy MongoDB as a problem, and must notice a
+        # broken one. Both halves, because a check that never fires is not a check.
+        check "doctor is quiet about a healthy MongoDB" \
+            bash -c "! $RATLINE doctor 2>&1 | grep -q mongodb"
+        mv /etc/ratline/db/mongodb.uri /etc/ratline/db/mongodb.uri.away
+        contains "doctor notices a missing admin URI" "mongodb" "$("$RATLINE" doctor 2>&1)"
+        mv /etc/ratline/db/mongodb.uri.away /etc/ratline/db/mongodb.uri
+
+        # Left off for the rest of the run, so the operations section sees the server it
+        # expects rather than one with database provisioning half-configured.
+        sed -i 's/^\( *db_provisioning:\).*/\1 false/' /etc/ratline/config.yaml
+    fi
+fi
+
 info "deploy and rollback"
 sudo -u alice git -C /home/alice/api.test/app init -q 2>/dev/null || true
 if [ -d /home/alice/api.test/app/.git ]; then

@@ -1,0 +1,152 @@
+package validate
+
+import (
+	"strings"
+
+	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+)
+
+// MongoDB's own naming rules, enforced here rather than discovered later.
+//
+// The server rejects most of these itself, but its errors arrive as a wall of
+// driver output well after the command was accepted — and some it does not reject at
+// all, it just behaves oddly. A name with a dot in it, for instance, is accepted by
+// createUser and then cannot be addressed unambiguously in a role document.
+//
+// These are also the values that end up in a connection URI written to a site's .env,
+// so anything needing percent-encoding to survive a URI is refused rather than escaped.
+// An operator who cannot type the name into a shell will not enjoy owning it.
+
+// mongoReservedDatabases are the server's own databases. Provisioning inside them is
+// how an operator destroys their cluster's credentials or its oplog.
+var mongoReservedDatabases = []string{"admin", "local", "config"}
+
+// DatabaseName checks a MongoDB database name.
+func DatabaseName(name string) error {
+	if name == "" {
+		return rlerr.Usagef("the database name is empty")
+	}
+	// MongoDB's own limit is 64 bytes for the namespace; a name near that leaves no
+	// room for a collection, and the server's refusal names bytes rather than the name.
+	if len(name) > 38 {
+		return rlerr.Usagef("the database name is %d characters; keep it to 38 or fewer", len(name)).
+			WithHint("MongoDB limits the whole namespace — database, dot, collection — to 64 bytes")
+	}
+	// The server forbids these outright on Windows and in most drivers; refusing them
+	// everywhere keeps a database portable between hosts.
+	if bad := strings.IndexAny(name, ` /\."$*<>:|?`); bad >= 0 {
+		return rlerr.Usagef("the database name contains %q, which MongoDB does not allow", name[bad]).
+			WithHint("letters, digits, hyphen and underscore are safe everywhere")
+	}
+	if strings.ContainsAny(name, "\x00") {
+		return rlerr.Usagef("the database name contains a NUL byte")
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_':
+		default:
+			return rlerr.Usagef("the database name contains %q; use letters, digits, hyphen or underscore", r)
+		}
+	}
+	for _, reserved := range mongoReservedDatabases {
+		if strings.EqualFold(name, reserved) {
+			return rlerr.Usagef("%q is one of MongoDB's own databases", name).
+				WithHint("admin, local and config belong to the server; provisioning inside " +
+					"them can destroy its credentials or its replication log")
+		}
+	}
+	return nil
+}
+
+// DatabaseUsername checks a MongoDB username.
+//
+// Deliberately stricter than the server, which accepts almost anything: the name goes
+// into a connection URI, and a URI that needs percent-encoding to be valid is a
+// support ticket rather than a feature.
+func DatabaseUsername(name string) error {
+	if name == "" {
+		return rlerr.Usagef("the database username is empty")
+	}
+	if len(name) > 63 {
+		return rlerr.Usagef("the database username is %d characters; keep it to 63 or fewer", len(name))
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return rlerr.Usagef("the database username contains %q", r).
+				WithHint("letters, digits, hyphen, underscore and dot only — the name goes into " +
+					"a connection URI, and anything else would have to be percent-encoded")
+		}
+	}
+	// A leading dot or a run of them reads as a namespace separator to anything parsing
+	// the name later.
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".") || strings.Contains(name, "..") {
+		return rlerr.Usagef("the database username has a misplaced dot: %q", name)
+	}
+	return nil
+}
+
+// mongoRoles are the built-in roles ratline will grant. Deliberately a short list:
+// every one of them is scoped to a single database.
+//
+// The cluster-wide roles — root, userAdminAnyDatabase, dbAdminAnyDatabase — are
+// absent on purpose. Granting one to a tenant's application gives it every other
+// tenant's data, which is the whole thing ratline exists to prevent, and it would be a
+// one-word flag away if the list were open.
+var mongoRoles = map[string]string{
+	"read":      "read every collection in the database",
+	"readWrite": "read and write every collection in the database",
+	"dbAdmin":   "manage indexes and collection statistics, but not read the data",
+	"dbOwner":   "readWrite plus dbAdmin plus userAdmin, for this database only",
+}
+
+// DatabaseRole checks a role name against the roles ratline will grant.
+func DatabaseRole(role string) error {
+	if role == "" {
+		return rlerr.Usagef("the role is empty")
+	}
+	if _, ok := mongoRoles[role]; ok {
+		return nil
+	}
+	// Named explicitly, because "invalid role" sends an operator to MongoDB's manual to
+	// find a role this will still refuse.
+	var names []string
+	for r := range mongoRoles {
+		names = append(names, r)
+	}
+	sortStrings(names)
+	e := rlerr.Usagef("%q is not a role ratline grants", role).
+		WithHint("one of: %s", strings.Join(names, ", "))
+	switch role {
+	case "root", "userAdminAnyDatabase", "dbAdminAnyDatabase", "readWriteAnyDatabase", "readAnyDatabase":
+		return e.WithField("why_not", "a cluster-wide role would give this user every other "+
+			"database on the server, including the ones belonging to other tenants")
+	}
+	return e
+}
+
+// DatabaseRoles describes the grantable roles, for help text and `db roles`.
+func DatabaseRoles() [][2]string {
+	var names []string
+	for r := range mongoRoles {
+		names = append(names, r)
+	}
+	sortStrings(names)
+	out := make([][2]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, [2]string{n, mongoRoles[n]})
+	}
+	return out
+}
+
+// sortStrings is a small insertion sort, so this file does not pull in sort for one use.
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}

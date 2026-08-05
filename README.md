@@ -130,8 +130,9 @@ matter get found.
 ## Non-goals
 
 No web UI, no daemon, no API server — though the internal packages are structured so an
-HTTP layer could wrap them without a refactor. No containers. No database provisioning
-in v1. No DNS or mail management. No PHP yet, but the runtime package is an interface, so
+HTTP layer could wrap them without a refactor. No containers. Databases are MongoDB
+only — `ratline db` provisions them and their users, and nothing else is supported yet.
+No DNS or mail management. No PHP yet, but the runtime package is an interface, so
 adding PHP-FPM is a new file rather than a refactor.
 
 ## Contributing
