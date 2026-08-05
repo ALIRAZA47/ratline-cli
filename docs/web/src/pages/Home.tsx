@@ -60,10 +60,11 @@ export function Home() {
             <code>ratline explain</code>.
           </p>
           <p>
-            Two deliberate gaps, named rather than implied: <code>ratline db</code> is a stub behind
-            the <code>features.db_provisioning</code> flag, and the only runtimes are static, node and
-            python. There is no PHP, Go or Ruby — the runtime layer is an interface, so each would be a
-            new file rather than a rewrite.
+            Two deliberate limits, named rather than implied: <code>ratline db</code> provisions
+            MongoDB and nothing else, behind the <code>features.db_provisioning</code> flag because it
+            needs an admin connection string; and the only runtimes are static, node and python. There
+            is no PHP, Go or Ruby — the runtime layer is an interface, so each would be a new file
+            rather than a rewrite.
           </p>
         </Callout>
       ) : (

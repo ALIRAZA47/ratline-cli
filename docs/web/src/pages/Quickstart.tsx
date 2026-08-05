@@ -13,22 +13,62 @@ export function Quickstart() {
         lede="From a bare Ubuntu box to a working HTTPS site: install, initialise, a runtime, a tenant, a site, a certificate. Seven steps, and the site part changes with the runtime."
       />
 
-      <Callout tone="warn" title="Most of this is not implemented yet">
+      <Callout tone="ok" title="Every command below runs today">
         <p>
-          <code>version</code>, <code>man</code> and <code>completion</code> work today. Everything
-          from <code>ratline init</code> onwards is specified and being built in order, so treat the
-          sequence below as the intended shape rather than something you can run on a server this
-          afternoon. The invocations themselves are taken from the command surface and will not
-          change shape.
+          The integration suite drives this exact sequence against real nginx, real systemd units
+          and a certificate issued over a real ACME exchange on every commit — so this is a
+          transcript rather than an intention. See the{' '}
+          <Link to="/releases">release notes</Link> for what landed when.
         </p>
       </Callout>
 
       <div className="prose">
         <H2>0 · Install it</H2>
         <p>
-          Three ways in, in order of how little work they are. All three put the same two binaries in
-          the same places: <code>ratline</code> at <code>/usr/local/bin/ratline</code>, and the
-          forced-command wrapper at <code>/usr/local/lib/ratline/ratline-shell</code> — which is{' '}
+          One command on a bare Debian or Ubuntu server:
+        </p>
+      </div>
+
+      <CodeBlock lang="shell" code="curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh" />
+
+      <div className="prose">
+        <p>
+          That resolves the latest release, downloads the binaries for this architecture,{' '}
+          <strong>verifies them against the release’s own <code>SHA256SUMS</code></strong>, installs
+          them, and runs <code>ratline init</code> — configuration, the directory layout, and the
+          renewal and key-pruning timers started. It offers to <code>apt-get install</code> nginx and
+          certbot if they are missing, naming them first. Steps 1 and 2 below are already done by the
+          time it returns.
+        </p>
+        <p>
+          Piping a script into a root shell is worth being deliberate about. It refuses rather than
+          warns if a checksum is missing or wrong — but that cannot protect you from a compromised
+          release, so read it first if you would rather. It is the same two commands:
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        code={`curl -fsSLO https://ratline-cli.vercel.app/install.sh
+less install.sh && sudo sh install.sh`}
+      />
+
+      <div className="prose">
+        <p>
+          <code>RATLINE_VERSION=v0.4.0</code> pins a release, <code>ASSUME_YES=1</code> answers every
+          prompt for Ansible or cloud-init, <code>NO_INIT=1</code> installs the binaries and stops,
+          and <code>PREFIX</code> moves the target from <code>/usr/local</code>.
+        </p>
+        <p>
+          Upgrading later is one command too: <code>ratline update</code> checksums the new release,
+          proves the binary runs and can read this server’s state, swaps it atomically, and keeps the
+          old one for <code>--rollback</code>.
+        </p>
+        <H3>Or the longer ways round</H3>
+        <p>
+          All of these put the same two binaries in the same places: <code>ratline</code> at{' '}
+          <code>/usr/local/bin/ratline</code>, and the forced-command wrapper at{' '}
+          <code>/usr/local/lib/ratline/ratline-shell</code> — which is{' '}
           <code>paths.shell_wrapper</code>, and which is root-owned and not group-writable because it
           runs on every site-scoped SSH connection.
         </p>
@@ -37,6 +77,27 @@ export function Quickstart() {
       <Tabs
         label="Installation method"
         tabs={[
+          {
+            id: 'tarball',
+            label: 'Release tarball',
+            content: (
+              <div>
+                <p className="not-prose mb-3 max-w-[var(--container-measure)] text-sm leading-relaxed text-muted">
+                  Carries both binaries, the installer and that release’s checksums. The installer
+                  uses what is beside it rather than downloading anything, which is the path to take
+                  on a server with no route to GitHub.
+                </p>
+                <CodeBlock
+                  lang="shell"
+                  prompt
+                  code={`curl -fsSLO https://github.com/ALIRAZA47/ratline-cli/releases/latest/download/ratline-v0.4.0-linux-amd64.tar.gz
+tar -xzf ratline-v0.4.0-linux-amd64.tar.gz
+cd ratline-v0.4.0-linux-amd64
+sudo sh install.sh`}
+                />
+              </div>
+            ),
+          },
           {
             id: 'pkg',
             label: '.deb / .rpm',
@@ -50,8 +111,8 @@ export function Quickstart() {
                 <CodeBlock
                   lang="shell"
                   prompt
-                  code={`VERSION=1.0.0 ARCH=amd64 nfpm package --config packaging/nfpm.yaml --packager deb
-sudo apt-get install ./ratline_1.0.0_amd64.deb`}
+                  code={`make deb                     # needs nfpm
+sudo apt-get install ./dist/ratline_0.4.0_amd64.deb`}
                 />
               </div>
             ),
@@ -62,9 +123,10 @@ sudo apt-get install ./ratline_1.0.0_amd64.deb`}
             content: (
               <div>
                 <p className="not-prose mb-3 max-w-[var(--container-measure)] text-sm leading-relaxed text-muted">
-                  POSIX sh, root required, and it does nothing surprising: every package it would
-                  install is named first and confirmed, and it never edits a configuration file it did
-                  not create. It needs the binaries built first.
+                  The same script the one-liner pipes, run from a checkout. POSIX sh, root required,
+                  and it does nothing surprising: every package it would install is named first and
+                  confirmed, and it never edits a configuration file it did not create. With binaries
+                  beside it, it uses those; otherwise it downloads and verifies a release.
                 </p>
                 <CodeBlock
                   lang="shell"
