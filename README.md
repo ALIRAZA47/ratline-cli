@@ -48,7 +48,7 @@ the interesting cases are all failures. ratline is built around those instead:
 ## Install
 
 ```bash
-curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh
+curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh
 ```
 
 One command on a bare Debian or Ubuntu server. It resolves the latest release, downloads
@@ -62,11 +62,11 @@ warns if a checksum is missing or wrong, but that cannot protect you from a comp
 release — so read it first if you would rather, which is the same two commands:
 
 ```bash
-curl -fsSLO https://ratline-cli.vercel.app/install.sh
+curl -fsSLO https://ratline.alirazakhan.me/install.sh
 less install.sh && sudo sh install.sh
 ```
 
-`RATLINE_VERSION=v0.2.0` pins a release, `ASSUME_YES=1` suits Ansible and cloud-init, and
+`RATLINE_VERSION=v0.4.0` pins a release, `ASSUME_YES=1` suits Ansible and cloud-init, and
 `NO_INIT=1` installs the binaries and stops. From source, or from a tarball or `.deb`:
 [installation.md](docs/getting-started/installation.md).
 
@@ -76,7 +76,7 @@ one for `--rollback`.
 
 ## Documentation
 
-**[ratline-cli.vercel.app](https://ratline-cli.vercel.app)** — searchable, with every
+**[ratline.alirazakhan.me](https://ratline.alirazakhan.me)** — searchable, with every
 command and flag. The same content as [docs/](docs/), which is the source.
 
 | | |

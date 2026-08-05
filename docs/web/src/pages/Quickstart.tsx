@@ -29,7 +29,7 @@ export function Quickstart() {
         </p>
       </div>
 
-      <CodeBlock lang="shell" code="curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh" />
+      <CodeBlock lang="shell" code="curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh" />
 
       <div className="prose">
         <p>
@@ -49,7 +49,7 @@ export function Quickstart() {
 
       <CodeBlock
         lang="shell"
-        code={`curl -fsSLO https://ratline-cli.vercel.app/install.sh
+        code={`curl -fsSLO https://ratline.alirazakhan.me/install.sh
 less install.sh && sudo sh install.sh`}
       />
 

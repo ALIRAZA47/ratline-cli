@@ -98,7 +98,7 @@ ratline db user password shop_app --all-sites`,
     version: 'v0.3.0',
     date: '2026-08-05',
     summary: 'One-command install, and ratline’s own units now travel inside the binary.',
-    upgrade: 'curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh',
+    upgrade: 'curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh',
     assertions: 184,
     changes: [
       {
@@ -106,7 +106,7 @@ ratline db user password shop_app --all-sites`,
         title: 'One command on a bare server',
         body:
           'Resolves the latest release, downloads for this architecture, verifies against the release’s own SHA256SUMS, installs, and runs `ratline init` — configuration, directory layout, and the renewal and key-pruning timers started.',
-        code: 'curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh',
+        code: 'curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh',
       },
       {
         title: 'The renewal units moved into the binary',

@@ -1,7 +1,7 @@
 #!/bin/sh
 # ratline installer.
 #
-#   curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh
+#   curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh
 #
 # One command, and the server is ready for `ratline user add`. It resolves the latest
 # release, downloads the binaries for this architecture, verifies them against the

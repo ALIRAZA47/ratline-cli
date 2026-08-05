@@ -7,7 +7,7 @@ is Debian's.
 ## One command
 
 ```bash
-curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh
+curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh
 ```
 
 That resolves the latest release, downloads the binaries for this architecture, verifies
@@ -22,7 +22,7 @@ checksum is missing or wrong — but that cannot protect you from a compromised 
 you would rather read it first, which is reasonable, it is the same two commands:
 
 ```bash
-curl -fsSLO https://ratline-cli.vercel.app/install.sh
+curl -fsSLO https://ratline.alirazakhan.me/install.sh
 less install.sh && sudo sh install.sh
 ```
 
@@ -30,7 +30,7 @@ Useful variables:
 
 | | |
 |---|---|
-| `RATLINE_VERSION=v0.2.0` | Install a specific release rather than the latest |
+| `RATLINE_VERSION=v0.4.0` | Install a specific release rather than the latest |
 | `ASSUME_YES=1` | Answer every prompt yes — for Ansible, cloud-init or a Dockerfile |
 | `NO_INIT=1` | Install the binaries and stop, leaving `ratline init` to you |
 | `PREFIX=/opt/ratline` | Install somewhere other than `/usr/local` |
@@ -38,9 +38,9 @@ Useful variables:
 ## From a release, by hand
 
 ```bash
-curl -fsSLO https://github.com/ALIRAZA47/ratline-cli/releases/latest/download/ratline-v0.2.0-linux-amd64.tar.gz
-tar -xzf ratline-v0.2.0-linux-amd64.tar.gz
-cd ratline-v0.2.0-linux-amd64
+curl -fsSLO https://github.com/ALIRAZA47/ratline-cli/releases/latest/download/ratline-v0.4.0-linux-amd64.tar.gz
+tar -xzf ratline-v0.4.0-linux-amd64.tar.gz
+cd ratline-v0.4.0-linux-amd64
 sudo sh install.sh
 ```
 
@@ -50,7 +50,7 @@ installer uses what is beside it rather than downloading anything.
 ## From a .deb
 
 ```bash
-sudo dpkg -i ratline_0.2.0_amd64.deb
+sudo dpkg -i ratline_0.4.0_amd64.deb
 ```
 
 Built with `make deb`, which needs [nfpm](https://github.com/goreleaser/nfpm). The
