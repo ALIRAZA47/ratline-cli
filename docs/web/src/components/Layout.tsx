@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { allNavItems, nav } from '../data/nav';
 import type { NavItem } from '../data/nav';
@@ -55,20 +55,41 @@ export function Layout() {
 
   // Scroll handling: to the anchor if there is one, to the top otherwise.
   //
-  // Deferred by one frame so the route's content — and therefore the anchor — is
-  // committed before we look for it, and 'instant' so a deep link lands rather
-  // than animating from wherever the previous page was.
+  // One frame is not enough now that routes are lazy. The chunk for the page has to arrive
+  // and render before its headings exist, and a single deferred frame looked for the
+  // element while Suspense was still showing the fallback — so every deep link landed at
+  // the top of the page instead. That is most of what the search index emits.
+  //
+  // So: keep looking until the element appears, for a bounded number of frames. Without a
+  // hash there is nothing to wait for and the scroll is immediate; with one that never
+  // resolves — a stale anchor, a renamed heading — the budget runs out and the page goes
+  // to the top, which is where it would have gone anyway.
   useEffect(() => {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-    const raf = requestAnimationFrame(() => {
-      const id = hash ? decodeURIComponent(hash.slice(1)) : '';
-      const el = id ? document.getElementById(id) : null;
+
+    const id = hash ? decodeURIComponent(hash.slice(1)) : '';
+    if (!id) {
+      const raf = requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+      return () => cancelAnimationFrame(raf);
+    }
+
+    // ~1s at 60fps. Long enough for a chunk on a slow connection, short enough that a
+    // genuinely missing anchor does not leave the reader staring at the wrong place.
+    let framesLeft = 60;
+    let raf = 0;
+    const look = () => {
+      const el = document.getElementById(id);
       if (el) {
         el.scrollIntoView({ block: 'start', behavior: 'instant' });
         return;
       }
+      if (framesLeft-- > 0) {
+        raf = requestAnimationFrame(look);
+        return;
+      }
       window.scrollTo({ top: 0, behavior: 'instant' });
-    });
+    };
+    raf = requestAnimationFrame(look);
     return () => cancelAnimationFrame(raf);
   }, [pathname, hash]);
 
@@ -263,7 +284,18 @@ export function Layout() {
         {/* Content column. */}
         <div className="min-w-0 flex-1">
           <main id="content" className="min-w-0 py-9 lg:py-11 lg:pl-9 xl:pr-9">
-            <Outlet />
+            {/* The boundary sits here rather than around the whole tree so the header
+                and the sidebar stay put while a route's chunk arrives — only the article
+                is replaced. min-h holds the scroll position steady on the way in. */}
+            <Suspense
+              fallback={
+                <div className="min-h-[60vh]" role="status" aria-live="polite">
+                  <span className="sr-only">Loading…</span>
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
 
             {(prev || next) && (
               <nav

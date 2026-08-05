@@ -1,46 +1,57 @@
+import { lazy } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { allCommands, commandGroups } from './data/groups';
 
 import { Home } from './pages/Home';
-import { Quickstart } from './pages/Quickstart';
-import { ReferenceIndex } from './pages/ReferenceIndex';
-import { CommandGroupPage } from './pages/CommandGroupPage';
-import { CommandPage } from './pages/CommandPage';
-import { GlobalFlags } from './pages/GlobalFlags';
-import { ExitCodesPage } from './pages/ExitCodesPage';
-import { JsonEnvelope } from './pages/JsonEnvelope';
-import { ConfigReference } from './pages/ConfigReference';
-import { ValidationPage } from './pages/ValidationPage';
 import { NotFound } from './pages/NotFound';
-import { Releases } from './pages/Releases';
-import { TopicsIndex } from './pages/TopicsIndex';
-import { TopicPage } from './pages/TopicPage';
 
-import { ConceptModel } from './pages/concepts/Model';
-import { ConceptSshScopes } from './pages/concepts/SshScopes';
-import { ConceptTlsLifecycle } from './pages/concepts/TlsLifecycle';
-import { ConceptRateLimits } from './pages/concepts/RateLimits';
-import { ConceptTransactions } from './pages/concepts/Transactions';
-import { ConceptFilesystem } from './pages/concepts/Filesystem';
-import { ConceptSupervision } from './pages/concepts/Supervision';
-import { ConceptSecurity } from './pages/concepts/Security';
-import { ConceptInteractive } from './pages/concepts/Interactive';
-
-import { GuideFastApi } from './pages/guides/FastApi';
-import { GuideNextJs } from './pages/guides/NextJs';
-import { GuideAstro } from './pages/guides/Astro';
-import { GuideContractorAccess } from './pages/guides/ContractorAccess';
-import { GuideNewLaptopKey } from './pages/guides/NewLaptopKey';
-import { GuideCiDeployKeys } from './pages/guides/CiDeployKeys';
-import { GuideIssueCert } from './pages/guides/IssueCert';
-import { GuideCloudflare } from './pages/guides/Cloudflare';
-import { GuideRenewalRunbook } from './pages/guides/RenewalRunbook';
-import { GuideSshLockout } from './pages/guides/SshLockout';
-import { GuideDebug502 } from './pages/guides/Debug502';
-import { GuideNodePm2 } from './pages/guides/NodePm2';
-import { GuideInheritedServer } from './pages/guides/InheritedServer';
-import { GuideMongoDatabase } from './pages/guides/MongoDatabase';
+/**
+ * Every page but the entry and the 404 is loaded on demand.
+ *
+ * The site had grown to one 841 kB chunk: a reader arriving to look up a single flag
+ * downloaded all 86 command pages, 13 topics and 14 guides first. Pages are 368 kB of the
+ * source on their own, and none of it is needed until somebody navigates there.
+ *
+ * Home stays eager because it is the entry — making it lazy buys a round trip before first
+ * paint on the most common arrival. NotFound stays eager because fetching a chunk to
+ * discover a page does not exist is the wrong way round.
+ */
+const Quickstart = lazy(() => import('./pages/Quickstart').then((m) => ({ default: m.Quickstart })));
+const ReferenceIndex = lazy(() => import('./pages/ReferenceIndex').then((m) => ({ default: m.ReferenceIndex })));
+const CommandGroupPage = lazy(() => import('./pages/CommandGroupPage').then((m) => ({ default: m.CommandGroupPage })));
+const CommandPage = lazy(() => import('./pages/CommandPage').then((m) => ({ default: m.CommandPage })));
+const GlobalFlags = lazy(() => import('./pages/GlobalFlags').then((m) => ({ default: m.GlobalFlags })));
+const ExitCodesPage = lazy(() => import('./pages/ExitCodesPage').then((m) => ({ default: m.ExitCodesPage })));
+const JsonEnvelope = lazy(() => import('./pages/JsonEnvelope').then((m) => ({ default: m.JsonEnvelope })));
+const ConfigReference = lazy(() => import('./pages/ConfigReference').then((m) => ({ default: m.ConfigReference })));
+const ValidationPage = lazy(() => import('./pages/ValidationPage').then((m) => ({ default: m.ValidationPage })));
+const Releases = lazy(() => import('./pages/Releases').then((m) => ({ default: m.Releases })));
+const TopicsIndex = lazy(() => import('./pages/TopicsIndex').then((m) => ({ default: m.TopicsIndex })));
+const TopicPage = lazy(() => import('./pages/TopicPage').then((m) => ({ default: m.TopicPage })));
+const ConceptModel = lazy(() => import('./pages/concepts/Model').then((m) => ({ default: m.ConceptModel })));
+const ConceptSshScopes = lazy(() => import('./pages/concepts/SshScopes').then((m) => ({ default: m.ConceptSshScopes })));
+const ConceptTlsLifecycle = lazy(() => import('./pages/concepts/TlsLifecycle').then((m) => ({ default: m.ConceptTlsLifecycle })));
+const ConceptRateLimits = lazy(() => import('./pages/concepts/RateLimits').then((m) => ({ default: m.ConceptRateLimits })));
+const ConceptTransactions = lazy(() => import('./pages/concepts/Transactions').then((m) => ({ default: m.ConceptTransactions })));
+const ConceptFilesystem = lazy(() => import('./pages/concepts/Filesystem').then((m) => ({ default: m.ConceptFilesystem })));
+const ConceptSupervision = lazy(() => import('./pages/concepts/Supervision').then((m) => ({ default: m.ConceptSupervision })));
+const ConceptSecurity = lazy(() => import('./pages/concepts/Security').then((m) => ({ default: m.ConceptSecurity })));
+const ConceptInteractive = lazy(() => import('./pages/concepts/Interactive').then((m) => ({ default: m.ConceptInteractive })));
+const GuideFastApi = lazy(() => import('./pages/guides/FastApi').then((m) => ({ default: m.GuideFastApi })));
+const GuideNextJs = lazy(() => import('./pages/guides/NextJs').then((m) => ({ default: m.GuideNextJs })));
+const GuideAstro = lazy(() => import('./pages/guides/Astro').then((m) => ({ default: m.GuideAstro })));
+const GuideContractorAccess = lazy(() => import('./pages/guides/ContractorAccess').then((m) => ({ default: m.GuideContractorAccess })));
+const GuideNewLaptopKey = lazy(() => import('./pages/guides/NewLaptopKey').then((m) => ({ default: m.GuideNewLaptopKey })));
+const GuideCiDeployKeys = lazy(() => import('./pages/guides/CiDeployKeys').then((m) => ({ default: m.GuideCiDeployKeys })));
+const GuideIssueCert = lazy(() => import('./pages/guides/IssueCert').then((m) => ({ default: m.GuideIssueCert })));
+const GuideCloudflare = lazy(() => import('./pages/guides/Cloudflare').then((m) => ({ default: m.GuideCloudflare })));
+const GuideRenewalRunbook = lazy(() => import('./pages/guides/RenewalRunbook').then((m) => ({ default: m.GuideRenewalRunbook })));
+const GuideSshLockout = lazy(() => import('./pages/guides/SshLockout').then((m) => ({ default: m.GuideSshLockout })));
+const GuideDebug502 = lazy(() => import('./pages/guides/Debug502').then((m) => ({ default: m.GuideDebug502 })));
+const GuideNodePm2 = lazy(() => import('./pages/guides/NodePm2').then((m) => ({ default: m.GuideNodePm2 })));
+const GuideInheritedServer = lazy(() => import('./pages/guides/InheritedServer').then((m) => ({ default: m.GuideInheritedServer })));
+const GuideMongoDatabase = lazy(() => import('./pages/guides/MongoDatabase').then((m) => ({ default: m.GuideMongoDatabase })));
 
 export default function App() {
   return (
