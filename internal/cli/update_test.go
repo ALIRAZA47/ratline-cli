@@ -3,6 +3,8 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
+	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 )
 
 // `update` replaces the binary on a server that is serving, so the tests are about
@@ -260,4 +263,51 @@ func mustStat(t *testing.T, path string) os.FileInfo {
 		t.Fatal(err)
 	}
 	return fi
+}
+
+func TestTheReleaseLookupSaysWhichFailureItWas(t *testing.T) {
+	// Three HTTP statuses mean three different things to whoever ran the command, and
+	// only one of them is helped by --version.
+	//
+	// 404 on the latest-release endpoint means the project has published no releases
+	// at all — which is the state of this repository today. Telling that operator to
+	// "pass --version" sends them to a second 404 on the asset download.
+	for _, tc := range []struct {
+		status  int
+		wantHas string
+	}{
+		{404, "no release has been published"},
+		{403, "rate limited"},
+		{429, "rate limited"},
+		{500, "HTTP 500"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		u := &updater{g: NewGlobals(), latestAPI: srv.URL}
+		_, err := u.resolveVersion(t.Context(), "")
+		srv.Close()
+
+		if err == nil {
+			t.Errorf("HTTP %d was not reported as an error", tc.status)
+			continue
+		}
+		combined := err.Error() + " " + rlerr.Hint(err)
+		if !strings.Contains(combined, tc.wantHas) {
+			t.Errorf("HTTP %d should mention %q, got: %s", tc.status, tc.wantHas, combined)
+		}
+	}
+}
+
+func TestAnExplicitVersionSkipsTheLookupEntirely(t *testing.T) {
+	// The escape hatch for a mirrored release, so it must not touch the network — a
+	// server with no route to github is the case it exists for.
+	u := &updater{g: NewGlobals(), latestAPI: "http://127.0.0.1:1/unreachable"}
+	got, err := u.resolveVersion(t.Context(), "v1.4.0")
+	if err != nil {
+		t.Fatalf("resolveVersion with an explicit version = %v", err)
+	}
+	if got != "1.4.0" {
+		t.Errorf("resolveVersion = %q, want 1.4.0 with the v stripped", got)
+	}
 }

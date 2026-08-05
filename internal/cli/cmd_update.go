@@ -46,13 +46,17 @@ import (
 // request. `ratline-shell` is the one exception, because forced commands in
 // authorized_keys point at it, which is why it is verified and swapped the same way.
 
+// updateRepo is the project the artefacts come from, named in its own constant so
+// the two URLs below cannot drift apart from each other or from the error messages.
+const updateRepo = "ALIRAZA47/ratline-cli"
+
 // updateBaseURL is where release artefacts live. Overridable, because a server
 // without a route to github is a normal thing and mirroring the release is the
 // obvious answer.
-const updateBaseURL = "https://github.com/ALIRAZA47/ratline-cli/releases"
+const updateBaseURL = "https://github.com/" + updateRepo + "/releases"
 
 // latestAPI reports the newest published tag.
-const latestAPI = "https://api.github.com/repos/ALIRAZA47/ratline-cli/releases/latest"
+const latestAPI = "https://api.github.com/repos/" + updateRepo + "/releases/latest"
 
 // updateArtefacts are the files an install consists of, keyed by the install path
 // they land at relative to the configured prefix.
@@ -121,6 +125,9 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 }
 
 type updater struct {
+	// latestAPI is injectable so the release-lookup failure modes can be tested
+	// without reaching github; empty means the real endpoint.
+	latestAPI       string
 	g               *Globals
 	baseURL         string
 	allowUnverified bool
@@ -378,7 +385,11 @@ func (u *updater) resolveVersion(ctx context.Context, want string) (string, erro
 	if want != "" {
 		return strings.TrimPrefix(want, "v"), nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestAPI, nil)
+	endpoint := u.latestAPI
+	if endpoint == "" {
+		endpoint = latestAPI
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", rlerr.Wrap(err, rlerr.CodeGeneric, "building the release request")
 	}
@@ -393,7 +404,22 @@ func (u *updater) resolveVersion(ctx context.Context, want string) (string, erro
 				"ratline update --base-url https://mirror.example.internal/ratline --version X")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		// This endpoint 404s when a repository has published no releases at all, which
+		// is a different problem from a flaky API — and "pass --version" is the wrong
+		// advice for it, because there would be no assets to download either.
+		return "", rlerr.Externalf("no release has been published for %s", updateRepo).
+			WithHint("there is nothing to update to yet. If you build from source, " +
+				"install over the running binary yourself; if you are pointing at a " +
+				"fork or a mirror, pass --base-url and --version")
+	case http.StatusForbidden, http.StatusTooManyRequests:
+		// Unauthenticated GitHub API calls are rate limited per address, and a server
+		// behind shared NAT hits it without having done anything wrong.
+		return "", rlerr.Externalf("the release API rate limited this server (HTTP %d)", resp.StatusCode).
+			WithHint("this resets within the hour; pass --version to skip the lookup entirely")
+	default:
 		return "", rlerr.Externalf("the release API returned HTTP %d", resp.StatusCode).
 			WithHint("pass --version to skip the lookup")
 	}
