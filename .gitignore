@@ -13,3 +13,6 @@ coverage.out
 # Documentation site
 /docs/web/node_modules/
 /docs/web/dist/
+
+# Copied from packaging/install.sh at build time; the source is there, not here.
+docs/web/public/install.sh

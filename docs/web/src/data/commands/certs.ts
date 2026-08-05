@@ -48,8 +48,22 @@ export const certs: CommandGroup = {
           name: '--dns-provider',
           arg: '<name>',
           type: 'string',
-          description: 'DNS plugin to use for DNS-01, for example cloudflare, route53 or digitalocean.',
-          note: 'Preflight checks the plugin is actually installed and prints the exact install command if it is not.',
+          description: 'DNS plugin to use for DNS-01 — cloudflare, route53, digitalocean and so on, or `manual` to publish the record with your own script.',
+          note: 'Preflight checks the plugin is actually installed and prints the exact install command if it is not. certbot ships plugins for around a dozen providers; for everything else, and for a company’s internal DNS, `manual` with --dns-hook is the only route to DNS-01 at all — and DNS-01 is the only route to a wildcard.',
+        },
+        {
+          name: '--dns-hook',
+          arg: '<path>',
+          type: 'path',
+          description: 'Script that publishes the TXT record, for --dns-provider manual.',
+          note: 'It runs as root with the validation token in its environment, on a server holding every tenant’s keys — so anyone who can write it can run code as root. Refused unless it is an absolute path, owned by root, executable, and not writable by group or other. Checked in preflight too, because discovering it after certbot has started costs an attempt against the rate limit.',
+        },
+        {
+          name: '--dns-cleanup-hook',
+          arg: '<path>',
+          type: 'path',
+          description: 'Script that withdraws the TXT record once validation is done.',
+          note: 'Optional but worth having: without it the _acme-challenge records accumulate on every renewal. Held to the same ownership and permission rules as --dns-hook.',
         },
         {
           name: '--dns-credentials',
@@ -153,6 +167,20 @@ export const certs: CommandGroup = {
           title: 'Check everything without spending an attempt',
           lang: 'shell',
           code: 'ratline cert issue example.com --dry-run',
+        },
+        {
+          title: 'A wildcard, via a provider certbot has no plugin for',
+          lang: 'shell',
+          code: `# The hook publishes _acme-challenge.$CERTBOT_DOMAIN however your provider wants.
+# For a wildcard the domain arrives with the '*.' already stripped, so one script
+# covers both the wildcard and the apex.
+ratline cert issue '*.example.com' \\
+  --dns-provider manual \\
+  --dns-hook /etc/ratline/dns/publish.sh \\
+  --dns-cleanup-hook /etc/ratline/dns/withdraw.sh
+
+# The hook runs as root, so it must be root-owned and not group- or world-writable:
+install -o root -g root -m 0700 publish.sh /etc/ratline/dns/publish.sh`,
         },
         {
           title: 'Apex plus www',

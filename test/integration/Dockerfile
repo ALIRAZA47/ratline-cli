@@ -38,7 +38,10 @@ RUN find /etc/systemd/system /lib/systemd/system \
 
 COPY --from=build /out/ratline /usr/local/bin/ratline
 COPY --from=build /out/ratline-shell /usr/local/lib/ratline/ratline-shell
-COPY packaging/systemd/ /etc/systemd/system/
+# ratline's own units are no longer copied in. They live in the binary's embedded
+# templates and `ratline init` installs them, which is what lets a server set up from a
+# single downloaded binary still renew its certificates — so the suite has to exercise
+# that path rather than being handed the units by the image.
 COPY test/integration/run.sh /usr/local/bin/ratline-integration
 RUN chmod 0755 /usr/local/bin/ratline /usr/local/lib/ratline/ratline-shell \
         /usr/local/bin/ratline-integration && \

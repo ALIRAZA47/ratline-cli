@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/unit"
 	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
@@ -43,6 +45,18 @@ func newInitCommand(g *Globals) *cobra.Command {
 			if err := g.ensureDirectories(); err != nil {
 				return err
 			}
+			// The timers ratline runs for itself. They come out of the embedded
+			// templates, so a server that only ever received the binary — which is what
+			// a one-command install leaves — still gets certificate renewal. Before
+			// this, only install.sh and the .deb postinstall placed them, and both
+			// copied from a directory that had to be sitting next to the installer.
+			if err := g.ensureOwnTimers(cmd.Context()); err != nil {
+				// Not fatal: the configuration and directories are already in place, and
+				// a server with no systemd is a supported oddity. doctor reports it.
+				g.Log.Warn("could not install ratline's own timers", "err", err,
+					"fix", "run 'ratline init' again once systemd is available")
+			}
+
 			// --write-config-only is what the package postinstall calls: it wants
 			// the file and the directories, with no questions.
 			if writeConfigOnly {
@@ -225,4 +239,14 @@ func (g *Globals) ensureDirectories() error {
 // API tokens, which are as good as the domain itself.
 func ensureDirAll(path string, mode uint32) error {
 	return system.MkdirAllMode(path, os.FileMode(mode))
+}
+
+// ensureOwnTimers installs the renewal and key-pruning units from the embedded
+// templates and starts their timers.
+func (g *Globals) ensureOwnTimers(ctx context.Context) error {
+	if !g.Bins.Available("systemctl") {
+		return rlerr.Preconditionf("systemd is not available on this host")
+	}
+	mgr := &unit.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, DryRun: g.DryRun}
+	return mgr.EnsureTimers(ctx)
 }

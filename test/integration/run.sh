@@ -97,6 +97,38 @@ check "nginx is installed"      test -x /usr/sbin/nginx
 check "ratline runs"            "$RATLINE" version
 check "doctor runs on a bare box" "$RATLINE" doctor
 check "init seeds the config"   "$RATLINE" init --write-config-only
+
+# The renewal timer, installed from the templates embedded in the binary. This is what a
+# one-command install depends on: the image no longer copies these units in, so if init
+# does not place them, nothing on the server renews a certificate and the first sign is an
+# expired one weeks later.
+check "init installed the renewal timer"    test -f /etc/systemd/system/ratline-cert-renew.timer
+check "init installed the key-prune timer"  test -f /etc/systemd/system/ratline-key-prune.timer
+contains "the units carry ratline's header" "managed-by: ratline" \
+    "$(head -1 /etc/systemd/system/ratline-cert-renew.timer)"
+contains "the renewal timer is enabled" "enabled" "$(systemctl is-enabled ratline-cert-renew.timer 2>&1)"
+contains "the renewal timer is running" "active"  "$(systemctl is-active ratline-cert-renew.timer 2>&1)"
+contains "it has a next run scheduled" "ratline-cert-renew" \
+    "$(systemctl list-timers 'ratline-*' --no-legend --no-pager 2>&1)"
+
+# doctor used to report these as "a ratline unit with no matching site" and offer, as the
+# fix, a command that deletes them — which stops certificates renewing. Now that init
+# installs them on every server, every server would have been told to do that.
+if "$RATLINE" doctor 2>&1 | grep -qE "cert-renew|key-prune"; then
+    bad "doctor calls its own timers orphans" "it suggests deleting the renewal timer"
+else
+    ok "doctor does not mistake its own timers for orphans"
+fi
+
+# And a hand-edited unit is left alone, which is the promise for every other managed file.
+printf '# hand written\n[Unit]\nDescription=mine\n' > /etc/systemd/system/ratline-key-prune.timer
+"$RATLINE" init --write-config-only >/dev/null 2>&1
+contains "a hand-edited unit is not overwritten" "hand written" \
+    "$(head -1 /etc/systemd/system/ratline-key-prune.timer)"
+# Put it back so the rest of the run sees a normal server.
+rm -f /etc/systemd/system/ratline-key-prune.timer
+"$RATLINE" init --write-config-only >/dev/null 2>&1
+check "and it is restored once the edit is gone" test -f /etc/systemd/system/ratline-key-prune.timer
 # The CA's terms have to be accepted before anything can be issued, and the ACME
 # section below is otherwise refused with "the subscriber agreement has not been
 # accepted" — correctly, but it means the whole section tests nothing. Written into

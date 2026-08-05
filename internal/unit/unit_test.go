@@ -282,3 +282,43 @@ func TestStartLimitLivesInTheUnitSection(t *testing.T) {
 		}
 	}
 }
+
+func TestRatlinesOwnUnitsAreNotMistakenForSiteUnits(t *testing.T) {
+	// `doctor` reported the renewal timer as "a ratline unit with no matching site" and
+	// offered, as the fix, a command that deletes it. Following that advice stops
+	// certificates renewing, and the first sign is an expired certificate weeks later.
+	// Now that `init` installs these units on every server, every server would have hit
+	// it.
+	for _, name := range []string{
+		"ratline-cert-renew.service",
+		"ratline-cert-renew.timer",
+		"ratline-key-prune.service",
+		"ratline-key-prune.timer",
+		"ratline.target",
+	} {
+		if !IsOwnUnit(name) {
+			t.Errorf("%s is ratline's own unit; doctor would tell an operator to delete it", name)
+		}
+	}
+	// A site's unit is not one of ratline's own, or the orphan check would never fire
+	// for the case it exists to catch.
+	for _, name := range []string{
+		"ratline-acme-app_example_com.service",
+		"ratline-integration.service",
+		"nginx.service",
+	} {
+		if IsOwnUnit(name) {
+			t.Errorf("%s was treated as one of ratline's own units", name)
+		}
+	}
+}
+
+func TestEveryInstalledUnitIsRecognisedAsOurOwn(t *testing.T) {
+	// The list that installs and the check that protects have to agree. A unit added to
+	// one and not the other is exactly how the doctor bug happened.
+	for _, name := range managedTimers {
+		if !IsOwnUnit(name) {
+			t.Errorf("%s is installed by EnsureTimers but not recognised by IsOwnUnit", name)
+		}
+	}
+}

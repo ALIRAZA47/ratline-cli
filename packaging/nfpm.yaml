@@ -43,13 +43,13 @@ contents:
       owner: root
       group: root
 
-  - src: packaging/systemd/ratline-cert-renew.service
+  - src: templates/systemd/ratline-cert-renew.service
     dst: /etc/systemd/system/ratline-cert-renew.service
-  - src: packaging/systemd/ratline-cert-renew.timer
+  - src: templates/systemd/ratline-cert-renew.timer
     dst: /etc/systemd/system/ratline-cert-renew.timer
-  - src: packaging/systemd/ratline-key-prune.service
+  - src: templates/systemd/ratline-key-prune.service
     dst: /etc/systemd/system/ratline-key-prune.service
-  - src: packaging/systemd/ratline-key-prune.timer
+  - src: templates/systemd/ratline-key-prune.timer
     dst: /etc/systemd/system/ratline-key-prune.timer
 
   # Documentation, keeping the section structure so /usr/share/doc reads the same

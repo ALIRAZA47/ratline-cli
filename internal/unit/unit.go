@@ -333,6 +333,105 @@ func (m *Manager) EnsureTarget(ctx context.Context) error {
 	return err
 }
 
+// managedTimers are the units ratline installs for itself, as opposed to the one it
+// generates per site. They live in the embedded templates so that a binary is
+// self-sufficient: `ratline init` can install them on a server that only ever received
+// the binary, which is what makes a one-command install possible and what stops the
+// installer from depending on files sitting next to it in a checkout.
+var managedTimers = []string{
+	"ratline-cert-renew.service",
+	"ratline-cert-renew.timer",
+	"ratline-key-prune.service",
+	"ratline-key-prune.timer",
+}
+
+// IsOwnUnit reports whether a unit name is one ratline runs for itself, as opposed to
+// one it generated for a site.
+//
+// Kept beside the list that installs them so the two cannot disagree: a unit added to
+// managedTimers and not to this check would be reported as an orphan by `doctor`, whose
+// suggested fix is to delete it.
+func IsOwnUnit(name string) bool {
+	if name == "ratline.target" {
+		return true
+	}
+	for _, own := range managedTimers {
+		if name == own {
+			return true
+		}
+	}
+	return false
+}
+
+// EnsureTimers installs ratline's own renewal and key-pruning units and starts their
+// timers.
+//
+// Refreshed rather than skipped when present, because a new release may ship a corrected
+// unit and this is what an operator running `ratline init` after an update expects. The
+// managed-by header means a hand-edited copy is left alone: system.WriteManaged refuses a
+// file that does not carry it.
+func (m *Manager) EnsureTimers(ctx context.Context) error {
+	if err := m.EnsureTarget(ctx); err != nil {
+		return err
+	}
+	var installed []string
+	for _, name := range managedTimers {
+		body, err := templates.FS.ReadFile("systemd/" + name)
+		if err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "reading the embedded unit %s", name)
+		}
+		path := filepath.Join(m.Cfg.Paths.SystemdDir, name)
+		if m.DryRun {
+			m.Log.Info("would install a unit", "unit", name)
+			continue
+		}
+		// A unit the operator has edited is theirs. The promise is that ratline never
+		// overwrites a file lacking its header, and that has to hold for its own units
+		// as much as for a vhost.
+		if system.Exists(path) {
+			managed, err := system.HasManagedHeader(path)
+			if err != nil {
+				return err
+			}
+			if !managed {
+				m.Log.Warn("leaving a hand-edited unit alone", "unit", name, "path", path,
+					"note", "it does not carry ratline's header, so it was not replaced")
+				continue
+			}
+		}
+		if err := system.WriteFileAtomic(path, body, 0o644, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+			return err
+		}
+		installed = append(installed, name)
+	}
+	if m.DryRun || len(installed) == 0 {
+		return nil
+	}
+	if _, err := m.Runner.Run(ctx, system.Cmd{
+		Name: "systemctl", Args: []string{"daemon-reload"}, Mutates: true,
+	}); err != nil {
+		return err
+	}
+	// Only the timers are enabled; the services they trigger must not run at boot.
+	for _, name := range managedTimers {
+		if !strings.HasSuffix(name, ".timer") {
+			continue
+		}
+		if _, err := m.Runner.Run(ctx, system.Cmd{
+			Name: "systemctl", Args: []string{"enable", "--now", name},
+			Mutates: true, OKExit: []int{1},
+		}); err != nil {
+			// A timer that will not start is worth reporting, but it must not stop
+			// setup: everything else on the server is already configured, and
+			// 'ratline doctor' names a missing timer.
+			m.Log.Warn("could not start a timer", "unit", name, "err", err,
+				"note", "certificates will not renew automatically until this starts")
+		}
+	}
+	m.Log.Info("installed ratline's own timers", "units", len(installed))
+	return nil
+}
+
 // Control runs a systemctl verb against a site's unit.
 func (m *Manager) Control(ctx context.Context, site *state.Site, verb string) error {
 	unitName := validate.UnitName(site.Owner, site.Domain)

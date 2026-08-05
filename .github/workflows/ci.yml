@@ -99,11 +99,6 @@ jobs:
         with:
           version: v2.12.2
 
-      # The docs site's CSP lists the sha256 of its one inline script. The hash changes
-      # whenever that script does, and the failure is silent — theme flashes, console
-      # error nobody reads, page otherwise fine.
-      - name: Check the docs CSP hash
-        run: ./scripts/check-csp-hash.sh
 
   fuzz:
     name: fuzz the validators
@@ -135,6 +130,33 @@ jobs:
           path: |
             internal/validate/testdata/fuzz/
             internal/system/testdata/fuzz/
+
+  docs:
+    name: docs site
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/web/package-lock.json
+      - run: npm --prefix docs/web ci
+      - name: Typecheck and build
+        run: npm --prefix docs/web run build
+      # Vercel deploys on push, so a broken build or a stale CSP hash would first be
+      # noticed by a visitor. The hash pins the one inline script — the theme switch,
+      # which must run before first paint — and editing even a comment in it changes
+      # the hash and gets the script blocked with only a console error to say so.
+      - name: The CSP hash still matches the build
+        run: sh scripts/check-csp-hash.sh
+      # The installer is served from the site, so it has to survive the build and stay
+      # syntactically valid: it is piped straight into a root shell.
+      - name: The installer is present and valid
+        run: |
+          test -f docs/web/dist/install.sh
+          sh -n docs/web/dist/install.sh
+          command -v shellcheck >/dev/null 2>&1 && shellcheck -s sh docs/web/dist/install.sh || true
 
   integration:
     name: integration (real nginx, node, python)

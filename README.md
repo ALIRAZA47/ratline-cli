@@ -47,29 +47,37 @@ the interesting cases are all failures. ratline is built around those instead:
 
 ## Install
 
-> **Note**
-> No release has been published yet, so build from source. `ratline update` — which
-> installs a release, checksums it, verifies the new binary runs and can read this
-> server's state, then swaps it atomically — will work as soon as one exists.
-
-Requires Go 1.25+ (the version in `go.mod` is authoritative) and a Debian or Ubuntu
-target.
-
 ```bash
-git clone https://github.com/ALIRAZA47/ratline-cli
-cd ratline-cli
-make build
-sudo make install
-sudo ratline init
+curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh
 ```
 
-`ratline init` writes the configuration, creates the directory layout and installs the
-renewal and key-pruning timers. Then
-[getting-started/](docs/getting-started/installation.md) takes it from there.
+One command on a bare Debian or Ubuntu server. It resolves the latest release, downloads
+the binaries for this architecture, **verifies them against the release's own
+`SHA256SUMS`**, installs them, and runs `ratline init` — configuration, directory layout,
+and the renewal and key-pruning timers started. It offers to `apt-get install` nginx and
+certbot if they are missing, naming them first.
+
+Piping into a root shell is worth being deliberate about. The script refuses rather than
+warns if a checksum is missing or wrong, but that cannot protect you from a compromised
+release — so read it first if you would rather, which is the same two commands:
+
+```bash
+curl -fsSLO https://ratline-cli.vercel.app/install.sh
+less install.sh && sudo sh install.sh
+```
+
+`RATLINE_VERSION=v0.2.0` pins a release, `ASSUME_YES=1` suits Ansible and cloud-init, and
+`NO_INIT=1` installs the binaries and stops. From source, or from a tarball or `.deb`:
+[installation.md](docs/getting-started/installation.md).
+
+Upgrading later is one command too — `ratline update` checksums the new release, proves
+the binary runs and can read this server's state, swaps it atomically, and keeps the old
+one for `--rollback`.
 
 ## Documentation
 
-**[Full documentation →](docs/)**
+**[ratline-cli.vercel.app](https://ratline-cli.vercel.app)** — searchable, with every
+command and flag. The same content as [docs/](docs/), which is the source.
 
 | | |
 |---|---|

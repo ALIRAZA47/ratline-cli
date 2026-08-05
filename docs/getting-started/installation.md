@@ -4,23 +4,58 @@ Requires Ubuntu 22.04+ or Debian 12+, root, and nginx. Other distributions may
 work; ratline warns rather than refuses, because the filesystem layout it assumes
 is Debian's.
 
-## From a release
+## One command
 
 ```bash
-curl -fsSLO https://github.com/ALIRAZA47/ratline-cli/releases/latest/download/ratline-linux-amd64
-curl -fsSLO https://github.com/ALIRAZA47/ratline-cli/releases/latest/download/install.sh
+curl -fsSL https://ratline-cli.vercel.app/install.sh | sudo sh
+```
+
+That resolves the latest release, downloads the binaries for this architecture, verifies
+them against the release's own `SHA256SUMS`, installs `ratline` and the `ratline-shell`
+wrapper, and runs `ratline init` — which writes the configuration, creates the directory
+layout, and installs and starts the renewal and key-pruning timers. It also offers to
+`apt-get install` nginx and certbot if they are missing, naming them first.
+
+Piping a script into a root shell is a real supply-chain risk, and worth being deliberate
+about. The script checksums everything it downloads, and refuses rather than warning if a
+checksum is missing or wrong — but that cannot protect you from a compromised release. If
+you would rather read it first, which is reasonable, it is the same two commands:
+
+```bash
+curl -fsSLO https://ratline-cli.vercel.app/install.sh
+less install.sh && sudo sh install.sh
+```
+
+Useful variables:
+
+| | |
+|---|---|
+| `RATLINE_VERSION=v0.2.0` | Install a specific release rather than the latest |
+| `ASSUME_YES=1` | Answer every prompt yes — for Ansible, cloud-init or a Dockerfile |
+| `NO_INIT=1` | Install the binaries and stop, leaving `ratline init` to you |
+| `PREFIX=/opt/ratline` | Install somewhere other than `/usr/local` |
+
+## From a release, by hand
+
+```bash
+curl -fsSLO https://github.com/ALIRAZA47/ratline-cli/releases/latest/download/ratline-v0.2.0-linux-amd64.tar.gz
+tar -xzf ratline-v0.2.0-linux-amd64.tar.gz
+cd ratline-v0.2.0-linux-amd64
 sudo sh install.sh
 ```
 
-`install.sh` verifies the checksum, installs to `/usr/local/bin/ratline`, installs
-the `ratline-shell` wrapper, the systemd timers for renewal and key pruning, and
-the shell completions.
+The tarball carries both binaries, the installer and this release's checksums; the
+installer uses what is beside it rather than downloading anything.
 
 ## From a .deb
 
 ```bash
-sudo dpkg -i ratline_1.0.0_amd64.deb
+sudo dpkg -i ratline_0.2.0_amd64.deb
 ```
+
+Built with `make deb`, which needs [nfpm](https://github.com/goreleaser/nfpm). The
+package's postinstall runs `ratline init --write-config-only`, so the configuration,
+directories and timers are in place when `dpkg` returns.
 
 ## From source
 
@@ -38,11 +73,18 @@ nothing to install alongside it.
 sudo ratline init
 ```
 
+The one-command install above already ran this; it is here for the by-hand paths and
+because it is worth running again after an upgrade.
+
 `init` is interactive and idempotent. It creates the directory tree, writes
-`/etc/ratline/config.yaml`, detects the server's public addresses, records the ACME
-contact address and whether the CA's terms have been accepted, and installs the
-nginx snippets and the systemd target. Run it again after an upgrade; it changes
-only what is missing.
+`/etc/ratline/config.yaml`, records the ACME contact address and whether the CA's terms
+have been accepted, installs the nginx snippets and the systemd target, and installs and
+starts the renewal and key-pruning timers. Those units come out of the binary itself
+rather than from files next to an installer, which is what lets a server set up from a
+single downloaded binary still renew its certificates.
+
+It never overwrites a unit you have edited: a file at one of ratline's paths that does not
+carry the `# managed-by: ratline` header is left alone, and reported.
 
 ## Check the result
 

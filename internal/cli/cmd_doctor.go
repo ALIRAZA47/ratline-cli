@@ -16,6 +16,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/tls"
+	"github.com/ALIRAZA47/ratline-cli/internal/unit"
 	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
@@ -282,6 +283,14 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		for _, e := range entries {
 			name := e.Name()
 			if !strings.HasPrefix(name, "ratline-") || !strings.HasSuffix(name, ".service") || known[name] {
+				continue
+			}
+			// ratline's own units are not site units, and there is no site they could
+			// match. Reporting them as orphans handed the operator a "fix" that deletes
+			// their certificate renewal — after which nothing renews and the first sign
+			// is an expired certificate weeks later. Now that `init` installs these on
+			// every server, every server would have seen it.
+			if unit.IsOwnUnit(name) {
 				continue
 			}
 			add("warning", "orphan", name, "a ratline unit with no matching site",
