@@ -4,7 +4,11 @@ MODULE    := github.com/ALIRAZA47/ratline-cli
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
-DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+# The commit's date, not the wall clock. Baking in "now" makes every build a different
+# binary, so the published SHA256SUMS cannot be checked by rebuilding from the tag — the
+# one verification that does not require trusting whoever uploaded it. Falls back to the
+# clock outside a git checkout.
+DATE    ?= $(shell git log -1 --format=%cd --date=format:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # CGO off so the binary is genuinely static: no glibc version to match, and it
 # runs on any Ubuntu or Debian of the last decade. The SQLite driver is pure Go
