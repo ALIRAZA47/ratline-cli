@@ -102,7 +102,7 @@ environment. No script is built from user input and the admin URI never appears 
   (labels, blurbs, search keywords). Sections are **subjects**, not document kinds — a
   subject owns its commands, concepts, in-depth topics, runbooks and config settings.
 - `docs/reference/commands.md` is **generated**. Change the help text in Go and run
-  `make docs-commands`; do not hand-edit it.
+  `make docs-commands`; do not hand-edit it. CI regenerates it and fails on a diff.
 
 ## Gotchas that have cost real time here
 
@@ -119,6 +119,10 @@ environment. No script is built from user input and the admin URI never appears 
   still accepting — a draining worker reports `nginx: worker process is shutting down`.
 - **Builds must be reproducible from the tag**: the Makefile bakes in the *commit* date, not
   the wall clock, so a published `SHA256SUMS` can be verified by rebuilding.
+- **Docs-site routes are lazy**, so a page's content is not in the DOM on the frame after
+  navigation. Anything that reaches for a rendered element — the scroll-to-anchor being the
+  one that bit — has to wait for it rather than assume one animation frame is enough.
 - **A vacuous assertion is worse than none.** Prove the negative case: break the thing, watch
   the test fail, put it back. Several tests here passed because the command refused before
-  ever reaching the code under test.
+  ever reaching the code under test — and a mutation test only counts if the mutation
+  actually applied, which is worth checking before believing the result.
