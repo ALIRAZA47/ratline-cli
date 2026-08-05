@@ -649,7 +649,127 @@ else
             printf '  skip  sqlite3 unavailable, so the clock-skew case was not exercised\n'
         fi
 
-        # A duplicate request must be refused by the local budget before it reaches
+        # ------------------------------------------------------------------ DNS-01
+    #
+    # DNS-01 was the one challenge with no coverage, on the grounds that it "needs a
+    # real DNS provider". It does not — it needs a way to publish a TXT record, and
+    # certbot's manual plugin plus a hook script is exactly that. challtestsrv is
+    # already the DNS server Pebble resolves against, and it takes TXT records over
+    # its management API, so the hook is four lines of curl.
+    #
+    # This is the real challenge: certbot asks Pebble for a dns-01 authorization,
+    # publishes the token, Pebble queries challtestsrv over DNS, and the certificate
+    # is signed. Nothing about it is simulated.
+    if [ -n "$CHALLTESTSRV" ]; then
+        HOOK=/usr/local/lib/ratline/dns-hook.sh
+        install -d -m 0755 /usr/local/lib/ratline
+        cat > "$HOOK" <<HOOKEOF
+#!/bin/sh
+# certbot sets CERTBOT_DOMAIN and CERTBOT_VALIDATION. A wildcard authorization arrives
+# with the domain already stripped of its "*." so the record name is the same either way.
+set -eu
+curl -sS -X POST -d "{\\"host\\":\\"_acme-challenge.\${CERTBOT_DOMAIN}.\\",\\"value\\":\\"\${CERTBOT_VALIDATION}\\"}" \\
+    "$CHALLTESTSRV/set-txt" >/dev/null
+HOOKEOF
+        cat > "$HOOK.cleanup" <<CLEANEOF
+#!/bin/sh
+set -eu
+curl -sS -X POST -d "{\\"host\\":\\"_acme-challenge.\${CERTBOT_DOMAIN}.\\"}" \\
+    "$CHALLTESTSRV/clear-txt" >/dev/null
+CLEANEOF
+        chown root:root "$HOOK" "$HOOK.cleanup"
+        chmod 0755 "$HOOK" "$HOOK.cleanup"
+
+        # The hook runs as root with the validation token in its environment, so a
+        # writable one is a route to running code as root. Both refusals are checked
+        # before the working case, so a pass below means the check is live.
+        chmod 0777 "$HOOK"
+        out=$("$RATLINE" cert issue dns.test --email ops@acme.test --challenge dns \
+                --dns-provider manual --dns-hook "$HOOK" \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" 2>&1 || true)
+        contains "a world-writable DNS hook is refused" "writable by group or other" "$out"
+        chmod 0755 "$HOOK"
+
+        out=$("$RATLINE" cert issue dns.test --email ops@acme.test --challenge dns \
+                --dns-provider manual --dns-hook ./relative.sh \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" 2>&1 || true)
+        contains "a relative hook path is refused" "absolute" "$out"
+
+        out=$("$RATLINE" cert issue dns.test --email ops@acme.test --challenge dns \
+                --dns-provider manual --dns-hook "$HOOK" --dns-credentials /etc/hosts \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" 2>&1 || true)
+        contains "--dns-credentials with a manual hook is refused" "does not apply" "$out"
+
+        out=$("$RATLINE" cert issue dns.test --email ops@acme.test --challenge dns \
+                --dns-provider manual \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" 2>&1 || true)
+        contains "manual without a hook is refused" "requires --dns-hook" "$out"
+
+        # A site to attach it to, and DNS so Pebble can find the server if it wants.
+        check "a site for the DNS-01 certificate" \
+            "$RATLINE" site add dns.test --user alice --runtime static --ssl none
+        echo 'dns-01 ok' > /home/alice/dns.test/public/index.html
+        chown alice:alice /home/alice/dns.test/public/index.html
+        curl -sS -X POST -d '{"host":"dns.test","addresses":["10.30.50.4"]}' \
+            "$CHALLTESTSRV/add-a" >/dev/null 2>&1 || true
+
+        # Dry run first: a full exchange with the CA, no certificate issued.
+        if "$RATLINE" --verbose cert issue dns.test --email ops@acme.test --challenge dns \
+                --dns-provider manual --dns-hook "$HOOK" --dns-cleanup-hook "$HOOK.cleanup" \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
+                --dry-run 2>&1 | tail -20; then
+            ok "cert issue --challenge dns --dry-run validates through the hook"
+        else
+            bad "DNS-01 dry run" "see the output above"
+        fi
+
+        if "$RATLINE" --verbose cert issue dns.test --email ops@acme.test --challenge dns \
+                --dns-provider manual --dns-hook "$HOOK" --dns-cleanup-hook "$HOOK.cleanup" \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" 2>&1 | tail -25; then
+            ok "a certificate is issued over DNS-01"
+            shown=$("$RATLINE" cert show dns.test)
+            contains "it is recorded"            "dns.test" "$shown"
+            contains "issued by the local CA"    "Pebble"   "$shown"
+            contains "and the challenge is recorded as dns" "dns" "$shown"
+            # Asserted on the body, not on an empty needle: `contains` with an empty
+            # string matches anything, which is a test that can never fail.
+            body=$(curl -sS --resolve dns.test:443:127.0.0.1 https://dns.test/ 2>&1)
+            contains "and the site is served over TLS with it" "dns-01 ok" "$body"
+            check "nginx still validates" nginx -t
+        else
+            bad "DNS-01 issuance" "see the output above"
+        fi
+
+        # A wildcard, which is the reason DNS-01 exists: HTTP-01 cannot prove control of
+        # names that do not exist yet, so ratline switches the challenge itself.
+        #
+        # The base domain needs a site: preflight refuses a certificate for a name this
+        # server does not serve, which is correct — a lineage attached to nothing still
+        # consumes rate-limit budget on every renewal.
+        check "a site for the wildcard's base domain" \
+            "$RATLINE" site add wild.test --user alice --runtime static --ssl none
+        if "$RATLINE" --verbose cert issue '*.wild.test' --email ops@acme.test \
+                --dns-provider manual --dns-hook "$HOOK" --dns-cleanup-hook "$HOOK.cleanup" \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
+                --no-attach 2>&1 | tail -20; then
+            ok "a wildcard is issued, with the challenge switched to dns automatically"
+            contains "the wildcard SAN is on the certificate" "*.wild.test" \
+                "$("$RATLINE" cert show wild.test)"
+        else
+            bad "wildcard issuance" "see the output above"
+        fi
+
+        # And a wildcard over HTTP-01 is impossible, so it must be refused rather than
+        # attempted — a failed validation costs rate-limit budget.
+        out=$("$RATLINE" cert issue '*.nope.test' --email ops@acme.test --challenge http \
+                --acme-directory "$DIRECTORY" --acme-ca-bundle "$PEBBLE_CA" \
+                --dry-run 2>&1 || true)
+        contains "a wildcard does not silently stay on HTTP-01" "dns" "$out"
+    else
+        printf '  skip  challtestsrv is unavailable, so DNS-01 was not exercised\n'
+    fi
+
+    # A duplicate request must be refused by the local budget before it reaches
         # the CA at all. Last in this section: it leaves the budget spent.
         for _ in 1 2 3 4 5 6; do
             "$RATLINE" cert issue acme.test --email ops@acme.test \

@@ -1849,21 +1849,23 @@ Usage:
   ratline cert issue <domain> [flags]
 
 Flags:
-      --acme-ca-bundle string    Trust store for a private ACME server, for this issuance only; set acme.ca_bundle in config or renewal cannot verify the CA
-      --acme-directory string    ACME directory URL, for a private CA such as step-ca (default: the configured one)
-      --alias stringArray        SAN to include, replacing the site's own aliases (repeatable)
-      --challenge string         http (webroot) or dns; a wildcard forces dns (default "http")
-      --dns-credentials string   Credentials file for the DNS plugin, which must be 0600
-      --dns-propagation int      Seconds to wait for the TXT record before validating
-      --dns-provider string      certbot DNS plugin, e.g. cloudflare or route53
-      --dry-run                  Validate fully without issuing, and without spending budget
-      --email string             ACME contact address
-      --force                    Re-issue even if a valid certificate exists, and proceed past preflight
-  -h, --help                     help for issue
-      --key-type string          ecdsa or rsa (default from config)
-      --no-attach                Obtain the certificate without pointing the vhost at it
-      --san stringArray          Extra SAN not registered as a site alias (repeatable)
-      --staging                  Use the staging endpoint: real exchange, untrusted certificate, generous limits
+      --acme-ca-bundle string     Trust store for a private ACME server, for this issuance only; set acme.ca_bundle in config or renewal cannot verify the CA
+      --acme-directory string     ACME directory URL, for a private CA such as step-ca (default: the configured one)
+      --alias stringArray         SAN to include, replacing the site's own aliases (repeatable)
+      --challenge string          http (webroot) or dns; a wildcard forces dns (default "http")
+      --dns-cleanup-hook string   With --dns-provider manual: a script that removes the TXT record afterwards
+      --dns-credentials string    Credentials file for the DNS plugin, which must be 0600
+      --dns-hook string           With --dns-provider manual: a root-owned script that publishes the TXT record
+      --dns-propagation int       Seconds to wait for the TXT record before validating
+      --dns-provider string       certbot DNS plugin (cloudflare, route53, ...), or 'manual' with --dns-hook for any other
+      --dry-run                   Validate fully without issuing, and without spending budget
+      --email string              ACME contact address
+      --force                     Re-issue even if a valid certificate exists, and proceed past preflight
+  -h, --help                      help for issue
+      --key-type string           ecdsa or rsa (default from config)
+      --no-attach                 Obtain the certificate without pointing the vhost at it
+      --san stringArray           Extra SAN not registered as a site alias (repeatable)
+      --staging                   Use the staging endpoint: real exchange, untrusted certificate, generous limits
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)

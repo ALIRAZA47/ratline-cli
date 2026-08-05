@@ -61,6 +61,30 @@ DNS-01 needs an API token for your provider, stored `0600` under
 `/etc/ratline/dns/`, and a propagation wait that is genuinely required — validating
 before the TXT record has propagated is a failed attempt against your budget.
 
+### A provider certbot has no plugin for
+
+certbot ships plugins for around a dozen providers. For everything else — and for a
+company's internal DNS — `--dns-provider manual` takes a script instead of a credentials
+file:
+
+    ratline cert issue '*.example.com' \
+        --dns-provider manual \
+        --dns-hook /etc/ratline/dns/publish.sh \
+        --dns-cleanup-hook /etc/ratline/dns/withdraw.sh
+
+certbot sets `CERTBOT_DOMAIN` and `CERTBOT_VALIDATION`; the script publishes a TXT record
+at `_acme-challenge.$CERTBOT_DOMAIN` however your provider requires. For a wildcard the
+domain arrives with the `*.` already stripped, so one script handles both cases.
+
+**The hook runs as root**, with the validation token in its environment, on a server
+holding every tenant's keys. Anyone who can write it can run code as root — so ratline
+refuses a hook that is not an absolute path, not owned by root, not executable, or
+writable by group or other. That check runs in preflight too, because discovering it after
+certbot has started costs an attempt against the rate limit.
+
+The cleanup hook is optional but worth having: without it the TXT records accumulate, and
+some providers rate-limit record creation.
+
 ## The Cloudflare orange-cloud trap
 
 This is the most common certificate failure on a new server, and it looks like a

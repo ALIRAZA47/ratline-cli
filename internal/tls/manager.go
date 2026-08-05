@@ -80,11 +80,16 @@ func StatusOf(c *state.Certificate, now time.Time) Status {
 
 // IssueOptions is the resolved form of `ratline cert issue`.
 type IssueOptions struct {
-	Domain         string
-	Aliases        []string
-	ExtraSANs      []string
-	Challenge      string // http or dns
-	DNSProvider    string
+	Domain      string
+	Aliases     []string
+	ExtraSANs   []string
+	Challenge   string // http or dns
+	DNSProvider string
+	// DNSHook and DNSCleanupHook are the scripts certbot's manual plugin calls to
+	// publish and withdraw the TXT record, for a DNS provider certbot has no plugin
+	// for. Only meaningful with --dns-provider manual.
+	DNSHook        string
+	DNSCleanupHook string
 	DNSCredentials string
 	DNSPropagation int
 	Email          string
@@ -172,10 +177,42 @@ func (m *Manager) Resolve(opts *IssueOptions) error {
 	case "dns":
 		if opts.DNSProvider == "" {
 			return rlerr.Usagef("--challenge dns requires --dns-provider").
-				WithHint("for example --dns-provider cloudflare --dns-credentials /etc/ratline/dns/cloudflare.ini")
+				WithHint("for example --dns-provider cloudflare --dns-credentials /etc/ratline/dns/cloudflare.ini, " +
+					"or --dns-provider manual --dns-hook /etc/ratline/dns/publish.sh for a provider " +
+					"certbot has no plugin for")
+		}
+		// "manual" is certbot's own escape hatch, and the only way to use DNS-01 with a
+		// provider it has no plugin for — which is most of them. The credentials file is
+		// replaced by a script that publishes the TXT record however it needs to.
+		if opts.DNSProvider == DNSProviderManual {
+			if opts.DNSHook == "" {
+				return rlerr.Usagef("--dns-provider manual requires --dns-hook").
+					WithHint("the script receives CERTBOT_DOMAIN and CERTBOT_VALIDATION and must " +
+						"publish a TXT record at _acme-challenge.$CERTBOT_DOMAIN")
+			}
+			if opts.DNSCredentials != "" {
+				return rlerr.Usagef("--dns-credentials does not apply to --dns-provider manual").
+					WithHint("the hook script is responsible for its own credentials")
+			}
+			// certbot executes these as root with the validation token in the
+			// environment, so anyone who can write one can run code as root.
+			if err := system.CheckRootOwnedExecutable(opts.DNSHook); err != nil {
+				return rlerr.Wrap(err, rlerr.CodeOf(err), "the DNS hook is not safe to run as root")
+			}
+			if opts.DNSCleanupHook != "" {
+				if err := system.CheckRootOwnedExecutable(opts.DNSCleanupHook); err != nil {
+					return rlerr.Wrap(err, rlerr.CodeOf(err),
+						"the DNS cleanup hook is not safe to run as root")
+				}
+			}
+			break
 		}
 		if opts.DNSCredentials == "" {
 			return rlerr.Usagef("--challenge dns requires --dns-credentials")
+		}
+		if opts.DNSHook != "" {
+			return rlerr.Usagef("--dns-hook only applies to --dns-provider manual").
+				WithHint("%s has a certbot plugin, which uses --dns-credentials instead", opts.DNSProvider)
 		}
 	default:
 		return rlerr.Usagef("--challenge must be http or dns, got %q", opts.Challenge)
@@ -379,3 +416,10 @@ func (m *Manager) Bins(name string) bool {
 	res, err := m.Runner.Run(context.Background(), system.Cmd{Name: name, Args: []string{"--version"}, OKExit: []int{1}})
 	return err == nil && res != nil
 }
+
+// DNSProviderManual selects certbot's manual plugin, driven by a hook script.
+//
+// certbot ships plugins for around a dozen DNS providers. For every other provider —
+// and for a company's internal DNS — the manual plugin plus a script is the only way to
+// use DNS-01 at all, which is what wildcards require.
+const DNSProviderManual = "manual"

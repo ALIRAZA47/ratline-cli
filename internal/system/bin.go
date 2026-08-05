@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 )
@@ -211,4 +212,43 @@ func checkExecutable(path string, fi os.FileInfo) error {
 		return fmt.Errorf("%s is writable by group or other (mode %04o)", path, fi.Mode().Perm())
 	}
 	return nil
+}
+
+// CheckRootOwnedExecutable validates a program ratline will have run as root.
+//
+// For a certbot DNS hook: certbot executes it as root with the validation token in its
+// environment, so anyone who can write it can run arbitrary code as root on a server
+// holding every tenant's keys. The three conditions are the same ones ratline applies to
+// its own binary — regular, executable, not writable by group or other — plus root
+// ownership, which matters more here because the path comes from a flag rather than from
+// where the binary happens to be installed.
+func CheckRootOwnedExecutable(path string) error {
+	if !filepath.IsAbs(path) {
+		return rlerr.Usagef("%s must be an absolute path", path).
+			WithHint("certbot runs it from a working directory you do not control")
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return rlerr.Preconditionf("cannot read %s", path)
+	}
+	if err := checkExecutable(path, fi); err != nil {
+		return rlerr.Preconditionf("%s", err.Error()).
+			WithHint("chmod 0755 %s", path)
+	}
+	if uid, ok := ownerUID(fi); ok && uid != 0 {
+		return rlerr.Preconditionf("%s is owned by uid %d, not root", path, uid).
+			WithHint("certbot runs this as root, so a non-root owner can change what root "+
+				"executes: chown root:root %s", path)
+	}
+	return nil
+}
+
+// ownerUID reads a file's owning uid. The second result is false on a platform where
+// the syscall stat is not available, so callers skip the check rather than fail it.
+func ownerUID(fi os.FileInfo) (int, bool) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return int(st.Uid), true
 }

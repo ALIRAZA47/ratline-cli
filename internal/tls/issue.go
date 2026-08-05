@@ -122,6 +122,18 @@ func (m *Manager) runCertbot(ctx context.Context, opts IssueOptions, names []str
 	case "http":
 		args = append(args, "--webroot", "--webroot-path", m.Cfg.Paths.ACMEWebroot)
 	case "dns":
+		if opts.DNSProvider == DNSProviderManual {
+			// --preferred-challenges dns because the manual plugin can also do HTTP-01,
+			// and letting the CA choose would silently use the wrong one — the hook
+			// publishes a TXT record and nothing would be serving a token over HTTP.
+			args = append(args, "--manual",
+				"--preferred-challenges", "dns",
+				"--manual-auth-hook", opts.DNSHook)
+			if opts.DNSCleanupHook != "" {
+				args = append(args, "--manual-cleanup-hook", opts.DNSCleanupHook)
+			}
+			break
+		}
 		plugin := "dns-" + opts.DNSProvider
 		args = append(args, "--"+plugin,
 			"--"+plugin+"-credentials", opts.DNSCredentials,

@@ -149,12 +149,17 @@ func newCertIssueCommand(g *Globals) *cobra.Command {
 	f.StringArrayVar(&opts.Aliases, "alias", nil, "SAN to include, replacing the site's own aliases (repeatable)")
 	f.StringArrayVar(&opts.ExtraSANs, "san", nil, "Extra SAN not registered as a site alias (repeatable)")
 	f.StringVar(&opts.Challenge, "challenge", "http", "http (webroot) or dns; a wildcard forces dns")
-	f.StringVar(&opts.DNSProvider, "dns-provider", "", "certbot DNS plugin, e.g. cloudflare or route53")
+	f.StringVar(&opts.DNSProvider, "dns-provider", "",
+		"certbot DNS plugin (cloudflare, route53, ...), or 'manual' with --dns-hook for any other")
 	f.StringVar(&opts.DNSCredentials, "dns-credentials", "", "Credentials file for the DNS plugin, which must be 0600")
 	f.IntVar(&opts.DNSPropagation, "dns-propagation", 0, "Seconds to wait for the TXT record before validating")
 	f.StringVar(&opts.Email, "email", "", "ACME contact address")
 	f.StringVar(&opts.DirectoryURL, "acme-directory", "",
 		"ACME directory URL, for a private CA such as step-ca (default: the configured one)")
+	f.StringVar(&opts.DNSHook, "dns-hook", "",
+		"With --dns-provider manual: a root-owned script that publishes the TXT record")
+	f.StringVar(&opts.DNSCleanupHook, "dns-cleanup-hook", "",
+		"With --dns-provider manual: a script that removes the TXT record afterwards")
 	f.StringVar(&opts.CABundle, "acme-ca-bundle", "",
 		"Trust store for a private ACME server, for this issuance only; "+
 			"set acme.ca_bundle in config or renewal cannot verify the CA")

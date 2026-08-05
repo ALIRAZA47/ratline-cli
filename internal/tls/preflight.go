@@ -83,7 +83,17 @@ func (m *Manager) Preflight(ctx context.Context, opts *IssueOptions, names []str
 	} else {
 		add("tooling", true, false, "certbot is installed", "")
 	}
-	if opts.Challenge == "dns" {
+	if opts.Challenge == "dns" && opts.DNSProvider == DNSProviderManual {
+		// The manual plugin is built into certbot, so there is no package to check for.
+		// What matters instead is the hook: certbot runs it as root, and if it is not
+		// there or not executable the challenge fails after an attempt has been spent.
+		add("dns-plugin", true, false, "certbot's built-in manual plugin", "")
+		if err := system.CheckRootOwnedExecutable(opts.DNSHook); err != nil {
+			add("dns-hook", false, true, firstLine(err.Error()), rlerr.Hint(err))
+		} else {
+			add("dns-hook", true, false, opts.DNSHook+" is root-owned and executable", "")
+		}
+	} else if opts.Challenge == "dns" {
 		plugin := "python3-certbot-dns-" + opts.DNSProvider
 		if !m.dnsPluginPresent(ctx, opts.DNSProvider) {
 			add("dns-plugin", false, true,
