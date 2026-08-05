@@ -253,7 +253,12 @@ func (m *Manager) recordIssued(ctx context.Context, certName string, opts IssueO
 // Never done for a public CA: certifi is the correct trust store there, and widening
 // it to whatever is in the system store would be a downgrade nobody asked for.
 func (m *Manager) certbotEnv(opts IssueOptions) []string {
-	bundle := m.caBundle(opts)
+	return m.certbotEnvForBundle(m.caBundle(opts))
+}
+
+// certbotEnvForBundle is the same, given a bundle already decided on — renewal
+// works out its own, from the lineage rather than from flags.
+func (m *Manager) certbotEnvForBundle(bundle string) []string {
 	if bundle == "" {
 		return nil
 	}
@@ -264,6 +269,19 @@ func (m *Manager) certbotEnv(opts IssueOptions) []string {
 		// urllib3 and some plugins read this one instead.
 		"SSL_CERT_FILE="+bundle,
 	)
+}
+
+// systemTrustStore is the distribution's CA bundle, or empty if there isn't one.
+func systemTrustStore() string {
+	for _, candidate := range []string{
+		"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
+		"/etc/pki/tls/certs/ca-bundle.crt",   // RHEL family
+	} {
+		if system.Exists(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // caBundle is the trust store to verify a private ACME server with, or empty when
@@ -277,15 +295,7 @@ func (m *Manager) caBundle(opts IssueOptions) string {
 	if opts.DirectoryURL == "" {
 		return ""
 	}
-	for _, candidate := range []string{
-		"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
-		"/etc/pki/tls/certs/ca-bundle.crt",   // RHEL family
-	} {
-		if system.Exists(candidate) {
-			return candidate
-		}
-	}
-	return ""
+	return systemTrustStore()
 }
 
 // directoryURL resolves which ACME directory this issuance should talk to.
@@ -453,14 +463,44 @@ func (m *Manager) translateCertbotError(err error, res *system.Result, domain st
 		WithHint("certbot's own log has the detail: /var/log/letsencrypt/letsencrypt.log")
 }
 
-// tail returns the last n non-empty lines, which is where certbot puts the reason.
+// tail returns the last n meaningful lines, which is where certbot puts the reason.
+//
+// Certbot ends every failure with the same four lines of signposting — a rule of
+// dashes, a renew-failure count, "Ask for help ...", "See the logfile ..." — so a
+// plain tail of four spends all four on boilerplate and shows the operator nothing
+// about their own certificate.
 func tail(s string, n int) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	var kept []string
 	for i := len(lines) - 1; i >= 0 && len(kept) < n; i-- {
-		if l := strings.TrimSpace(lines[i]); l != "" {
-			kept = append([]string{l}, kept...)
+		l := strings.TrimSpace(lines[i])
+		if l == "" || certbotSignpost(l) {
+			continue
 		}
+		kept = append([]string{l}, kept...)
+	}
+	if len(kept) == 0 {
+		// Better to repeat the signposts than to report an empty reason.
+		return strings.TrimSpace(s)
 	}
 	return strings.Join(kept, "\n")
+}
+
+func certbotSignpost(line string) bool {
+	if strings.Trim(line, "- ") == "" {
+		return true
+	}
+	lower := strings.ToLower(line)
+	for _, s := range []string{
+		"ask for help",
+		"see the logfile",
+		"please see the logfile",
+		"saving debug log",
+		"renew failure(s)",
+	} {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
 }

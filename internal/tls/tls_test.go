@@ -787,3 +787,108 @@ func mustAddrs(t *testing.T, s ...string) []netip.Addr {
 	}
 	return out
 }
+
+// A certificate issued against a private ACME CA has to keep renewing against it.
+// Issuance points certbot at a trust store when the operator names a directory;
+// renewal has no flags to read, so it reads the lineage's own config — and getting
+// this wrong is invisible until the certificate expires.
+
+func TestRenewalReadsTheServerFromTheLineageConfig(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manager{Cfg: config.Default(), Log: log.Discard()}
+	m.Cfg.Paths.LetsEncryptDir = dir
+	if err := os.MkdirAll(filepath.Join(dir, "renewal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "renewal", name+".conf"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// certbot's own layout: a [renewalparams] section with the server in it.
+	write("private.test", "version = 2.9.0\narchive_dir = /etc/letsencrypt/archive/private.test\n"+
+		"[renewalparams]\nauthenticator = webroot\nserver = https://ca.internal:14000/dir\n")
+	write("public.test", "[renewalparams]\nserver = https://acme-v02.api.letsencrypt.org/directory\n")
+	write("commented.test", "[renewalparams]\n# server = https://ca.internal/dir\n")
+
+	for _, tc := range []struct {
+		name, want string
+	}{
+		{"private.test", "https://ca.internal:14000/dir"},
+		{"public.test", "https://acme-v02.api.letsencrypt.org/directory"},
+		{"commented.test", ""},
+		{"absent.test", ""},
+	} {
+		if got := m.renewalServer(tc.name); got != tc.want {
+			t.Errorf("renewalServer(%s) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestOnlyAPrivateCAGetsTheSystemTrustStore(t *testing.T) {
+	// Widening the trust store for Let's Encrypt would be a downgrade nobody asked
+	// for: certifi is the correct store there.
+	dir := t.TempDir()
+	m := &Manager{Cfg: config.Default(), Log: log.Discard()}
+	m.Cfg.Paths.LetsEncryptDir = dir
+	if err := os.MkdirAll(filepath.Join(dir, "renewal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, server string) {
+		t.Helper()
+		body := "[renewalparams]\nserver = " + server + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "renewal", name+".conf"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("le", "https://acme-v02.api.letsencrypt.org/directory")
+	write("le-staging", "https://acme-staging-v02.api.letsencrypt.org/directory")
+	write("private", "https://pebble:14000/dir")
+
+	for _, name := range []string{"le", "le-staging", "unknown-lineage"} {
+		if got := m.renewalCABundle(name); got != "" {
+			t.Errorf("renewalCABundle(%s) = %q, want empty — certifi is right for a public CA", name, got)
+		}
+	}
+	// The private one gets whatever system store exists. On a machine with none —
+	// macOS, for instance — there is nothing to point at, and empty is correct.
+	got := m.renewalCABundle("private")
+	if want := systemTrustStore(); got != want {
+		t.Errorf("renewalCABundle(private) = %q, want %q", got, want)
+	}
+}
+
+func TestTheRenewalEnvironmentCarriesBothVariables(t *testing.T) {
+	// certbot reads REQUESTS_CA_BUNDLE; urllib3 and some DNS plugins read
+	// SSL_CERT_FILE instead. Setting one and not the other fails for a subset of
+	// configurations, which is worse than failing for all of them.
+	m := &Manager{Cfg: config.Default(), Log: log.Discard()}
+	if env := m.certbotEnvForBundle(""); env != nil {
+		t.Errorf("with no bundle the environment should be nil, got %v", env)
+	}
+	env := m.certbotEnvForBundle("/etc/ssl/certs/ca-certificates.crt")
+	var sawRequests, sawSSL bool
+	for _, kv := range env {
+		switch {
+		case strings.HasPrefix(kv, "REQUESTS_CA_BUNDLE="):
+			sawRequests = true
+		case strings.HasPrefix(kv, "SSL_CERT_FILE="):
+			sawSSL = true
+		}
+	}
+	if !sawRequests || !sawSSL {
+		t.Errorf("REQUESTS_CA_BUNDLE=%v SSL_CERT_FILE=%v, want both: %v", sawRequests, sawSSL, env)
+	}
+	// It is a complete replacement, so PATH has to survive or certbot is unfindable.
+	var sawPath bool
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			sawPath = true
+		}
+	}
+	if !sawPath {
+		t.Errorf("the environment replaces the process's own, so it must carry PATH: %v", env)
+	}
+}

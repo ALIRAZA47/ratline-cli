@@ -190,19 +190,46 @@ func (u *updater) run(ctx context.Context, want string) error {
 	if err != nil {
 		return err
 	}
+	for _, a := range items {
+		// An empty target would fail the rename, and it would fail it after the main
+		// binary had already been swapped. Refuse before anything is touched.
+		if strings.TrimSpace(a.Target) == "" {
+			return rlerr.Preconditionf("there is no configured install path for %s", a.Asset).
+				WithHint("set paths.shell_wrapper in /etc/ratline/config.yaml, " +
+					"or run 'ratline doctor' to see what else is unset")
+		}
+		if !filepath.IsAbs(a.Target) {
+			return rlerr.Preconditionf("the install path for %s is not absolute: %s", a.Asset, a.Target)
+		}
+	}
 	if err := u.refuseIfPackaged(ctx, items); err != nil {
 		return err
 	}
 
-	// Staged beside the install target, because a rename is only atomic within one
-	// filesystem and /tmp is very often a different one.
-	stage, err := os.MkdirTemp(filepath.Dir(items[0].Target), ".ratline-update-*")
-	if err != nil {
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "creating a staging directory")
-	}
-	defer os.RemoveAll(stage)
-	if err := os.Chmod(stage, 0o700); err != nil {
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "securing the staging directory")
+	// Staged beside its own install target, one directory per destination: a rename
+	// is only atomic within a filesystem, and /tmp is very often a different one.
+	// The two artefacts need not share a directory either — the shell wrapper's path
+	// is configurable and may well be on another mount — so staging both next to the
+	// main binary would install one of them across a device boundary and fail.
+	stages := map[string]string{}
+	defer func() {
+		for _, dir := range stages {
+			os.RemoveAll(dir)
+		}
+	}()
+	for _, a := range items {
+		parent := filepath.Dir(a.Target)
+		if _, ok := stages[parent]; ok {
+			continue
+		}
+		dir, err := os.MkdirTemp(parent, ".ratline-update-*")
+		if err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "creating a staging directory in %s", parent)
+		}
+		stages[parent] = dir
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "securing the staging directory")
+		}
 	}
 
 	sums, err := u.fetchChecksums(ctx, target)
@@ -212,7 +239,7 @@ func (u *updater) run(ctx context.Context, want string) error {
 
 	staged := map[string]string{}
 	for _, a := range items {
-		path := filepath.Join(stage, a.Asset)
+		path := filepath.Join(stages[filepath.Dir(a.Target)], a.Asset)
 		u.g.Log.Info("downloading", "asset", a.Asset, "version", target)
 		got, err := download(ctx, u.assetURL(target, a.Asset), path, 10*time.Minute)
 		if err != nil {
@@ -270,12 +297,14 @@ func (u *updater) run(ctx context.Context, want string) error {
 			swapErr = rlerr.Wrap(err, rlerr.CodeGeneric, "installing %s", a.Target)
 			break
 		}
-		target, backup := a.Target, backups[a.Target]
-		rb.Push("installed "+target, func(context.Context) error {
+		// Not named `target`: that is the version being installed, in scope here, and
+		// shadowing it in a loop that renames files is a trap worth not setting.
+		installed, backup := a.Target, backups[a.Target]
+		rb.Push("installed "+installed, func(context.Context) error {
 			if backup == "" {
-				return os.Remove(target)
+				return os.Remove(installed)
 			}
-			return os.Rename(backup, target)
+			return os.Rename(backup, installed)
 		})
 	}
 	if swapErr == nil {

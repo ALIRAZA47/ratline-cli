@@ -295,15 +295,58 @@ func (c *capBuffer) String() string {
 // firstMeaningfulLine picks the line most likely to explain a failure: the last
 // non-empty line of stderr, falling back to stdout.
 func firstMeaningfulLine(candidates ...string) string {
+	// The reason is at the end, so this reads backwards — but the last line of a
+	// failure is usually the tool telling you where to look rather than what went
+	// wrong. certbot signs off with "Ask for help ... See the logfile ...", and that
+	// is what an operator saw as the reason a renewal failed. Skip the signposts and
+	// keep reading up; fall back to them only if there was nothing else.
+	var fallback string
 	for _, s := range candidates {
 		lines := strings.Split(s, "\n")
 		for i := len(lines) - 1; i >= 0; i-- {
-			if l := strings.TrimSpace(lines[i]); l != "" {
-				return l
+			l := strings.TrimSpace(lines[i])
+			if l == "" {
+				continue
 			}
+			if isSignpost(l) {
+				if fallback == "" {
+					fallback = l
+				}
+				continue
+			}
+			return l
 		}
 	}
+	if fallback != "" {
+		return fallback
+	}
 	return "no output"
+}
+
+// signposts are lines that point at the reason instead of being it.
+var signposts = []string{
+	"ask for help",
+	"see the logfile",
+	"please see the logfile",
+	"for more information",
+	"for details, see",
+	"saving debug log",
+	"run with -v",
+	"re-run with",
+}
+
+func isSignpost(line string) bool {
+	// A rule of separators and dashes, which several tools use to frame their output.
+	if strings.Trim(line, "-=*_ ") == "" {
+		return true
+	}
+	lower := strings.ToLower(line)
+	for _, s := range signposts {
+		if strings.HasPrefix(lower, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateArgv rejects arguments that cannot safely reach execve or a unit file.

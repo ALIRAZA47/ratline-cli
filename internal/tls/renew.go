@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -123,6 +124,12 @@ func (m *Manager) renewOne(ctx context.Context, cert *state.Certificate, opts Re
 	res, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "certbot", Args: args, Mutates: !opts.DryRun, Stream: true,
 		Timeout: timeout, Label: "certbot renew",
+		// Issuance points certbot at a trust store when the directory is a private
+		// CA; renewal has to do the same, or a server issuing from step-ca or an
+		// internal CA gets certificates it can never renew. It fails as a hang —
+		// certbot retries the TLS failure until the timeout — so the timer looks
+		// slow rather than broken, and the first sign is an expired certificate.
+		Env: m.certbotEnvForBundle(m.renewalCABundle(cert.Name)),
 	})
 	if err != nil {
 		outcome.Action = "failed"
@@ -411,4 +418,54 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// renewalCABundle is the trust store to verify the ACME server with when renewing
+// this lineage, or empty when certifi's own roots are the right answer.
+//
+// Renewal cannot use the issuance rule — "the operator named a directory on the
+// command line" — because there is no command line: certbot reads the server out of
+// the lineage's own renewal config, which is exactly right and also invisible to the
+// flags. So this reads the same file certbot does.
+//
+// Anything that is not Let's Encrypt is treated as private. That is deliberately the
+// wide side of the judgement: pointing certbot at the system trust store for a public
+// CA it could already verify changes nothing, while missing a private one means the
+// certificate silently stops renewing.
+func (m *Manager) renewalCABundle(certName string) string {
+	server := m.renewalServer(certName)
+	if server == "" {
+		// No conf, or no server line: certbot's default is Let's Encrypt.
+		return ""
+	}
+	for _, public := range []string{
+		"acme-v02.api.letsencrypt.org",
+		"acme-staging-v02.api.letsencrypt.org",
+	} {
+		if strings.Contains(server, public) {
+			return ""
+		}
+	}
+	return systemTrustStore()
+}
+
+// renewalServer reads the `server = ...` line from a lineage's renewal config.
+func (m *Manager) renewalServer(certName string) string {
+	path := filepath.Join(m.Cfg.Paths.LetsEncryptDir, "renewal", certName+".conf")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "server" {
+			continue
+		}
+		return strings.TrimSpace(value)
+	}
+	return ""
 }

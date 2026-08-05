@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ALIRAZA47/ratline-cli/internal/config"
 )
 
 // `update` replaces the binary on a server that is serving, so the tests are about
@@ -187,6 +189,67 @@ func TestChecksumFileMatchesSha256(t *testing.T) {
 
 	if _, err := checksumFile(filepath.Join(dir, "absent")); err == nil {
 		t.Error("a missing artefact should be an error, not an empty checksum")
+	}
+}
+
+func TestUpdateStagesEachArtefactBesideItsOwnTarget(t *testing.T) {
+	// The shell wrapper's path is configurable, so the two artefacts need not share a
+	// directory — and rename(2) is only atomic within a filesystem. Staging both next
+	// to the main binary installs one of them across a device boundary, which fails
+	// with EXDEV *after* the main binary has already been swapped.
+	//
+	// Asserted on the paths rather than by provoking EXDEV, which needs two mounts.
+	g := NewGlobals()
+	g.Cfg = config.Default()
+	g.Cfg.Paths.ShellWrapper = "/opt/ratline/bin/ratline-shell"
+	u := &updater{g: g}
+
+	items, err := u.artefacts()
+	if err != nil {
+		t.Skipf("artefacts needs a resolvable self path: %v", err)
+	}
+	if len(items) < 2 {
+		t.Fatalf("expected the binary and the wrapper, got %d artefacts", len(items))
+	}
+	if a, b := filepath.Dir(items[0].Target), filepath.Dir(items[1].Target); a == b {
+		t.Skipf("this test needs the two targets to differ; both are in %s", a)
+	}
+	// Every target must be absolute, or the staging directory lands somewhere
+	// relative to the working directory.
+	for _, a := range items {
+		if !filepath.IsAbs(a.Target) {
+			t.Errorf("%s installs to a relative path: %q", a.Asset, a.Target)
+		}
+	}
+}
+
+func TestUpdateRefusesAnUnconfiguredInstallPath(t *testing.T) {
+	// An empty path fails at the rename, which is after the main binary has been
+	// replaced — so the failure has to come before anything is downloaded.
+	g := NewGlobals()
+	g.Cfg = config.Default()
+	g.Cfg.Paths.ShellWrapper = ""
+	u := &updater{g: g}
+
+	items, err := u.artefacts()
+	if err != nil {
+		t.Skipf("artefacts needs a resolvable self path: %v", err)
+	}
+	var sawEmpty bool
+	for _, a := range items {
+		if strings.TrimSpace(a.Target) == "" {
+			sawEmpty = true
+		}
+	}
+	if !sawEmpty {
+		t.Skip("the config supplies a default wrapper path, so there is nothing to refuse")
+	}
+	err = u.run(t.Context(), "1.0.0")
+	if err == nil {
+		t.Fatal("an unconfigured install path must be refused")
+	}
+	if !strings.Contains(err.Error(), "install path") {
+		t.Errorf("the refusal should name the missing path, got: %v", err)
 	}
 }
 

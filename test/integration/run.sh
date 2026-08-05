@@ -386,7 +386,20 @@ check "nginx accepts the TLS vhost" nginx -t
 tlsout=$(curl -sSk --resolve static.test:443:127.0.0.1 https://static.test/ 2>&1)
 contains "HTTPS serves the site" "hello static" "$tlsout"
 code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/)
-[ "$code" = "301" ] && ok "HTTP redirects to HTTPS" || bad "HTTP redirect" "got $code"
+if [ "$code" = "301" ]; then
+    ok "HTTP redirects to HTTPS"
+else
+    # "got 200" on its own says the redirect is missing but not why, and the vhost
+    # is regenerated so it cannot be inspected after the run. Show which server
+    # block answered instead.
+    bad "HTTP redirect" "got $code; port-80 blocks serving static.test follow"
+    nginx -T 2>/dev/null | awk '
+        /^server[[:space:]]*\{/ { buf=""; depth=0 }
+        { buf = buf $0 "\n" }
+        /\{/ { depth++ }
+        /\}/ { depth--; if (depth==0 && buf ~ /listen[[:space:]]+80/ && buf ~ /static\.test/) print buf }
+    ' | sed 's/^/        | /'
+fi
 # And renewal must still work while the redirect is in place.
 got=$(curl -sS -H 'Host: static.test' http://127.0.0.1/.well-known/acme-challenge/token123)
 [ "$got" = "token123" ] && ok "the ACME challenge survives the redirect" || bad "ACME after redirect" "got '$got'"
@@ -509,19 +522,33 @@ else
 
         # The whole point of the verify step: it must actually be served, with the
         # right chain, not merely exist on disk.
-        served=$(echo | openssl s_client -connect 127.0.0.1:443 -servername acme.test 2>/dev/null             | openssl x509 -noout -subject -issuer 2>/dev/null)
-        contains "the certificate is really served over TLS" "acme.test" "$served"
+        #
+        # The name is asserted on the SAN, not the subject: Pebble — like Let's Encrypt
+        # and every other CA that has followed CA/B forum guidance — issues with an
+        # empty subject CN and puts the identifier in subjectAltName only. Grepping the
+        # subject for the domain therefore failed against a certificate that was
+        # perfectly correct.
+        served=$(echo | openssl s_client -connect 127.0.0.1:443 -servername acme.test 2>/dev/null \
+            | openssl x509 -noout -ext subjectAltName -issuer 2>/dev/null)
+        contains "the served certificate carries the domain in its SAN" "acme.test" "$served"
+        contains "the served certificate was issued by the local CA" "Pebble" "$served"
 
         body=$(curl -sS --resolve acme.test:443:127.0.0.1 https://acme.test/ 2>&1)
         contains "HTTPS serves the site with a trusted chain" "acme ok" "$body"
 
         # Renewal, forced, so the deploy hook path runs.
-        if "$RATLINE" cert renew acme.test --force 2>&1 | tail -10; then
+        #
+        # Not piped into tail: a pipeline exits with the status of its *last* command,
+        # so `ratline ... | tail` reported success for a renewal that failed, and the
+        # only sign was the assertion after it.
+        renewout=$(mktemp)
+        if "$RATLINE" cert renew acme.test --force >"$renewout" 2>&1; then
             ok "forced renewal succeeded"
             contains "the renewal was recorded" "success" "$("$RATLINE" cert show acme.test)"
         else
-            bad "forced renewal" "see the output above"
+            bad "forced renewal" "$(tail -12 "$renewout")"
         fi
+        rm -f "$renewout"
 
         # A duplicate request must be refused by the local budget before it reaches
         # the CA at all.

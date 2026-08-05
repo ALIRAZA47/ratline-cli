@@ -424,10 +424,21 @@ func newCertRenewCommand(g *Globals) *cobra.Command {
 				return err
 			}
 			if failed > 0 {
-				// Not a non-zero exit: the previous certificates are still valid, and
-				// the timer must not report a hard failure for something recoverable.
 				g.Printf("\n%d renewal(s) failed. The existing certificates are still valid.\n"+
 					"See why with:  ratline cert renew <domain> --dry-run\n", failed)
+				// A sweep does not fail the run: the previous certificates are still
+				// valid for weeks, and a timer that reports a hard failure for
+				// something recoverable trains people to ignore it.
+				//
+				// Naming one certificate is a different request. The operator asked for
+				// this renewal, now, and it did not happen — so exiting 0 tells their
+				// script it worked. That is how a renewal failure gets discovered by a
+				// browser instead of by the person who ran the command.
+				if !opts.All {
+					return rlerr.Externalf("%s was not renewed", opts.Name).
+						WithHint("the existing certificate is still valid; see why with: "+
+							"ratline cert renew %s --dry-run", opts.Name)
+				}
 			}
 			return nil
 		},
