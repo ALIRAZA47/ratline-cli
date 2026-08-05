@@ -49,6 +49,22 @@ jobs:
       - name: Build both binaries
         run: make build
 
+      # docs/reference/commands.md is generated from the binary, and CONTRIBUTING says not
+      # to hand-edit it — but nothing checked that it had been regenerated. A flag whose
+      # help text changed leaves the published reference describing the old behaviour, and
+      # a reference that is wrong is worse than one that is missing.
+      - name: The generated command reference matches the binary
+        # Once is enough: the help text does not depend on the architecture.
+        if: matrix.arch == 'amd64'
+        run: |
+          set -euo pipefail
+          make docs-commands
+          if ! git diff --quiet docs/reference/commands.md; then
+            echo "docs/reference/commands.md is out of date. Run: make docs-commands"
+            git diff docs/reference/commands.md
+            exit 1
+          fi
+
       - name: Smoke test
         run: |
           set -euo pipefail
