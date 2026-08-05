@@ -272,6 +272,15 @@ export const pageMeta: Record<string, PageMeta> = {
       'two timers', 'deploy hook', 'unattached-mismatch', 'expired',
     ],
   },
+  '/guides/mongodb': {
+    label: 'Give a site a database',
+    blurb: 'Four commands, two of them once per server — and the password never reaches your scrollback.',
+    keywords: [
+      'mongodb', 'mongo', 'database', 'atlas', 'managed cluster', 'access list', 'mongodb_uri',
+      'connection string', 'db connect', 'db create', 'rotate password', 'readwrite', 'auth',
+      'mongosh', 'timeout', 'hangs', 'least privilege',
+    ],
+  },
   '/guides/inherited-server': {
     label: 'A server you did not set up',
     blurb: 'status, doctor, troubleshoot, explain — in that order, changing nothing.',

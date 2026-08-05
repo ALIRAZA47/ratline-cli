@@ -33,6 +33,14 @@ def routes() -> set[str]:
             for p in re.findall(r"^  path:\s*'([^']+)'", f.read_text(), re.M):
                 found.add(p)
 
+    # topics/:name is a parameter route over a finite, known set: the markdown in
+    # docs/topics, which is also what the binary embeds. README is the directory's index,
+    # not a topic — the same exclusion the site and `ratline explain` both make.
+    if "topics/:name" in app:
+        for f in sorted((ROOT / "docs/topics").glob("*.md")):
+            if f.stem != "README":
+                found.add(f"/topics/{f.stem}")
+
     # And one route per command, generated the same way. The rule has to match
     # commandPath() in data/groups.ts: strip the group's id from the front of the command
     # id when it is there, keep the whole id when it is not — `site-deploy-key-create` is

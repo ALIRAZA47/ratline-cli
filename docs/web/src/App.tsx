@@ -40,6 +40,7 @@ import { GuideSshLockout } from './pages/guides/SshLockout';
 import { GuideDebug502 } from './pages/guides/Debug502';
 import { GuideNodePm2 } from './pages/guides/NodePm2';
 import { GuideInheritedServer } from './pages/guides/InheritedServer';
+import { GuideMongoDatabase } from './pages/guides/MongoDatabase';
 
 export default function App() {
   return (
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="guides/debug-502" element={<GuideDebug502 />} />
         <Route path="guides/node" element={<GuideNodePm2 />} />
         <Route path="guides/inherited-server" element={<GuideInheritedServer />} />
+        <Route path="guides/mongodb" element={<GuideMongoDatabase />} />
 
         <Route path="*" element={<NotFound />} />
       </Route>

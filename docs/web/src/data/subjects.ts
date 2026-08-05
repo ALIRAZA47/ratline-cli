@@ -88,7 +88,7 @@ export const subjects: Subject[] = [
     commands: ['db'],
     concepts: [],
     topics: ['databases'],
-    guides: [],
+    guides: ['/guides/mongodb'],
     settings: ['databases'],
   },
   {
