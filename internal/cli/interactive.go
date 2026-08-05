@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -193,30 +194,6 @@ func (p *prompter) pick(label string, options []choice, def string) (string, err
 	}
 }
 
-// askList collects repeatable values, one per line, until a blank line.
-func (p *prompter) askList(label string, validate func(string) error) ([]string, error) {
-	p.note("%s — one per line, blank line to finish", label)
-	var out []string
-	for {
-		fmt.Fprint(p.out, "  > ")
-		answer, err := p.readLine()
-		if err != nil {
-			return nil, err
-		}
-		answer = strings.TrimSpace(answer)
-		if answer == "" {
-			return out, nil
-		}
-		if validate != nil {
-			if err := validate(answer); err != nil {
-				fmt.Fprintf(p.out, "  %s\n", p.problem(err))
-				continue
-			}
-		}
-		out = append(out, answer)
-	}
-}
-
 // summaryAction is what an operator chooses at the confirmation step.
 type summaryAction int
 
@@ -292,7 +269,7 @@ func mainMenu(ctx context.Context, g *Globals) error {
 			}
 		default:
 			if err := menuGroup(ctx, g, p, what); err != nil {
-				if err == ErrCancelled {
+				if errors.Is(err, ErrCancelled) {
 					continue
 				}
 				return err
@@ -302,7 +279,7 @@ func mainMenu(ctx context.Context, g *Globals) error {
 }
 
 func errCancelledToNil(err error) error {
-	if err == ErrCancelled {
+	if errors.Is(err, ErrCancelled) {
 		return nil
 	}
 	return err

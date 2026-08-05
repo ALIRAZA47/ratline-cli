@@ -733,6 +733,9 @@ func (m *Manager) checkHTTPInclude(httpPath string) error {
 	confPath := "/etc/nginx/nginx.conf"
 	data, err := system.ReadFileLimit(confPath, 4<<20)
 	if err != nil {
+		// Deliberately not an error: this is a warning about a WebSocket edge case, and
+		// an unreadable nginx.conf must not fail the operation that triggered it.
+		//nolint:nilerr // advisory check; an unreadable nginx.conf is not this call's problem
 		return nil
 	}
 	body := string(data)
@@ -774,7 +777,15 @@ func (m *Manager) ensureCustomInclude(domain string) error {
 func (m *Manager) ConflictingServerName(name, exceptDomain string) (string, error) {
 	entries, err := os.ReadDir(m.Cfg.Paths.NginxSitesEnabled)
 	if err != nil {
-		return "", nil
+		if os.IsNotExist(err) {
+			// No sites-enabled yet: a fresh install, and nothing can conflict.
+			return "", nil
+		}
+		// Anything else means the check could not run. Reporting "no conflict" would
+		// let a genuinely conflicting vhost through in silence, and nginx resolves a
+		// duplicate server_name unpredictably — so say so instead.
+		return "", rlerr.Wrap(err, rlerr.CodePrecondition,
+			"could not check %s for a conflicting server_name", m.Cfg.Paths.NginxSitesEnabled)
 	}
 	for _, e := range entries {
 		if e.IsDir() || strings.TrimSuffix(e.Name(), ".conf") == exceptDomain {

@@ -319,7 +319,6 @@ func TestResolveDefaultsAndConflicts(t *testing.T) {
 		"an unknown challenge":    {Domain: "example.com", Challenge: "tls-alpn"},
 		"an unknown key type":     {Domain: "example.com", KeyType: "dsa"},
 	} {
-		o := o
 		if err := m.Resolve(&o); err == nil {
 			t.Errorf("Resolve accepted %s", name)
 		}

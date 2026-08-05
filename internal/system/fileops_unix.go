@@ -21,5 +21,5 @@ func FreeBytes(path string) (uint64, error) {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, rlerr.Wrap(err, rlerr.CodeGeneric, "checking free space on %s", path)
 	}
-	return uint64(st.Bavail) * uint64(st.Bsize), nil
+	return st.Bavail * uint64(st.Bsize), nil
 }

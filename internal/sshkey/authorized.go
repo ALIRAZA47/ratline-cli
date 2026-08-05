@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
@@ -183,16 +184,9 @@ func CheckPermissions(homeDir, keyFile string) []string {
 		}
 	}
 	check(homeDir, 0o755, "a home directory")
-	check(strings_Dir(keyFile), 0o700, "an .ssh directory")
+	check(filepath.Dir(keyFile), 0o700, "an .ssh directory")
 	check(keyFile, 0o600, "an authorized_keys file")
 	return problems
-}
-
-func strings_Dir(p string) string {
-	if i := strings.LastIndexByte(p, '/'); i > 0 {
-		return p[:i]
-	}
-	return "."
 }
 
 func trimBlank(lines []string) []string {

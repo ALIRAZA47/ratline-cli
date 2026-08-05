@@ -503,7 +503,15 @@ func (m *Manager) checkPreconditions(ctx context.Context, site *state.Site) erro
 		} else if used {
 			problems = append(problems, fmt.Sprintf("%s is already served by %s", name, owner))
 		}
-		if conflict, err := m.Nginx.ConflictingServerName(name, site.Domain); err == nil && conflict != "" {
+		// Not `err == nil && conflict != ""`: that treated "the check could not run" as
+		// "there is no conflict", so an unreadable sites-enabled silently opened the
+		// gate this loop exists to close. nginx resolves a duplicate server_name
+		// unpredictably, which is the outage this prevents.
+		conflict, err := m.Nginx.ConflictingServerName(name, site.Domain)
+		if err != nil {
+			return err
+		}
+		if conflict != "" {
 			problems = append(problems,
 				fmt.Sprintf("%s is already claimed by the nginx configuration %s, which ratline did not create", name, conflict))
 		}

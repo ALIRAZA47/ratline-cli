@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -205,7 +206,7 @@ func TestWizardCancelMutatesNothing(t *testing.T) {
 	}
 
 	_, err := wizardSiteAdd(g, context.Background(), site.AddOptions{})
-	if err != ErrCancelled {
+	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v, want ErrCancelled", err)
 	}
 	// Nothing recorded, so nothing to unwind.
@@ -228,7 +229,7 @@ func TestWizardTreatsEOFAsCancellation(t *testing.T) {
 	g, _ := promptHarness(t) // no answers at all
 	memStore(t, g)
 	_, _, err := wizardUserAdd(g, user.AddOptions{}, nil)
-	if err != ErrCancelled {
+	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v, want ErrCancelled", err)
 	}
 }
@@ -248,7 +249,7 @@ func TestWizardRevalidatesInline(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wizardSiteAdd(g, context.Background(), site.AddOptions{}); err != ErrCancelled {
+	if _, err := wizardSiteAdd(g, context.Background(), site.AddOptions{}); !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v", err)
 	}
 	out := errBuf.String()
@@ -270,7 +271,7 @@ func TestWizardSummaryEchoesTheCommand(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wizardSiteAdd(g, context.Background(), site.AddOptions{}); err != ErrCancelled {
+	if _, err := wizardSiteAdd(g, context.Background(), site.AddOptions{}); !errors.Is(err, ErrCancelled) {
 		t.Fatal(err)
 	}
 	out := errBuf.String()

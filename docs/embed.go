@@ -1,6 +1,6 @@
 // Package docs embeds the explainer topics into the binary.
 //
-// go:embed cannot reach a parent directory, so this file lives beside the
+// An embed directive cannot reach a parent directory, so this file lives beside the
 // documentation rather than inside internal/cli. Being embedded rather than
 // installed is the point: `ratline explain` has to work on a freshly provisioned
 // server reached over SSH, with no browser, no package documentation and possibly

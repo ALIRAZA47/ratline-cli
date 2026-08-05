@@ -386,6 +386,9 @@ func (m *Manager) Status(ctx context.Context, site *state.Site) (*Status, error)
 		OKExit: []int{1, 3, 4},
 	})
 	if err != nil || res == nil {
+		// The zero value already says Active: "unknown", which is displayed as such.
+		// A site whose unit cannot be queried is not a reason to fail `site list`.
+		//nolint:nilerr // "unknown" is the honest answer and is shown to the operator
 		return st, nil
 	}
 	for _, line := range res.Lines() {

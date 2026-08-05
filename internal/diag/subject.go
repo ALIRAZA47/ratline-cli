@@ -385,17 +385,6 @@ func (e *Env) keys(ctx context.Context, f state.KeyFilter) ([]*state.Key, bool) 
 	return keys, true
 }
 
-func (e *Env) certs(ctx context.Context) ([]*state.Certificate, bool) {
-	if e == nil || e.State == nil {
-		return nil, false
-	}
-	certs, err := e.State.ListCertificates(ctx)
-	if err != nil {
-		return nil, false
-	}
-	return certs, true
-}
-
 func (e *Env) site(ctx context.Context, domain string) (*state.Site, bool) {
 	if e == nil || e.State == nil {
 		return nil, false

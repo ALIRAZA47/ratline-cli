@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestUptimeHumanIsEmptyRatherThanWrong(t *testing.T) {
 
 func TestFillSiteStateFlagsADisabledSite(t *testing.T) {
 	row := SiteStatusRow{}
-	fillSiteState(nil, nil, &state.Site{Domain: "x.example.com", Runtime: "static"}, &row)
+	fillSiteState(context.TODO(), nil, &state.Site{Domain: "x.example.com", Runtime: "static"}, &row)
 	// Disabled needs attention: nginx is not serving it, which is almost never
 	// what someone looking at this screen expects.
 	if row.State != "disabled" || !row.NeedsAttention {
@@ -48,7 +49,7 @@ func TestFillSiteStateAsksNothingOfAStaticSite(t *testing.T) {
 	// A nil manager proves no unit or process lookup happens: a static site has no
 	// process, so there is nothing to query and nothing that can fail.
 	row := SiteStatusRow{}
-	fillSiteState(nil, nil, &state.Site{Domain: "x.example.com", Runtime: "static", Enabled: true}, &row)
+	fillSiteState(context.TODO(), nil, &state.Site{Domain: "x.example.com", Runtime: "static", Enabled: true}, &row)
 	if row.State != "serving" || row.NeedsAttention {
 		t.Errorf("got %+v, want a healthy serving row", row)
 	}

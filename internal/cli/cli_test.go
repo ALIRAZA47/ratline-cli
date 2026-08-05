@@ -304,3 +304,40 @@ func TestTheCommandTreeBuildsWithoutPanicking(t *testing.T) {
 		t.Errorf("only %d commands were built; the tree looks truncated", commands)
 	}
 }
+
+func TestAskingForHelpNeverNeedsRoot(t *testing.T) {
+	// `<cmd> --help` short circuits inside cobra, but `ratline help <cmd>` is a real
+	// command and went through the privilege check — so it answered "ratline must run
+	// as root" to someone who was asking what the command does. That is the spelling
+	// people reach for before they know the flag exists.
+	for _, args := range [][]string{
+		{"help"},
+		{"help", "user", "add"},
+		{"help", "site", "deploy"},
+		{"help", "cert", "issue"},
+		{"user", "add", "--help"},
+		{"site", "add", "--help"},
+	} {
+		code, out, errOut := harness(t, args...)
+		if code != 0 {
+			t.Errorf("%v exited %d, want 0\nstderr: %s", args, code, errOut.String())
+		}
+		if strings.Contains(errOut.String(), "must run as root") {
+			t.Errorf("%v refused for want of root; help is not a privileged operation", args)
+		}
+		if out.Len() == 0 && errOut.Len() == 0 {
+			t.Errorf("%v printed nothing at all", args)
+		}
+	}
+}
+
+func TestARealCommandStillNeedsRoot(t *testing.T) {
+	// The other half of the pair: the help exemption must not have opened the door.
+	code, _, errOut := harness(t, "user", "add", "bob")
+	if code != 3 {
+		t.Errorf("exit code = %d, want 3 (needs root)", code)
+	}
+	if !strings.Contains(errOut.String(), "root") {
+		t.Errorf("it should still refuse without root, got:\n%s", errOut.String())
+	}
+}

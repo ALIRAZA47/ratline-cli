@@ -151,7 +151,11 @@ func (g *Globals) setup(cmd *cobra.Command) error {
 	g.Invoker = system.CurrentInvoker()
 	g.OS = system.DetectOS()
 
-	if !annotated(cmd, AnnoAllowNonRoot) && !g.completionMode {
+	// Asking for help is never a privileged operation. `<cmd> --help` already short
+	// circuits inside cobra, but `ratline help <cmd>` is a *command*, and it was
+	// refusing with "must run as root" — so the one spelling someone reaches for when
+	// they do not yet know the flag was the one that would not answer.
+	if !annotated(cmd, AnnoAllowNonRoot) && !g.completionMode && !isHelpCommand(cmd) {
 		if err := system.RequireRoot(); err != nil {
 			return err
 		}
@@ -438,4 +442,12 @@ func readLine(r io.Reader) (string, error) {
 		return "", rlerr.InputRequiredf("could not read a reply from the terminal")
 	}
 	return line, nil
+}
+
+// isHelpCommand reports whether cobra is about to print help rather than do work.
+//
+// Matched by name because the built-in help command is constructed by cobra itself,
+// so there is no place to hang an annotation on it.
+func isHelpCommand(cmd *cobra.Command) bool {
+	return cmd != nil && (cmd.Name() == "help" || cmd.Name() == "completion")
 }

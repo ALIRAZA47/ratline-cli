@@ -166,7 +166,13 @@ func (m *Manager) SudoGrants(ctx context.Context) (map[string][]string, error) {
 	out := map[string][]string{}
 	entries, err := os.ReadDir("/etc/sudoers.d")
 	if err != nil {
-		return out, nil
+		if os.IsNotExist(err) {
+			// No sudoers.d at all, so there are no grants to list.
+			return out, nil
+		}
+		// Otherwise the answer is unknown, and an empty map would read as "nobody has
+		// sudo" — the opposite of the safe reading for a privilege audit.
+		return nil, rlerr.Wrap(err, rlerr.CodePrecondition, "could not read /etc/sudoers.d")
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasPrefix(e.Name(), "ratline-") {

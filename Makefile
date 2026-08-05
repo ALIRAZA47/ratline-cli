@@ -64,11 +64,16 @@ integration: ## Run the integration suite against a real Ubuntu container
 	  docker compose -f test/integration/docker-compose.yml down -v >/dev/null 2>&1 || true; \
 	  exit $$code
 
+# Pinned, and the same version CI installs. An unpinned `@latest` means a new
+# release can fail the build on a commit that did not change, and the v2 module path
+# matters: v1 cannot read the v2 configuration schema this repository uses.
+GOLANGCI_VERSION ?= v2.12.2
+
 .PHONY: lint
-lint: ## Run golangci-lint
+lint: ## Run golangci-lint, the same version CI uses
 	@command -v golangci-lint >/dev/null || { \
-		echo "golangci-lint is not installed."; \
-		echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+		echo "golangci-lint is not installed. Install the version CI uses:"; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)"; \
 		exit 1; }
 	golangci-lint run
 

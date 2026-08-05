@@ -23,10 +23,14 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          # Read from go.mod rather than pinned here. It said 1.22 while go.mod
+          # required 1.25, so every job silently bootstrapped a second toolchain
+          # before it could compile anything — and a go.mod bump would not have
+          # updated this.
+          go-version-file: go.mod
           cache: true
 
       - name: Check formatting
@@ -47,36 +51,66 @@ jobs:
 
       - name: Smoke test
         run: |
+          set -euo pipefail
           ./bin/ratline version
           ./bin/ratline --help
-          # Every command's help must render: a broken template or a group that
-          # does not exist is a panic, and it should not reach a server.
-          for group in user key site; do
+          # Every command's help must render. A broken template, a missing group ID or
+          # a duplicate flag registration is a panic at construction time, and it must
+          # not be something a server discovers. Covers the commands the integration
+          # suite never reaches — backup, status, troubleshoot, explain, update — for
+          # which this is the only automated exercise they get.
+          for group in user key site cert runtime init backup doctor status \
+                       troubleshoot explain reconcile export update version man; do
             ./bin/ratline "$group" --help >/dev/null
           done
+          # Subcommands too, which is where a bad annotation actually hides. Both
+          # spellings: `help <cmd>` is a different code path from `<cmd> --help`, and
+          # it used to refuse without root.
+          for sub in "user add" "site add" "cert issue" "key add" "cert renew" "site deploy"; do
+            ./bin/ratline help $sub >/dev/null
+            ./bin/ratline $sub --help >/dev/null
+          done
+          # Every embedded explainer page. `explain` is a documentation command, so a
+          # page that fails to render is the entire failure, and the topic list comes
+          # from the binary rather than being duplicated here.
+          ./bin/ratline explain | awk 'NR>1 && NF>1 && $1 ~ /^[a-z][a-z-]*$/ {print $1}' > /tmp/topics
+          test -s /tmp/topics
+          while read -r topic; do
+            ./bin/ratline explain "$topic" >/dev/null
+          done < /tmp/topics
           ./bin/ratline completion bash >/dev/null
           ./bin/ratline man >/dev/null
 
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          # Read from go.mod rather than pinned here. It said 1.22 while go.mod
+          # required 1.25, so every job silently bootstrapped a second toolchain
+          # before it could compile anything — and a go.mod bump would not have
+          # updated this.
+          go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      # v6 ran on Node 20, which GitHub Actions has deprecated. v7 and later require
+      # golangci-lint v2, so .golangci.yml was migrated to the v2 schema to match.
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12.2
 
   fuzz:
     name: fuzz the validators
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          # Read from go.mod rather than pinned here. It said 1.22 while go.mod
+          # required 1.25, so every job silently bootstrapped a second toolchain
+          # before it could compile anything — and a go.mod bump would not have
+          # updated this.
+          go-version-file: go.mod
           cache: true
       # Short runs on every push; a crash found here is a real input that would
       # have reached a config file or a command line.
@@ -89,7 +123,7 @@ jobs:
 
       - name: Upload any crashers
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: fuzz-corpus
           path: |
@@ -100,10 +134,14 @@ jobs:
     name: integration (real nginx, node, python)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          # Read from go.mod rather than pinned here. It said 1.22 while go.mod
+          # required 1.25, so every job silently bootstrapped a second toolchain
+          # before it could compile anything — and a go.mod bump would not have
+          # updated this.
+          go-version-file: go.mod
           cache: true
       - name: Run the integration suite
         run: make integration

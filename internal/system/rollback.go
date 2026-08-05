@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -166,7 +167,8 @@ func (r *Rollback) UnwindOn(ctx context.Context, errp *error) {
 }
 
 func asRatlineError(err error, target **rlerr.Error) bool {
-	if e, ok := err.(*rlerr.Error); ok {
+	var e *rlerr.Error
+	if errors.As(err, &e) {
 		*target = e
 		return true
 	}

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -228,5 +227,5 @@ func dominantSubject(findings []Finding) string {
 }
 
 func versionString() string {
-	return fmt.Sprintf("%s", buildVersion)
+	return buildVersion
 }

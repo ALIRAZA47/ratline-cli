@@ -121,17 +121,28 @@ func (m *Manager) Preflight(ctx context.Context, opts *IssueOptions, names []str
 	}
 
 	// 5. Conflicts.
+	conflicted := false
 	for _, name := range names {
 		if validate.IsWildcard(name) {
 			continue
 		}
-		if conflict, err := m.Nginx.ConflictingServerName(name, bareDomain); err == nil && conflict != "" {
+		conflict, err := m.Nginx.ConflictingServerName(name, bareDomain)
+		switch {
+		case err != nil:
+			// Reported, not swallowed. A preflight that says "no other vhost claims
+			// these names" when it could not look is worse than one that admits it.
+			add("conflict", false, false,
+				fmt.Sprintf("could not be checked for %s: %s", name, firstLine(err.Error())),
+				"check that the nginx sites-enabled directory is readable")
+			conflicted = true
+		case conflict != "":
 			add("conflict", false, true,
 				fmt.Sprintf("%s is already claimed by the nginx configuration %s", name, conflict),
 				"remove the duplicate server_name; nginx resolves a collision unpredictably")
+			conflicted = true
 		}
 	}
-	if len(names) > 0 {
+	if len(names) > 0 && !conflicted {
 		add("conflict", true, false, "no other vhost claims these names", "")
 	}
 
