@@ -1,4 +1,5 @@
-import { commandGroups, nav } from '../data/nav';
+import { nav } from '../data/nav';
+import { allCommands } from '../data/groups';
 import { configSections } from '../data/config';
 import { exitCodes, globalFlags } from '../data/globals';
 import { rules } from '../data/validation';
@@ -37,32 +38,44 @@ function flagDocs(command: Command, to: string): Doc[] {
 export const index: Doc[] = (() => {
   const docs: Doc[] = [];
 
+  // A command appears in the navigation too, now that each one is a page. It is indexed
+  // below instead, where it gets its status badge and its flags — so pages that are really
+  // commands are skipped here rather than indexed twice with weaker context.
+  const commandPaths = new Set(allCommands.map((c) => c.path));
+
   for (const section of nav) {
-    for (const item of section.items) {
-      docs.push({
-        kind: 'page',
-        title: item.label,
-        context: section.title,
-        to: item.to,
-        hay: `${item.label} ${item.blurb ?? ''} ${(item.keywords ?? []).join(' ')} ${section.title}`.toLowerCase(),
-        exact: [item.label.toLowerCase(), ...(item.keywords ?? []).map((k) => k.toLowerCase())],
-      });
+    const blocks = [
+      { title: section.title, items: section.items ?? [] },
+      ...(section.groups ?? []).map((g) => ({ title: `${section.title} · ${g.title}`, items: g.items })),
+    ];
+    for (const block of blocks) {
+      for (const item of block.items) {
+        // A hash link is a section of a page that is itself indexed — the settings entries
+        // point into the configuration page, whose settings are indexed one by one below.
+        if (commandPaths.has(item.to) || item.to.includes('#')) continue;
+        docs.push({
+          kind: 'page',
+          title: item.label,
+          context: block.title,
+          to: item.to,
+          hay: `${item.label} ${item.blurb ?? ''} ${(item.keywords ?? []).join(' ')} ${block.title}`.toLowerCase(),
+          exact: [item.label.toLowerCase(), ...(item.keywords ?? []).map((k) => k.toLowerCase())],
+        });
+      }
     }
   }
 
-  for (const group of commandGroups) {
-    for (const cmd of group.commands) {
-      docs.push({
-        kind: 'command',
-        title: cmd.name,
-        context: cmd.summary,
-        to: `${group.path}#${cmd.id}`,
-        status: cmd.status,
-        hay: `${cmd.name} ${cmd.args ?? ''} ${cmd.summary} ${(cmd.description ?? []).join(' ')} ${(cmd.keywords ?? []).join(' ')} ${group.title}`.toLowerCase(),
-        exact: [cmd.name.toLowerCase(), cmd.name.replace(/^ratline /, '').toLowerCase()],
-      });
-      docs.push(...flagDocs(cmd, group.path));
-    }
+  for (const { group, command: cmd, path } of allCommands) {
+    docs.push({
+      kind: 'command',
+      title: cmd.name,
+      context: cmd.summary,
+      to: path,
+      status: cmd.status,
+      hay: `${cmd.name} ${cmd.args ?? ''} ${cmd.summary} ${(cmd.description ?? []).join(' ')} ${(cmd.keywords ?? []).join(' ')} ${group.title}`.toLowerCase(),
+      exact: [cmd.name.toLowerCase(), cmd.name.replace(/^ratline /, '').toLowerCase()],
+    });
+    docs.push(...flagDocs(cmd, path));
   }
 
   docs.push(

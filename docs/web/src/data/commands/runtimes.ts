@@ -70,7 +70,7 @@ export const runtimes: CommandGroup = {
         { lang: 'shell', code: `ratline runtime default node 22
 ratline runtime default python 3.12` },
       ],
-      seeAlso: [{ label: 'site runtime', to: '/reference/site#site-runtime' }],
+      seeAlso: [{ label: 'site runtime', to: '/reference/site/runtime' }],
     },
   ],
 };

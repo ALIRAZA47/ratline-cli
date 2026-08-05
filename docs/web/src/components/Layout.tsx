@@ -1,9 +1,47 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { allNavItems, nav } from '../data/nav';
+import type { NavItem } from '../data/nav';
 import { useTheme } from '../lib/useTheme';
 import { SearchDialog } from './Search';
 import { Toc } from './Toc';
+
+/**
+ * One level of the sidebar.
+ *
+ * `here` is pathname + hash rather than pathname alone, because the settings entries link
+ * into sections of the configuration page. Matching on pathname would light up all twelve
+ * of them at once the moment you opened that page.
+ */
+function NavList({ items, here }: { items: NavItem[]; here: string }) {
+  return (
+    <ul className="space-y-px border-l border-line">
+      {items.map((item) => {
+        const cls = (active: boolean) =>
+          [
+            '-ml-px block border-l-2 py-1 pl-3 pr-2 leading-snug no-underline transition-colors',
+            item.mono ? 'font-mono text-[0.8125rem]' : 'text-sm',
+            active
+              ? 'border-accent bg-accent-soft font-medium text-strong'
+              : 'border-transparent text-muted hover:border-line-strong hover:text-fg',
+          ].join(' ');
+        return (
+          <li key={item.to}>
+            {item.to.includes('#') ? (
+              <Link to={item.to} className={cls(here === item.to)}>
+                {item.label}
+              </Link>
+            ) : (
+              <NavLink to={item.to} end className={({ isActive }) => cls(isActive)}>
+                {item.label}
+              </NavLink>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 export function Layout() {
   const { pathname, hash } = useLocation();
@@ -52,6 +90,7 @@ export function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const here = pathname + hash;
   const idx = allNavItems.findIndex((i) => i.to === pathname);
   const prev = idx > 0 ? allNavItems[idx - 1] : undefined;
   const next = idx >= 0 && idx < allNavItems.length - 1 ? allNavItems[idx + 1] : undefined;
@@ -171,26 +210,44 @@ export function Layout() {
                 <h2 className="mb-1.5 font-mono text-2xs font-semibold uppercase tracking-wider text-faint">
                   {section.title}
                 </h2>
-                <ul className="space-y-px border-l border-line">
-                  {section.items.map((item) => (
-                    <li key={item.to}>
-                      <NavLink
-                        to={item.to}
-                        end
-                        className={({ isActive }) =>
-                          [
-                            '-ml-px block border-l-2 py-1 pl-3 pr-2 text-sm leading-snug no-underline transition-colors',
-                            isActive
-                              ? 'border-accent bg-accent-soft font-medium text-strong'
-                              : 'border-transparent text-muted hover:border-line-strong hover:text-fg',
-                          ].join(' ')
-                        }
-                      >
-                        {item.label}
-                      </NavLink>
-                    </li>
-                  ))}
-                </ul>
+                {section.items && <NavList items={section.items} here={here} />}
+                {section.groups?.map((group) =>
+                  group.collapsible ? (
+                    // Native <details>, so 86 command pages fit in a 16rem column without
+                    // a line of state. Open when the page you are on is inside it — which
+                    // is also what makes a deep link arrive with its context expanded.
+                    <details
+                      key={group.title}
+                      open={group.items.some((i) => i.to === pathname)}
+                      className="mt-2 first:mt-1"
+                    >
+                      <summary className="cursor-pointer list-none py-0.5 text-sm text-muted marker:content-none hover:text-fg [&::-webkit-details-marker]:hidden">
+                        <span className="inline-flex items-center gap-1.5">
+                          <svg
+                            width="9"
+                            height="9"
+                            viewBox="0 0 9 9"
+                            aria-hidden="true"
+                            className="shrink-0 transition-transform [details[open]>summary_&]:rotate-90"
+                          >
+                            <path d="M2.5 1L6.5 4.5L2.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" />
+                          </svg>
+                          {group.title}
+                        </span>
+                      </summary>
+                      <div className="ml-2 mt-0.5">
+                        <NavList items={group.items} here={here} />
+                      </div>
+                    </details>
+                  ) : (
+                    <div key={group.title} className="mt-3">
+                      <h3 className="mb-1 text-2xs uppercase tracking-wide text-faint">
+                        {group.title}
+                      </h3>
+                      <NavList items={group.items} here={here} />
+                    </div>
+                  ),
+                )}
               </div>
             ))}
             <p className="mt-8 max-w-[14rem] border-t border-line pt-4 text-xs leading-relaxed text-faint">

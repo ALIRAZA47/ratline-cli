@@ -240,11 +240,11 @@ ratline completion zsh  | sudo tee /usr/share/zsh/site-functions/_ratline`}
         <p>
           See also: <Link to="/guides/debug-502">debugging a 502</Link>,{' '}
           <Link to="/concepts/transactions">the transaction model</Link>,{' '}
-          <Link to="/reference/ops#status">
+          <Link to="/reference/ops/status">
             <code>ratline status</code>
           </Link>
           ,{' '}
-          <Link to="/reference/site#site-troubleshoot">
+          <Link to="/reference/site/troubleshoot">
             <code>ratline site troubleshoot</code>
           </Link>
           .

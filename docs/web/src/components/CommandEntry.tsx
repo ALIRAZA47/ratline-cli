@@ -9,24 +9,28 @@ import { anchoredFlags } from '../lib/flags';
 
 const codeName = new Map(exitCodes.map((e) => [e.code, e.name]));
 
+/**
+ * One command, in full: what it is, what it takes, what it refuses, how it exits.
+ *
+ * This is a whole page rather than one section of a stack. It used to be the latter, and
+ * the group pages it stacked into ran to fourteen commands — long enough that nobody read
+ * them and nobody could link to a single command either.
+ */
 export function CommandEntry({ command }: { command: Command }) {
   const { groups } = anchoredFlags(command);
   const flagCount = groups.reduce((n, g) => n + g.flags.length, 0);
   const invocation = [command.name, command.args].filter(Boolean).join(' ');
 
   return (
-    <section
-      id={command.id}
-      aria-labelledby={`${command.id}-heading`}
-      className="scroll-mt-24 border-t border-line py-10 first:border-t-0 first:pt-2"
-    >
+    <section id={command.id} aria-labelledby={`${command.id}-heading`} className="scroll-mt-24">
       <div className="not-prose">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-          <h2 id={`${command.id}-heading`} className="text-xl font-semibold text-strong">
-            <a href={`#${command.id}`} className="no-underline">
-              <span className="font-mono">{command.name}</span>
-            </a>
-          </h2>
+          <h1
+            id={`${command.id}-heading`}
+            className="font-mono text-2xl font-semibold tracking-tight text-strong"
+          >
+            {command.name}
+          </h1>
           <StatusBadge status={command.status} />
           <span className="ml-auto">
             <CopyButton text={invocation} />
@@ -72,7 +76,10 @@ export function CommandEntry({ command }: { command: Command }) {
 
       {command.refuses && (
         <div className="not-prose mt-6">
-          <h3 className="mb-2 flex items-center gap-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-muted">
+          <h3
+            id="refuses"
+            className="mb-2 flex items-center gap-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-muted"
+          >
             <span aria-hidden="true" className="text-danger">
               ✗
             </span>
@@ -93,7 +100,10 @@ export function CommandEntry({ command }: { command: Command }) {
 
       {command.exits && command.exits.length > 0 && (
         <div className="not-prose mt-6">
-          <h3 className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted">
+          <h3
+            id="exit-codes"
+            className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted"
+          >
             Exit codes
           </h3>
           <ul className="max-w-[42rem] space-y-1.5 text-sm">
@@ -113,7 +123,10 @@ export function CommandEntry({ command }: { command: Command }) {
 
       {command.examples && command.examples.length > 0 && (
         <div className="mt-6">
-          <h3 className="not-prose mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted">
+          <h3
+            id="examples"
+            className="not-prose mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted"
+          >
             Examples
           </h3>
           {command.examples.map((ex, i) => (

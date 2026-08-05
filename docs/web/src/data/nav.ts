@@ -1,353 +1,175 @@
-import { users } from './commands/users';
-import { keys } from './commands/keys';
-import { sites } from './commands/sites';
-import { certs } from './commands/certs';
-import { configuration } from './commands/configuration';
-import { databases } from './commands/databases';
-import { runtimes } from './commands/runtimes';
-import { ops } from './commands/ops';
-import type { CommandGroup } from './types';
+import { allCommands, commandGroups, commandsIn, groupByPath } from './groups';
+import { meta, pageMeta } from './pages';
+import { topics } from './topics';
+import { commandsOf, settingsOf, subjects, topicsOf, unclaimed } from './subjects';
 
-export const commandGroups: CommandGroup[] = [users, keys, sites, certs, runtimes, databases, configuration, ops];
-
-export const groupByPath = new Map(commandGroups.map((g) => [g.path, g]));
+// Re-exported so the pages that already import them from here keep working.
+export { commandGroups, groupByPath };
 
 export interface NavItem {
   label: string;
   to: string;
   /** One line, used as the description in search results and index cards. */
   blurb?: string;
-  /** Extra terms the search index matches on. See searchKeywords below. */
+  /** Extra terms the search index matches on. */
   keywords?: string[];
+  /** Rendered in a monospace face: a command name, not a sentence. */
+  mono?: boolean;
+}
+
+/**
+ * A labelled block inside a section.
+ *
+ * `collapsible` means the block is a <details> — closed unless the current page is inside
+ * it. Native rather than React state, so it works before hydration and keyboard support
+ * comes for free. This is what makes 86 command pages fit in a sidebar at all.
+ */
+export interface NavGroup {
+  title: string;
+  items: NavItem[];
+  collapsible?: boolean;
 }
 
 export interface NavSection {
   title: string;
-  items: NavItem[];
+  /** Items directly under the section heading, above any groups. */
+  items?: NavItem[];
+  groups?: NavGroup[];
+}
+
+/** item builds a nav entry from the page registry, so the label lives in one place. */
+function item(path: string): NavItem {
+  const m = meta(path);
+  return { label: m.label, to: path, blurb: m.blurb, keywords: m.keywords };
 }
 
 /**
- * Search terms per page, kept separate from the nav so the nav stays readable.
+ * One sidebar section per subject.
  *
- * A concept or guide page is not findable by its title alone: nobody searches
- * for "the Cloudflare orange-cloud trap" — they search for "orange cloud",
- * "proxied", or "http-01 failing". These are the words someone types when they
- * have the problem rather than the vocabulary.
+ * Everything about a subject is here: the commands, the concepts behind them, the in-depth
+ * topics, the runbooks, and the configuration sections that change how it behaves. Somebody
+ * working on SSH access previously had to visit four separate parts of the site to find
+ * those, and had no way of knowing the fourth existed.
  */
-const searchKeywords: Record<string, string[]> = {
-  '/': ['what is ratline', 'overview', 'ploi', 'runcloud', 'dokku', 'vps', 'ubuntu', 'scope'],
-  '/reference/configure': [
-    'config set', 'change a setting', 'configure', 'db_provisioning', 'feature flag',
-    'editor', 'validate config', 'config get', 'config unset', 'ratline config',
-  ],
-  '/releases': [
-    'changelog', 'release notes', 'whats new', 'what is new', 'versions', 'upgrade',
-    'update', 'history', 'v0.1.0', 'v0.2.0', 'v0.3.0', 'v0.4.0',
-  ],
-  '/quickstart': [
-    'install', 'getting started', 'first site', 'go build', 'ratline init', 'https', 'setup',
-  ],
-  '/reference': ['all commands', 'verbs', 'groups', 'index', 'status', 'built', 'planned'],
-  '/concepts/model': [
-    'object model', 'request path', 'slug', 'unit name', 'socket path', 'static node python',
-    'containment', 'group per user',
-  ],
-  '/concepts/ssh-scopes': [
-    'global user site', 'authorized_keys', 'restrict', 'forced command', 'ratline-shell',
-    'blast radius', 'kernel boundary', 'allow-shell', 'ed25519', 'ssh-dss', 'lockout',
-  ],
-  '/concepts/tls-lifecycle': [
-    'certificate', 'acme', 'letsencrypt', 'certbot', 'http-01', 'dns-01', 'webroot', 'san',
-    'wildcard', 'attach', 'renew', 'degraded', 'orphaned', 'preflight', 'sni',
-  ],
-  '/concepts/rate-limits': [
-    'letsencrypt limits', 'duplicate certificate', 'failed validation', 'registered domain',
-    'etld+1', 'staging', 'budget', 'retry-after',
-  ],
-  '/concepts/transactions': [
-    'rollback', 'atomic rename', 'nginx -t', 'systemd-analyze verify', 'flock', 'lock',
-    'idempotent', 'already configured', 'drift', 'doctor', 'reconcile', 'umask',
-  ],
-  '/concepts/filesystem': [
-    'paths', 'permissions', '0750', '0600', '0640', 'www-data group', 'environmentfile', 'socket',
-    'runtimedirectory', 'logrotate', 'state.db', 'audit log', 'custom nginx',
-  ],
-  '/concepts/supervision': [
-    'systemd', 'unit', 'hardening', 'protecthome', 'protectsystem', 'systemcallfilter',
-    'memorymax', 'cpuquota', 'instances', 'workers', 'template unit', 'ratline.target', 'relax',
-    'health check',
-  ],
-  '/concepts/security': [
-    'threat model', 'argv', 'no shell', 'euid 0', 'root', 'shared kernel', 'isolation limits',
-    'secrets', 'redaction', 'sudo', 'destructive confirmation',
-  ],
-  '/concepts/interactive': [
-    'wizard', 'prompt', 'tty', 'no-input', 'ci', 'hung build', 'typed confirmation', 'no_color',
-    'term=dumb', 'equivalent command',
-  ],
-  '/reference/global-flags': [
-    '--json', '--quiet', '--verbose', '--dry-run', '--yes', '--interactive', '--no-input',
-    '--config', 'ratline_config', 'contradict',
-  ],
-  '/reference/exit-codes': [
-    'status codes', 'rlerr', 'usage', 'precondition', 'locked', 'rollback_failed',
-    'health_check_failed', 'acme_challenge_failed', 'rate_limited', 'input_required',
-  ],
-  '/reference/json': [
-    'envelope', 'stdout', 'machine readable', 'jq', 'automation', 'error payload', 'hint', 'fields',
-  ],
-  '/reference/validation': [
-    'regex', 'username rule', 'domain rule', 'app module', 'path containment', 'symlink',
-    'shell words', 'slug', 'sockaddr_un', 'fingerprint', 'cidr', 'expiry',
-  ],
-  '/reference/config': [
-    'config.yaml', 'defaults.yaml', 'settings', 'defaults', 'timeouts', 'rate_limits', 'paths',
-  ],
-  '/guides/fastapi': [
-    'python', 'asgi', 'gunicorn', 'uvicorn', 'uvicornworker', 'django', 'wsgi', 'app-module',
-    'venv', 'workers', 'collectstatic', 'migrate',
-  ],
-  '/guides/nextjs': [
-    'node', 'next.js', 'standalone', 'server.js', '_next/static', 'build memory', 'oom',
-    'instances', 'npm ci',
-  ],
-  '/guides/astro': [
-    'static', 'vite', 'hugo', 'eleventy', 'spa', 'try_files', 'dist', 'build-output', 'caching',
-    'asset_max_age',
-  ],
-  '/guides/contractor-access': [
-    'site scope', 'sftp', 'rsync', 'expires', 'from cidr', 'contractor', 'agency', 'designer',
-    'rsync-only', 'key audit',
-  ],
-  '/guides/new-laptop-key': [
-    'rotate key', 'add key', 'remove key', 'revoke', 'lost laptop', 'from-github', 'global scope',
-    'verify login',
-  ],
-  '/guides/ci-deploy-keys': [
-    'ci', 'github actions', 'deploy key', 'inbound', 'outbound', 'private repo', 'read-only',
-    'ssh-keyscan', 'rotate',
-  ],
-  '/guides/issue-cert': [
-    'dns moved', 'preflight', 'dry-run', 'cutover', 'no-attach', 'self-signed', 'ttl',
-    'www cname', 'openssl s_client',
-  ],
-  '/guides/cloudflare': [
-    'orange cloud', 'grey cloud', 'proxied', 'origin certificate', 'full strict',
-    'http-01 fails', 'dns-01', 'fastly', 'akamai', 'waf', 'proxy',
-  ],
-  '/guides/renewal-runbook': [
-    'renewal failed', 'expiring', 'degraded', 'redirect swallowing', 'well-known', 'port 80',
-    'two timers', 'deploy hook', 'unattached-mismatch', 'expired',
-  ],
-  '/guides/ssh-lockout': [
-    'locked out', 'permission denied publickey', 'console', 'serial console', 'recovery',
-    'bad ownership or modes', 'sshd -t', 'reload not restart', 'key sync',
-  ],
-  '/guides/debug-502': [
-    '502', '504', '413', '403', 'bad gateway', 'upstream', 'socket', 'permission denied', 'oom',
-    'protecthome', 'curl unix-socket', 'journalctl', 'troubleshoot', 'eacces', 'empty log',
-  ],
-  '/guides/node': [
-    'pm2', 'cluster mode', 'graceful reload', 'zero downtime', 'daemon', 'direct', 'ecosystem',
-    'pm2_home', 'wait_ready', 'instances', 'restart count', 'node_env', 'type=forking',
-    'memorydenywriteexecute', 'jit', 'with-pm2', 'app.log',
-  ],
-  '/guides/inherited-server': [
-    'status', 'explain', 'troubleshoot', 'doctor', 'inventory', 'what is on this server',
-    'took over', 'handover', 'first look', 'overview', 'completion', 'tab completion',
-    'read-only', 'dry-run',
-  ],
-};
+function subjectSections(): NavSection[] {
+  return subjects.map((subject) => {
+    const groups: NavGroup[] = [];
 
-const rawNav: NavSection[] = [
-  {
-    title: 'Start here',
-    items: [
-      { label: 'What ratline is', to: '/', blurb: 'The scope of the tool, and what it deliberately is not.' },
-      {
-        label: '60-second quickstart',
-        to: '/quickstart',
-        blurb: 'Install, a user, a site, working HTTPS — for each of the three runtimes.',
-      },
-      {
-        label: 'Command surface at a glance',
-        to: '/reference',
-        blurb: 'Every group, every verb, with build status.',
-      },
-      {
-        label: 'Release notes',
-        to: '/releases',
-        blurb: 'What changed in each version, and what is still missing.',
-      },
-    ],
-  },
-  {
-    title: 'Concepts',
-    items: [
-      {
-        label: 'Users, sites and runtimes',
-        to: '/concepts/model',
-        blurb: 'The object model, and the request path from browser to application.',
-      },
-      {
-        label: 'The three SSH scopes',
-        to: '/concepts/ssh-scopes',
-        blurb: 'Global, user, site — and honestly what site scope does not enforce.',
-      },
-      {
-        label: 'TLS resource lifecycle',
-        to: '/concepts/tls-lifecycle',
-        blurb: 'Issue, attach, renew, and the HTTP-01 vs DNS-01 decision.',
-      },
-      {
-        label: 'Rate limits',
-        to: '/concepts/rate-limits',
-        blurb: 'The CA’s published limits, tracked locally and budgeted before acting.',
-      },
-      {
-        label: 'Staged, verified, committed',
-        to: '/concepts/transactions',
-        blurb: 'The transaction model and the rollback stack.',
-      },
-      {
-        label: 'Filesystem and permissions',
-        to: '/concepts/filesystem',
-        blurb: 'Every path ratline owns, and why the home stays 0750.',
-      },
-      {
-        label: 'Process supervision',
-        to: '/concepts/supervision',
-        blurb: 'One systemd unit per site, with hardening verified at install time.',
-      },
-      {
-        label: 'Security model',
-        to: '/concepts/security',
-        blurb: 'What is enforced, and where the isolation stops.',
-      },
-      {
-        label: 'Interactive mode',
-        to: '/concepts/interactive',
-        blurb: 'When the wizard appears, when it must never appear.',
-      },
-    ],
-  },
-  {
-    title: 'Command reference',
-    items: [
-      {
-        label: 'Global flags',
-        to: '/reference/global-flags',
-        blurb: 'Flags every command accepts, and the combinations that are refused.',
-      },
-      {
-        label: 'Exit codes',
-        to: '/reference/exit-codes',
-        blurb: 'The contract automation branches on.',
-      },
-      {
-        label: 'JSON envelope',
-        to: '/reference/json',
-        blurb: 'One object on stdout, success or failure.',
-      },
-      ...commandGroups.map((g) => ({ label: g.title, to: g.path, blurb: g.blurb })),
-      {
-        label: 'Validation rules',
-        to: '/reference/validation',
-        blurb: 'The rules the code actually enforces.',
-      },
-      {
-        label: 'Configuration',
-        to: '/reference/config',
-        blurb: 'Every setting, its default, and why.',
-      },
-    ],
-  },
-  {
-    title: 'Guides — running sites',
-    items: [
-      {
-        label: 'Node sites and PM2',
-        to: '/guides/node',
-        blurb: 'Why PM2 supervises by default, what it costs, and how to turn it off.',
-      },
-      {
-        label: 'FastAPI behind Gunicorn',
-        to: '/guides/fastapi',
-        blurb: 'An ASGI app on a Unix socket, with static files served by nginx.',
-      },
-      {
-        label: 'Next.js standalone',
-        to: '/guides/nextjs',
-        blurb: 'A standalone build behind nginx, with _next/static bypassed.',
-      },
-      {
-        label: 'An Astro static build',
-        to: '/guides/astro',
-        blurb: 'No unit, no socket, nothing running.',
-      },
-    ],
-  },
-  {
-    title: 'Guides — access and TLS',
-    items: [
-      {
-        label: 'Contractor on one site',
-        to: '/guides/contractor-access',
-        blurb: 'Site-scoped SSH, expiring, source-restricted.',
-      },
-      {
-        label: 'A key from a new laptop',
-        to: '/guides/new-laptop-key',
-        blurb: 'Add, verify, then remove the old one — in that order.',
-      },
-      {
-        label: 'CI deploy keys, both ways',
-        to: '/guides/ci-deploy-keys',
-        blurb: 'Inbound push access and outbound repo access are different things.',
-      },
-      {
-        label: 'Issue a cert after DNS moves',
-        to: '/guides/issue-cert',
-        blurb: 'The normal order of operations, and what preflight checks.',
-      },
-      {
-        label: 'The Cloudflare orange cloud',
-        to: '/guides/cloudflare',
-        blurb: 'Why HTTP-01 fails behind a proxy, and the three ways out.',
-      },
-    ],
-  },
-  {
-    title: 'Runbooks — when it breaks',
-    items: [
-      {
-        label: 'A server you did not set up',
-        to: '/guides/inherited-server',
-        blurb: 'status, doctor, troubleshoot, explain — in that order, changing nothing.',
-      },
-      {
-        label: 'Debugging a 502',
-        to: '/guides/debug-502',
-        blurb: 'Six causes, in order of likelihood.',
-      },
-      {
-        label: 'My cert didn’t renew',
-        to: '/guides/renewal-runbook',
-        blurb: 'A runbook, in the order that finds it fastest.',
-      },
-      {
-        label: 'I’m locked out of SSH',
-        to: '/guides/ssh-lockout',
-        blurb: 'Console-only recovery. Read before you need it.',
-      },
-    ],
-  },
+    for (const group of commandsOf(subject)) {
+      groups.push({
+        title: group.title,
+        collapsible: true,
+        items: [
+          { label: 'Overview', to: group.path, blurb: group.blurb },
+          ...commandsIn(group).map((c) => ({
+            // `ratline ` on every one of 86 entries is 8 characters of noise in a 16rem
+            // column; the group heading already says which tool this is.
+            label: c.command.name.replace(/^ratline /, ''),
+            to: c.path,
+            blurb: c.command.summary,
+            keywords: c.command.keywords,
+            mono: true,
+          })),
+        ],
+      });
+    }
+
+    if (subject.concepts.length > 0) {
+      groups.push({ title: 'How it works', items: subject.concepts.map(item) });
+    }
+
+    const inDepth = topicsOf(subject);
+    if (inDepth.length > 0) {
+      groups.push({
+        title: 'In depth',
+        items: inDepth.map((t) => ({ label: t.title, to: t.path, blurb: t.summary })),
+      });
+    }
+
+    if (subject.guides.length > 0) {
+      groups.push({ title: 'Guides and runbooks', items: subject.guides.map(item) });
+    }
+
+    const settings = settingsOf(subject);
+    if (settings.length > 0) {
+      groups.push({
+        title: 'Settings',
+        items: settings.map((s) => ({
+          label: `${s.key}: ${s.settings.length} settings`,
+          to: `/reference/config#cfg-${s.key}`,
+          blurb: s.blurb,
+        })),
+      });
+    }
+
+    return { title: subject.title, groups };
+  });
+}
+
+/**
+ * Pages the subjects do not claim, surfaced rather than dropped.
+ *
+ * The old navigation listed every page by hand, so a page added later was simply absent
+ * from the sidebar until somebody noticed — which is how thirteen topics and seven thousand
+ * words stayed invisible for weeks. Anything unassigned now turns up here, under a heading
+ * that says what it is.
+ */
+const crossCutting = [
+  '/reference',
+  '/reference/global-flags',
+  '/reference/exit-codes',
+  '/reference/json',
+  '/reference/validation',
+  '/reference/config',
+  '/topics',
 ];
 
-export const nav: NavSection[] = rawNav.map((section) => ({
-  ...section,
-  items: section.items.map((item) => ({ ...item, keywords: searchKeywords[item.to] })),
-}));
+const startHere = ['/', '/quickstart', '/releases'];
 
-/** Flat lookup of every page, for search and for prev/next. */
-export const allNavItems: NavItem[] = nav.flatMap((s) => s.items);
+function orphans(): NavItem[] {
+  const spokenFor = new Set([...startHere, ...crossCutting]);
+  const missed = unclaimed(
+    Object.keys(pageMeta).filter((p) => !spokenFor.has(p)),
+    topics.map((t) => t.name),
+    commandGroups.map((g) => g.id),
+  );
+  return [
+    ...missed.pages.map(item),
+    ...missed.topics.map((name) => {
+      const t = topics.find((x) => x.name === name)!;
+      return { label: t.title, to: t.path, blurb: t.summary };
+    }),
+    ...missed.groups.map((id) => {
+      const g = commandGroups.find((x) => x.id === id)!;
+      return { label: g.title, to: g.path, blurb: g.blurb };
+    }),
+  ];
+}
+
+const rawNav: NavSection[] = [
+  { title: 'Start here', items: startHere.map(item) },
+  ...subjectSections(),
+  { title: 'Across everything', items: crossCutting.map(item) },
+];
+
+const unassigned = orphans();
+if (unassigned.length > 0) {
+  rawNav.push({ title: 'Not yet filed', items: unassigned });
+}
+
+export const nav: NavSection[] = rawNav;
+
+/**
+ * Flat list of every page, for search and for the prev/next footer.
+ *
+ * Order matters: this is reading order, so prev/next walks a subject end to end — its
+ * commands, then the concepts, then the runbooks — rather than jumping between kinds of
+ * document the way the old kind-first structure did.
+ */
+export const allNavItems: NavItem[] = nav.flatMap((s) => [
+  ...(s.items ?? []),
+  ...(s.groups ?? []).flatMap((g) => g.items),
+]);
+
+/** Every command page, for the search index. */
+export { allCommands };

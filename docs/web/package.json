@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "prebuild": "mkdir -p public && cp ../../packaging/install.sh public/install.sh"
+    "prebuild": "mkdir -p public src/generated/topics && cp ../../packaging/install.sh public/install.sh && cp ../topics/*.md src/generated/topics/"
   },
   "dependencies": {
     "react": "^19.2.8",

@@ -36,17 +36,30 @@ directory, and where it goes after that is your responsibility.
 `site delete` takes one of these automatically unless `--purge` says otherwise, so an
 archive of a site you deleted by mistake already exists.
 
-## What is not covered
+## Putting one back
 
-There is **no `ratline restore`**. Nothing unpacks an archive back into place, and
-nothing backs up the server's own configuration — so a full-server recovery today
-means restoring the files by hand and then `ratline reconcile --fix` to regenerate the
-nginx and systemd configuration from state, which itself has to be restored from
-whatever backs up `/var/lib/ratline/state.db`.
+`ratline restore` unpacks an archive and rebuilds what the archive does not contain:
 
-If you rely on this server, back up `/var/lib/ratline/state.db` and `/etc/ratline`
-with whatever already backs up the rest of the host. `ratline export` is useful
-alongside that:
+    ratline restore /var/backups/ratline/app.example.com-20260105T120000Z.tar.gz
+
+An archive holds a directory — the code, the logs, the `.env`, and for a site its
+manifest. It does not hold the state row, the vhost, the unit, the tenant's uid or the
+port. So restore rebuilds the row from the manifest that travelled with the files,
+re-renders the vhost and unit rather than restoring them, takes ownership from the
+account as it exists on *this* server, reallocates the port, and then waits for a real
+HTTP response before reporting success.
+
+The owning account has to exist first: an account is a uid, a group, a shell and a set
+of keys, none of which is in the archive.
+
+## What is still not covered
+
+There is no whole-server restore. `restore` handles one site or one tenant, so
+rebuilding a server from nothing still means backing up `/var/lib/ratline/state.db` and
+`/etc/ratline` with whatever already backs up the rest of the host — and then
+`ratline reconcile --fix` to regenerate the nginx and systemd configuration from state.
+
+`ratline export` is useful alongside that:
 
     ratline export > inventory.json
 

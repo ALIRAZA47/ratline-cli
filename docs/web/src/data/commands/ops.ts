@@ -63,7 +63,7 @@ export const ops: CommandGroup = {
           code: 'ratline update --base-url https://mirror.example.internal/ratline --version 1.2.0',
         },
       ],
-      seeAlso: [{ label: 'Upgrading', to: '/reference/ops#version' }],
+      seeAlso: [{ label: 'Upgrading', to: '/reference/ops/version' }],
       keywords: ['upgrade', 'self-update', 'new version', 'rollback', 'downgrade', 'checksum', 'mirror'],
     },
     {
@@ -143,8 +143,8 @@ ratline troubleshoot app.example.com --json | jq '.data.steps[] | select(.verdic
         },
       ],
       seeAlso: [
-        { label: 'ratline doctor', to: '/reference/ops#doctor' },
-        { label: 'ratline status', to: '/reference/ops#status' },
+        { label: 'ratline doctor', to: '/reference/ops/doctor' },
+        { label: 'ratline status', to: '/reference/ops/status' },
       ],
       keywords: [
         '502', 'bad gateway', 'broken', 'down', 'debug', 'diagnose', 'why', 'cause',
@@ -203,8 +203,8 @@ Certificates needing attention:
         },
       ],
       seeAlso: [
-        { label: 'ratline doctor', to: '/reference/ops#doctor' },
-        { label: 'ratline site troubleshoot', to: '/reference/site#site-troubleshoot' },
+        { label: 'ratline doctor', to: '/reference/ops/doctor' },
+        { label: 'ratline site troubleshoot', to: '/reference/site/troubleshoot' },
       ],
       keywords: ['overview', 'inventory', 'dashboard', 'summary', 'what is on this server', 'uptime'],
     },
@@ -431,7 +431,7 @@ ratline reconcile --fix`,
         { lang: 'shell', code: 'ratline backup acme --out /var/backups/ratline' },
         { lang: 'shell', code: 'ratline backup example.com --out /var/backups/ratline' },
       ],
-      seeAlso: [{ label: 'ratline restore', to: '/reference/ops#restore' }],
+      seeAlso: [{ label: 'ratline restore', to: '/reference/ops/restore' }],
     },
     {
       id: 'restore',

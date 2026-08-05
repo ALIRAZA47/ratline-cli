@@ -1,11 +1,12 @@
 import { Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { commandGroups } from './data/nav';
+import { allCommands, commandGroups } from './data/groups';
 
 import { Home } from './pages/Home';
 import { Quickstart } from './pages/Quickstart';
 import { ReferenceIndex } from './pages/ReferenceIndex';
 import { CommandGroupPage } from './pages/CommandGroupPage';
+import { CommandPage } from './pages/CommandPage';
 import { GlobalFlags } from './pages/GlobalFlags';
 import { ExitCodesPage } from './pages/ExitCodesPage';
 import { JsonEnvelope } from './pages/JsonEnvelope';
@@ -13,6 +14,8 @@ import { ConfigReference } from './pages/ConfigReference';
 import { ValidationPage } from './pages/ValidationPage';
 import { NotFound } from './pages/NotFound';
 import { Releases } from './pages/Releases';
+import { TopicsIndex } from './pages/TopicsIndex';
+import { TopicPage } from './pages/TopicPage';
 
 import { ConceptModel } from './pages/concepts/Model';
 import { ConceptSshScopes } from './pages/concepts/SshScopes';
@@ -46,19 +49,27 @@ export default function App() {
         <Route path="quickstart" element={<Quickstart />} />
 
         <Route path="releases" element={<Releases />} />
+        <Route path="topics" element={<TopicsIndex />} />
+        {/* One route for every topic the binary carries, so a topic added there
+            appears here without a second list to keep in step. */}
+        <Route path="topics/:name" element={<TopicPage />} />
         <Route path="reference" element={<ReferenceIndex />} />
         <Route path="reference/global-flags" element={<GlobalFlags />} />
         <Route path="reference/exit-codes" element={<ExitCodesPage />} />
         <Route path="reference/json" element={<JsonEnvelope />} />
         <Route path="reference/validation" element={<ValidationPage />} />
         <Route path="reference/config" element={<ConfigReference />} />
-        {/* One page per command group, all driven by the same typed data. */}
+        {/* One index page per group, and one page per command — 8 and 86 routes, all
+            generated from the same typed data, so a command added to the data is a page. */}
         {commandGroups.map((g) => (
           <Route
             key={g.id}
             path={g.path.replace(/^\//, '')}
             element={<CommandGroupPage />}
           />
+        ))}
+        {allCommands.map((c) => (
+          <Route key={c.path} path={c.path.replace(/^\//, '')} element={<CommandPage />} />
         ))}
 
         <Route path="concepts/model" element={<ConceptModel />} />

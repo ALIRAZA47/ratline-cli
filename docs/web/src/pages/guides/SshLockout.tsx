@@ -274,8 +274,8 @@ sshd -t && systemctl reload ssh
         </ul>
         <p>
           See also: <Link to="/concepts/ssh-scopes#lockout">the lockout safeguards in full</Link>,{' '}
-          <Link to="/reference/key#key-sync">key sync</Link>,{' '}
-          <Link to="/reference/ops#doctor">doctor</Link>.
+          <Link to="/reference/key/sync">key sync</Link>,{' '}
+          <Link to="/reference/ops/doctor">doctor</Link>.
         </p>
       </div>
     </article>

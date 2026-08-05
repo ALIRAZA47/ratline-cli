@@ -64,7 +64,7 @@ export interface Command {
   refuses?: string[];
   exits?: CommandExit[];
   examples?: Example[];
-  /** Paths of related pages, `/reference/cert#cert-issue` style. */
+  /** Paths of related pages, `/reference/cert/issue` style. */
   seeAlso?: { label: string; to: string }[];
   /** Extra terms the search index should match on. */
   keywords?: string[];

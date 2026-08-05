@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { CardLink, H2, StatusBadge } from '../components/ui';
+import { commandPath } from '../data/groups';
 import { Inline } from '../components/Inline';
 import { commandGroups } from '../data/nav';
 
@@ -63,7 +64,7 @@ export function ReferenceIndex() {
             {group.commands.map((cmd) => (
               <li key={cmd.id}>
                 <Link
-                  to={`${group.path}#${cmd.id}`}
+                  to={commandPath(group, cmd)}
                   className="group flex flex-col gap-1 px-4 py-3 no-underline transition-colors hover:bg-hover sm:flex-row sm:items-baseline sm:gap-4"
                 >
                   <span className="flex min-w-0 items-center gap-2 sm:w-[21rem] sm:shrink-0">

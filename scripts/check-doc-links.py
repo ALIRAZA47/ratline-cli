@@ -30,8 +30,23 @@ def routes() -> set[str]:
     # group's own `path`. Missing this is what made the first version of this script wrong.
     if "commandGroups.map" in app:
         for f in sorted(DATA.glob("commands/*.ts")):
-            for p in re.findall(r"^\s*path:\s*'([^']+)'", f.read_text(), re.M):
+            for p in re.findall(r"^  path:\s*'([^']+)'", f.read_text(), re.M):
                 found.add(p)
+
+    # And one route per command, generated the same way. The rule has to match
+    # commandPath() in data/groups.ts: strip the group's id from the front of the command
+    # id when it is there, keep the whole id when it is not — `site-deploy-key-create` is
+    # documented under the keys group and keeps its name.
+    if "allCommands.map" in app:
+        for f in sorted(DATA.glob("commands/*.ts")):
+            body = f.read_text()
+            gid = re.search(r"^  id:\s*'([^']+)'", body, re.M)
+            gpath = re.search(r"^  path:\s*'([^']+)'", body, re.M)
+            if not gid or not gpath:
+                continue
+            for cid in re.findall(r"^      id:\s*'([^']+)'", body, re.M):
+                slug = cid[len(gid.group(1)) + 1 :] if cid.startswith(gid.group(1) + "-") else cid
+                found.add(f"{gpath.group(1)}/{slug}")
     return found
 
 

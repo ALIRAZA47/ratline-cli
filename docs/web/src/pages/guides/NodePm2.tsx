@@ -383,7 +383,7 @@ ratline runtime install node 22 --pm2-version 5.4.2   # pinned`}
           See also: <Link to="/concepts/supervision">process supervision</Link>,{' '}
           <Link to="/guides/nextjs">Next.js standalone</Link>,{' '}
           <Link to="/guides/debug-502">debugging a 502</Link>,{' '}
-          <Link to="/reference/site#site-runtime">
+          <Link to="/reference/site/runtime">
             <code>ratline site runtime</code>
           </Link>
           .

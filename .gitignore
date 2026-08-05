@@ -16,3 +16,6 @@ coverage.out
 
 # Copied from packaging/install.sh at build time; the source is there, not here.
 docs/web/public/install.sh
+
+# Copied from docs/topics at build time; the source is there, not here.
+docs/web/src/generated/

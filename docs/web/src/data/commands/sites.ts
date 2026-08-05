@@ -748,8 +748,8 @@ Try:          ratline site restart app.example.com; the full story is in
         },
       ],
       seeAlso: [
-        { label: 'ratline doctor', to: '/reference/ops#doctor' },
-        { label: 'ratline status', to: '/reference/ops#status' },
+        { label: 'ratline doctor', to: '/reference/ops/doctor' },
+        { label: 'ratline status', to: '/reference/ops/status' },
       ],
       keywords: ['502', 'bad gateway', 'debug', 'broken', 'down', 'diagnose', 'socket', 'eacces', 'why'],
     },
