@@ -189,7 +189,7 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.BoolVar(new(bool), "stdin", false, "Read the connection string from stdin (the usual way)")
+	f.BoolVar(new(bool), "stdin", false, "Read the connection string from stdin (for automation; a terminal is prompted)")
 	f.StringVar(&fromFile, "from-file", "", "Read the connection string from a file")
 	f.BoolVar(&force, "force", false, "Replace an existing connection string")
 

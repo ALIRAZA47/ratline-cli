@@ -9,12 +9,17 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 )
 
-// RequireFlags checks that every named flag was supplied.
+// RequireFlags resolves every named flag, asking for any that is missing.
 //
-// On a terminal the error points at the wizard, because an operator who forgot
-// --runtime does not want to read a usage page — they want to be asked. Without
-// a terminal it is a plain exit-2 listing every missing flag at once, so a CI
-// job's log shows the whole problem after one run.
+// On a terminal it asks. An operator who forgot --runtime does not want a usage page and
+// does not want to retype the whole command; they want to be asked the one question. The
+// answer is written back into the flagset, so the command that runs afterwards is exactly
+// the command that would have run had the flag been typed — there is no second path
+// through the logic, which is the property that keeps the wizard honest.
+//
+// Without a terminal it is unchanged: a plain exit-2 naming every missing flag at once, so
+// one CI run shows the whole problem. --no-input and --json take that path too, because a
+// script that starts asking questions is a script that hangs.
 func RequireFlags(cmd *cobra.Command, g *Globals, names ...string) error {
 	var missing []string
 	for _, n := range names {
@@ -23,18 +28,35 @@ func RequireFlags(cmd *cobra.Command, g *Globals, names ...string) error {
 			return rlerr.Genericf("internal error: %q has no flag named --%s", cmd.CommandPath(), n)
 		}
 		if !f.Changed {
-			missing = append(missing, "--"+n)
+			missing = append(missing, n)
 		}
 	}
 	if len(missing) == 0 {
 		return nil
 	}
 	sort.Strings(missing)
-	err := rlerr.Usagef("missing %s", joinHuman(missing))
+
 	if g.CanPrompt() {
-		return err.WithHint("run with -i for a guided setup, or see '%s --help'", cmd.CommandPath())
+		p := newPrompter(g)
+		p.note("%s needs %s.", cmd.CommandPath(), joinHuman(dashed(missing)))
+		for _, n := range missing {
+			f := cmd.Flags().Lookup(n)
+			v, err := askFlag(p, f)
+			if err != nil {
+				return err
+			}
+			if v == "" {
+				return rlerr.Usagef("--%s is required", n).
+					WithHint("see '%s --help'", cmd.CommandPath())
+			}
+			if err := cmd.Flags().Set(n, v); err != nil {
+				return rlerr.Wrap(err, rlerr.CodeUsage, "--%s", n)
+			}
+		}
+		return nil
 	}
-	return err.WithHint("see '%s --help'", cmd.CommandPath())
+	return rlerr.Usagef("missing %s", joinHuman(dashed(missing))).
+		WithHint("see '%s --help'", cmd.CommandPath())
 }
 
 // ExclusiveFlags rejects flags that contradict each other.

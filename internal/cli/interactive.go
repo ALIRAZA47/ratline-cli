@@ -242,38 +242,21 @@ func (p *prompter) summary(title string, fields [][2]string, argv []string) (sum
 }
 
 // mainMenu is the bare-`ratline` entry point.
+//
+// The list of groups and verbs used to be written out here, and it covered about a dozen
+// of the eighty-six commands — the rest were unreachable unless you already knew they
+// existed. It is generated from the command tree now, so it cannot be incomplete and
+// cannot go stale: see browse.go.
 func mainMenu(ctx context.Context, g *Globals) error {
 	p := newPrompter(g)
+	root := NewRootCommand(g)
 	for {
 		if err := printServerSummary(ctx, g, p); err != nil {
 			return err
 		}
-		what, err := p.pick("What would you like to do?", []choice{
-			{Value: "user", Label: "Users", Note: "add, list, show, disable, delete"},
-			{Value: "site", Label: "Sites", Note: "add, deploy, scale, logs, delete"},
-			{Value: "key", Label: "SSH keys", Note: "add, list, test, audit, revoke"},
-			{Value: "cert", Label: "Certificates", Note: "issue, list, renew, import"},
-			{Value: "doctor", Label: "Diagnostics", Note: "run ratline doctor"},
-			{Value: "quit", Label: "Quit", Note: ""},
-		}, "site")
-		if err != nil {
+		if err := browse(ctx, g, p, root); err != nil {
+			// Back from the top level, or an EOF, means leave.
 			return errCancelledToNil(err)
-		}
-
-		switch what {
-		case "quit":
-			return nil
-		case "doctor":
-			if err := runDoctor(ctx, g, doctorOptions{}); err != nil {
-				return err
-			}
-		default:
-			if err := menuGroup(ctx, g, p, what); err != nil {
-				if errors.Is(err, ErrCancelled) {
-					continue
-				}
-				return err
-			}
 		}
 	}
 }
