@@ -15,20 +15,29 @@ connection string.
 
 ## Setting it up
 
-One command:
+One command, and it asks:
 
-    printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \
-      | ratline db connect --stdin
+    ratline db connect
+    MongoDB admin connection string (not echoed): ▏
 
 That creates the directory at `0700`, writes the connection string at `0600` root-owned,
 turns on `features.db_provisioning`, and proves the credentials work before committing any
 of it. If the server cannot be reached, or rejects them, nothing is left behind — a stored
 string that does not work is indistinguishable from a server that is down.
 
-The string arrives on **stdin, not as a flag**. Anything in argv is world-readable through
-`/proc`, so a password passed as an argument is visible to every account on the box for as
-long as the command runs — and it lands in your shell history, which outlives the password.
-`--from-file` is the other way in.
+It is **never a flag value**. Anything in argv is world-readable through `/proc`, so a
+password passed as an argument is visible to every account on the box for as long as the
+command runs — and it lands in your shell history, which outlives the password.
+
+Do not pipe it through `printf` either. `printf` reads a `%` in the password as a format
+verb and truncates the string, usually leaving something with no host in it at all; `!`
+can go the same way under history expansion. The prompt has nothing in between.
+
+Where there is no terminal — a provisioning script, a CI job — the two non-interactive
+ways in are `--stdin` and `--from-file`:
+
+    ratline db connect --stdin < /root/mongodb.uri
+    ratline db connect --from-file /root/mongodb.uri
 
 It lives in a file rather than in `config.yaml` because it is the root password for every
 database on the server, and `config.yaml` is a file operators paste into support tickets.

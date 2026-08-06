@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -221,7 +222,7 @@ func TestBrowsingFromTheRootReachesACommandAndShowsWhatItWouldRun(t *testing.T) 
 	p.out = out
 
 	err := browse(t.Context(), g, p, NewRootCommand(g))
-	if err != ErrCancelled {
+	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("browse returned %v, want ErrCancelled after backing out", err)
 	}
 

@@ -64,24 +64,84 @@ export function GuideMongoDatabase() {
         </p>
       </div>
 
+      <CodeBlock lang="shell" prompt code={`ratline db connect`} />
+
+      <Terminal title="root@server">{`$ ratline db connect
+MongoDB admin connection string (not echoed): ▏`}</Terminal>
+
+      <div className="prose">
+        <H3 id="which-string">Which string, for which kind of server</H3>
+        <p>
+          The command is the same in all three cases. Only what you paste differs, and each
+          one has a different thing that goes wrong.
+        </p>
+      </div>
+
+      <Facts
+        rows={[
+          [
+            'Same machine',
+            <>
+              <code>mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin</code>
+              <br />
+              The trap is a <code>mongod</code> started without <code>--auth</code>, above.
+            </>,
+          ],
+          [
+            'Another machine you run',
+            <>
+              <code>mongodb://admin:PASS@db.internal:27017/?tls=true&amp;authSource=admin</code>
+              <br />
+              <code>mongod</code> binds <code>127.0.0.1</code> by default, so this needs{' '}
+              <code>bindIp</code> opened and a firewall that admits only this server. The
+              credentials now cross a network, so <code>tls=true</code> is not optional —
+              and ratline carries the query options from your admin URI into every tenant’s
+              connection string, so it propagates on its own.
+            </>,
+          ],
+          [
+            'A managed cluster',
+            <>
+              <code>mongodb+srv://admin:PASS@cluster0.ab12c.mongodb.net/?retryWrites=true</code>
+              <br />
+              <code>mongodb+srv://</code> is accepted; the SRV record carries the ports, so
+              do not name one. The trap is the access list — see{' '}
+              <a href="#managed">below</a>.
+            </>,
+          ],
+        ]}
+      />
+
+      <Callout tone="danger" title="Do not pipe it through printf">
+        <p>
+          This is not a style note. <code>printf</code> reads a <code>%</code> in the
+          password as a format verb and truncates the string — a real setup failed this
+          way, and what reached ratline was{' '}
+          <code>mongodb://admin:PASSWORD</code> with no host in it at all.{' '}
+          <code>!</code> can go the same way under history expansion. The prompt has
+          nothing in between it and the variable.
+        </p>
+      </Callout>
+
+      <div className="prose">
+        <p>
+          It is never a flag value, for the reason that governs{' '}
+          <Link to="/reference/site/env">site env set</Link> too: anything in{' '}
+          <code>argv</code> is world-readable through <code>/proc/PID/cmdline</code> for as
+          long as the command runs, and it lands in your shell history, which outlives the
+          password. Where there is no terminal — a provisioning script, a CI job — the two
+          non-interactive ways in are <code>--stdin</code> and <code>--from-file</code>:
+        </p>
+      </div>
+
       <CodeBlock
         lang="shell"
         prompt
-        code={`printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \\
-  | ratline db connect --stdin
-
-# or, if it already lives in a file
+        code={`ratline db connect --stdin < /root/mongodb.uri
 ratline db connect --from-file /root/atlas.uri`}
       />
 
       <div className="prose">
-        <p>
-          <code>--stdin</code> is not a flag value on purpose. Anything in{' '}
-          <code>argv</code> is world-readable through <code>/proc/PID/cmdline</code> for as
-          long as the command runs, and it lands in your shell history, which outlives the
-          password. The same rule governs{' '}
-          <Link to="/reference/site/env">site env set</Link>.
-        </p>
         <p>
           <code>db connect</code> creates the directory at 0700, writes the string at 0600,
           turns on <code>features.db_provisioning</code>, and proves the credentials work

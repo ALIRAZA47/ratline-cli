@@ -872,6 +872,29 @@ else
         printf '%s' "$bad_uri" | "$RATLINE" db connect --stdin >/dev/null 2>&1
         refute "bad credentials leave no stored string" test -f /etc/ratline/db/mongodb.uri
         contains "and leave provisioning off" "false" "$("$RATLINE" config get features.db_provisioning)"
+        # A shell-mangled string must be refused before anything is written, and the
+        # error must name the input rather than the file. This is the failure a real
+        # operator hit: printf read a % in the password as a format verb and truncated the
+        # string, so `mongodb://admin:PASSWORD` with no host arrived — and the message
+        # blamed /etc/ratline/db/mongodb.uri, a file that command had not written.
+        mangled=$(printf '%s' 'mongodb://admin:5Jcmv' ; echo -n '!G2PLioUij')
+        mangledout=$(printf '%s' "$mangled" | "$RATLINE" db connect --stdin 2>&1 || true)
+        contains "a truncated connection string is refused for having no host" \
+            "no host" "$mangledout"
+        case "$mangledout" in
+            *mongodb.uri*) bad "the error blames the stored file for the operator's input" \
+                "$(printf '%s' "$mangledout" | head -2)" ;;
+            *) ok "and the error names the input, not the file" ;;
+        esac
+        refute "and nothing was written" test -f /etc/ratline/db/mongodb.uri
+
+        # No terminal, no flags: must say so rather than block on an empty stdin. A
+        # provisioning script that hangs here looks like a broken server.
+        noinput=$("$RATLINE" db connect </dev/null 2>&1 || true)
+        contains "with no terminal and no flags it explains itself" \
+            "no connection string" "$noinput"
+        exits_with 10 "and exits input_required" sh -c "$RATLINE db connect </dev/null"
+
         # Put the working one back for the rest of the section.
         printf '%s' "$RATLINE_TEST_MONGO_URI" | "$RATLINE" db connect --stdin >/dev/null 2>&1
     else

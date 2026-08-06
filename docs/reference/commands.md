@@ -515,12 +515,11 @@ connection string. That string lives in a file rather than in config.yaml, at
 paths.mongo_uri_file, mode 0600: it is the root password for every database on
 the server.
 
-    install -d -o root -g root -m 0700 /etc/ratline/db
-    printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \
-      > /etc/ratline/db/mongodb.uri && chmod 0600 /etc/ratline/db/mongodb.uri
+    ratline db connect
 
-Then turn it on with features.db_provisioning, and check the server is reachable
-with 'ratline db ping'.
+That prompts for the string — not echoed, never in argv, never in your shell
+history — creates the directory, writes the file, turns provisioning on, and
+proves the credentials work before keeping any of it.
 
 Every role ratline grants is scoped to a single database. The cluster-wide ones —
 root, readWriteAnyDatabase — are deliberately not offered: granting one to a
@@ -2402,10 +2401,13 @@ Stores the admin connection string, turns on features.db_provisioning, and prove
 the credentials work before committing either. If the server cannot be reached, or
 rejects them, nothing is left behind.
 
-The string is read from stdin, not from a flag. Anything in argv is world-readable
-through /proc, so a password passed as an argument is visible to every account on
-the box for as long as the command runs — and it lands in your shell history, which
-outlives the password.
+With no flags it prompts, and what you paste is not echoed. It is never a flag
+value: anything in argv is world-readable through /proc for as long as the command
+runs, and it would land in your shell history, which outlives the password.
+
+Do not pipe it through printf. A password containing a % is read as a format verb
+and the string arrives truncated, usually with no host in it. The prompt has
+nothing in between.
 
 It is written to paths.mongo_uri_file at 0600, root-owned, in a 0700 directory.
 
@@ -2416,7 +2418,7 @@ Flags:
       --force              Replace an existing connection string
       --from-file string   Read the connection string from a file
   -h, --help               help for connect
-      --stdin              Read the connection string from stdin (the usual way)
+      --stdin              Read the connection string from stdin (for automation; a terminal is prompted)
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
@@ -2429,11 +2431,13 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Examples:
-  # from a password manager, or a file, never as an argument
-  printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' | \
-    ratline db connect --stdin
+  # paste it at the prompt: not echoed, not in argv, not in shell history
+  ratline db connect
 
+  # for automation, where there is no terminal
+  ratline db connect --stdin < /root/mongodb.uri
   ratline db connect --from-file /root/atlas.uri
+
   ratline db ping
 ```
 

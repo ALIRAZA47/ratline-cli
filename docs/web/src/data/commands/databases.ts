@@ -25,8 +25,8 @@ export const databases: CommandGroup = {
         {
           name: '--stdin',
           type: 'bool',
-          description: 'Read the connection string from stdin. The usual way.',
-          note: 'It is not a flag value on purpose. Anything in argv is world-readable through /proc, so a password passed as an argument is visible to every account on the box for as long as the command runs — and it lands in your shell history, which outlives the password.',
+          description: 'Read the connection string from stdin, for automation.',
+          note: 'With no flags on a terminal the command prompts instead, and what you paste is not echoed. It is never a flag value: anything in argv is world-readable through /proc, so a password passed as an argument is visible to every account on the box for as long as the command runs — and it lands in your shell history, which outlives the password.',
         },
         {
           name: '--from-file',
@@ -43,14 +43,17 @@ export const databases: CommandGroup = {
       ],
       examples: [
         {
-          title: 'From a password manager, or a file — never as an argument',
+          title: 'Paste it at the prompt: not echoed, not in argv, not in your history',
           lang: 'shell',
-          code: `printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \\
-  | ratline db connect --stdin
-
+          code: `ratline db connect
 ratline db ping`,
         },
-        { lang: 'shell', code: 'ratline db connect --from-file /root/atlas.uri' },
+        {
+          title: 'For automation, where there is no terminal to prompt on',
+          lang: 'shell',
+          code: `ratline db connect --stdin < /root/mongodb.uri
+ratline db connect --from-file /root/atlas.uri`,
+        },
       ],
     },
     {

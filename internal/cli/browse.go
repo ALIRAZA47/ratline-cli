@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -60,7 +61,7 @@ func browse(ctx context.Context, g *Globals, p *prompter, cmd *cobra.Command) er
 			if c.Name() == picked {
 				// A cancelled child returns here rather than unwinding, so "Back" from a
 				// verb lands on the list it was chosen from.
-				if err := browse(ctx, g, p, c); err != nil && err != ErrCancelled {
+				if err := browse(ctx, g, p, c); err != nil && !errors.Is(err, ErrCancelled) {
 					return err
 				}
 				break

@@ -66,8 +66,7 @@ ratline config validate`,
         title: 'Setting up databases is one command, not four',
         body:
           '`db connect` writes the admin connection string at 0600, creates its directory at 0700, turns provisioning on and proves the credentials work — and if any of that fails, nothing is left behind. Two of the four manual steps it replaces were about the mode of a file holding the root password for every database on the server. `db enable` and `db disable --forget` handle the rest of the lifecycle.',
-        code: `printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \\
-  | ratline db connect --stdin
+        code: `ratline db connect
 ratline db ping`,
       },
       {
