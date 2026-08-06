@@ -41,7 +41,48 @@ ways in are `--stdin` and `--from-file`:
 
 It lives in a file rather than in `config.yaml` because it is the root password for every
 database on the server, and `config.yaml` is a file operators paste into support tickets.
-ratline refuses to read it at any mode that lets another account see it.
+
+## The file
+
+`paths.mongo_uri_file`, `/etc/ratline/db/mongodb.uri` by default. `db connect` writes it
+for you; this is what it looks like afterwards, and what to write by hand for
+`--from-file`:
+
+    # managed-by: ratline
+    # MongoDB admin connection string. This is the root credential for every
+    # database on that server, which is why this file is 0600 and root-owned
+    # and why it is not in config.yaml.
+    #
+    # Replace it with:  ratline db connect --force
+    # Check it with:    ratline db ping
+
+    mongodb://ratline_admin:CHANGE_ME@127.0.0.1:27017/?authSource=admin
+
+Blank lines and `#` comments are ignored, so the note explaining what the file is costs
+nothing — and the next person to find an unexplained credential in `/etc` will thank you.
+Two connection strings in one file is an error rather than a guess.
+
+The line itself depends on where the server is:
+
+    # the same machine
+    mongodb://ratline_admin:CHANGE_ME@127.0.0.1:27017/?authSource=admin
+
+    # another machine you run — mongod binds 127.0.0.1 by default, so this
+    # needs bindIp opened and a firewall that admits only this server
+    mongodb://ratline_admin:CHANGE_ME@db.internal:27017/?tls=true&authSource=admin
+
+    # a managed cluster; the SRV record carries the ports, so do not name one
+    mongodb+srv://ratline_admin:CHANGE_ME@cluster0.ab12c.mongodb.net/?retryWrites=true
+
+Whatever options are on that line — `tls`, `replicaSet`, `retryWrites` — are carried into
+every tenant's connection string too, because they are properties of the deployment rather
+than of the credential.
+
+The file must be `0600` and owned by root. ratline refuses to read it at any mode another
+account could see, rather than warning and continuing: at `0644` every tenant on the box
+can read the admin password for every database on the server.
+
+## Checking it
 
     ratline db ping
 

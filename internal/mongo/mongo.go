@@ -125,9 +125,9 @@ func (m *Manager) AdminURI() (string, error) {
 	if err != nil {
 		return "", rlerr.Wrap(err, rlerr.CodeGeneric, "reading %s", path)
 	}
-	uri := strings.TrimSpace(string(raw))
-	if uri == "" {
-		return "", rlerr.Preconditionf("%s is empty", path)
+	uri, err := ParseURIFile(string(raw), path)
+	if err != nil {
+		return "", err
 	}
 	// The same rule `db connect` applies to the string before storing it. Two copies of
 	// this check drifted apart once already: connect tested only the prefix, so a string
@@ -637,3 +637,38 @@ func DefaultUsername(database string) string {
 
 // ScriptPathForTests exposes the staging helper to the package's own tests.
 func (m *Manager) ScriptPathForTests() (string, error) { return m.stageScript() }
+
+// ParseURIFile reads the connection string out of the file's contents.
+//
+// The whole file used to be the URI: read it, trim it, use it. That is fine for a file
+// ratline writes and hostile for one an operator writes, which is exactly what
+// `db connect --from-file` invites. The first instinct on creating a credentials file in
+// /etc is to put a line at the top saying what it is, and doing that turned the file into
+// something that "does not look like a MongoDB connection string" — a true statement about
+// the comment and a useless one about the problem.
+//
+// So: blank lines and # comments are skipped. Two connection strings are refused rather
+// than resolved by picking one, because guessing which credential to use for every
+// database on the server is not a decision to make quietly.
+func ParseURIFile(body, path string) (string, error) {
+	var found []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		found = append(found, line)
+	}
+	switch len(found) {
+	case 0:
+		return "", rlerr.Preconditionf("%s has no connection string in it", path).
+			WithHint("it should hold one line beginning mongodb:// or mongodb+srv://; " +
+				"'ratline db connect' writes it for you")
+	case 1:
+		return found[0], nil
+	default:
+		return "", rlerr.Preconditionf("%s holds %d connection strings, and ratline will not "+
+			"guess which one", path, len(found)).
+			WithHint("keep one line; comments start with # and blank lines are ignored")
+	}
+}

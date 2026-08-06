@@ -150,6 +150,41 @@ ratline db connect --from-file /root/atlas.uri`}
           from a server that is down, and you would find out on some unrelated command a
           week later.
         </p>
+
+        <H3 id="the-file">The file itself</H3>
+        <p>
+          <code>paths.mongo_uri_file</code>, <code>/etc/ratline/db/mongodb.uri</code> by
+          default. This is what <code>db connect</code> leaves behind, and what to write by
+          hand for <code>--from-file</code>:
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="text"
+        code={`# managed-by: ratline
+# MongoDB admin connection string. This is the root credential for every
+# database on that server, which is why this file is 0600 and root-owned
+# and why it is not in config.yaml.
+#
+# Replace it with:  ratline db connect --force
+# Check it with:    ratline db ping
+
+mongodb://ratline_admin:CHANGE_ME@127.0.0.1:27017/?authSource=admin`}
+      />
+
+      <div className="prose">
+        <p>
+          Blank lines and <code>#</code> comments are ignored, so the note saying what the
+          file is costs nothing — and the next person to find an unexplained credential in{' '}
+          <code>/etc</code> will thank you. Two connection strings in one file is an error
+          rather than a guess: picking one of two admin credentials quietly is not a
+          decision worth making on your behalf.
+        </p>
+        <p>
+          It must be <code>0600</code> and owned by root. ratline refuses to read it at any
+          other mode rather than warning and carrying on — at <code>0644</code> every tenant
+          on the box can read the admin password for every database on the server.
+        </p>
       </div>
 
       <Callout tone="note" title="Already connected, feature off">

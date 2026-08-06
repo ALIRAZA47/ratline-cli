@@ -267,6 +267,17 @@ func renderMarkdown(body string, color bool) string {
 			continue
 		}
 
+		// An indented line is a code block, and its contents are not markup.
+		//
+		// The switch below matches on the *trimmed* line, so without this an indented
+		// `# comment` in a shell example renders as an UPPERCASED HEADING and a `>` as a
+		// blockquote. Documenting a file that contains comments made that unmissable: the
+		// example became six headings and one line of content.
+		if strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t") {
+			out.WriteString(line + "\n")
+			continue
+		}
+
 		switch {
 		case strings.HasPrefix(trimmed, "# "):
 			out.WriteString(decorate(strings.ToUpper(trimmed[2:]), color, ansiBold+ansiUnder) + "\n")

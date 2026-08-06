@@ -59,9 +59,19 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 				if err != nil {
 					return rlerr.Wrap(err, rlerr.CodePrecondition, "reading %s", fromFile)
 				}
-				uri = strings.TrimSpace(string(body))
+				// The same reader AdminURI uses, so a file ratline accepts here is a file
+				// ratline can read back. Writing that tolerance into only one of the two
+				// meant a hand-written file with a comment at the top — the whole reason
+				// --from-file exists — was refused on the way in and fine on the way out.
+				if uri, err = mongo.ParseURIFile(string(body), fromFile); err != nil {
+					return err
+				}
 			case uri != "":
-				// Already read from stdin.
+				// Already read from stdin, possibly a redirected file: same rules.
+				var err error
+				if uri, err = mongo.ParseURIFile(uri, "the connection string on stdin"); err != nil {
+					return err
+				}
 			case g.CanPrompt():
 				// Asked for, rather than demanded on stdin.
 				//
@@ -130,7 +140,18 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 					return rlerr.Wrap(err, rlerr.CodeGeneric, "reading the existing %s", path)
 				}
 			}
-			if err = system.WriteFileAtomic(path, []byte(uri+"\n"), 0o600, 0, 0); err != nil {
+			// Written with a header, because the next person to find this file will be
+			// somebody auditing /etc who does not know what it is. Comments and blank
+			// lines are skipped on the way back in, so the note costs nothing.
+			body := "# " + system.ManagedHeader + "\n" +
+				"# MongoDB admin connection string. This is the root credential for every\n" +
+				"# database on that server, which is why this file is 0600 and root-owned\n" +
+				"# and why it is not in config.yaml.\n" +
+				"#\n" +
+				"# Replace it with:  ratline db connect --force\n" +
+				"# Check it with:    ratline db ping\n\n" +
+				uri + "\n"
+			if err = system.WriteFileAtomic(path, []byte(body), 0o600, 0, 0); err != nil {
 				return err
 			}
 			// Turned on before the check, because the check goes through the same code

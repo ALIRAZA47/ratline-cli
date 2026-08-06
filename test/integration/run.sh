@@ -897,6 +897,26 @@ else
 
         # Put the working one back for the rest of the section.
         printf '%s' "$RATLINE_TEST_MONGO_URI" | "$RATLINE" db connect --stdin >/dev/null 2>&1
+
+        # The file db connect writes must be readable back by ratline itself. It now
+        # carries an explanatory header, and a header that broke the reader would be a
+        # self-inflicted outage on every subsequent db command.
+        contains "the stored file explains what it is" \
+            "managed-by: ratline" "$(cat /etc/ratline/db/mongodb.uri)"
+        check "and ratline reads its own file back" "$RATLINE" db ping
+        # Hand-written is the other supported shape: a comment, a blank line, the string.
+        printf '# hand written\n\n%s\n' "$RATLINE_TEST_MONGO_URI" > /tmp/hand.uri
+        chmod 0600 /tmp/hand.uri
+        check "a hand-written file with comments is accepted" \
+            "$RATLINE" db connect --from-file /tmp/hand.uri --force
+        check "and it works" "$RATLINE" db ping
+        # Two strings is a refusal, not a coin toss between admin credentials.
+        printf '%s\n%s\n' "$RATLINE_TEST_MONGO_URI" "$RATLINE_TEST_MONGO_URI" > /tmp/two.uri
+        chmod 0600 /tmp/two.uri
+        refute "two connection strings in one file are refused" \
+            "$RATLINE" db connect --from-file /tmp/two.uri --force
+        rm -f /tmp/hand.uri /tmp/two.uri
+
     else
         bad "mongod never answered" "the database section cannot run"
     fi
