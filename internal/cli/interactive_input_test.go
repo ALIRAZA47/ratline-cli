@@ -89,7 +89,12 @@ func TestEveryLeafCommandHonoursInteractive(t *testing.T) {
 func TestInteractiveCollectionWritesIntoTheFlagset(t *testing.T) {
 	out := &strings.Builder{}
 	g := &Globals{
-		Stdin:  strings.NewReader("owner\nacme\n..done\n"),
+		// --owner is required, so it is asked for first rather than offered in the list:
+		// "acme" answers it, then "..done" leaves the optional-extras picker. Before the
+		// required flags were marked, this script had to pick "owner" out of the list —
+		// which is exactly the walk that let an operator confirm a command with no owner
+		// and watch it refuse.
+		Stdin:  strings.NewReader("acme\n..done\n"),
 		Stdout: out, Stderr: out,
 		StdinTTY: true, StderrTTY: true, Width: 80,
 	}
@@ -122,7 +127,7 @@ func TestInteractiveCollectionWritesIntoTheFlagset(t *testing.T) {
 func TestInteractiveDoesNothingWithoutATerminal(t *testing.T) {
 	out := &strings.Builder{}
 	g := &Globals{
-		Stdin:  strings.NewReader("owner\nacme\n..done\n"),
+		Stdin:  strings.NewReader("acme\n..done\n"),
 		Stdout: out, Stderr: out,
 		StdinTTY: false, StderrTTY: false,
 	}

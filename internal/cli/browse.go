@@ -108,13 +108,27 @@ func runLeaf(ctx context.Context, g *Globals, p *prompter, cmd *cobra.Command) e
 	if err != nil {
 		return err
 	}
-	flags, err := askOptions(p, cmd)
-	if err != nil {
-		return err
-	}
 
 	argv := append(commandWords(cmd), args...)
-	argv = append(argv, flags...)
+
+	if annotated(cmd, AnnoOwnWizard) {
+		// Hand over to the command's own wizard rather than offering a flag list.
+		//
+		// These four know things the generic picker cannot: `site add` sniffs the project
+		// to suggest a runtime, `user add` offers ~/.ssh/id_ed25519.pub and checks it is
+		// there. Collecting their flags generically bypassed all of it — and produced a
+		// worse experience through the menu than through the bare command, which is
+		// backwards. It sent one operator's pasted public key to `user add --ssh-key`,
+		// where that flag wants a path, and the error named a file called
+		// "/root/ssh-ed25519 AAAAC3Nz… ark@ark".
+		argv = append(argv, "-i")
+	} else {
+		flags, ferr := askOptions(p, cmd)
+		if ferr != nil {
+			return ferr
+		}
+		argv = append(argv, flags...)
+	}
 
 	fields := [][2]string{{"command", "ratline " + strings.Join(argv, " ")}}
 	switch action, err := p.summary("About to run", fields, append([]string{"ratline"}, argv...)); {
@@ -204,6 +218,27 @@ func askOptions(p *prompter, cmd *cobra.Command) ([]string, error) {
 	sort.Slice(available, func(i, j int) bool { return available[i].Name < available[j].Name })
 
 	set := map[string]string{}
+
+	// Required flags are asked for, not offered.
+	//
+	// They used to sit in the list with everything else, so an operator could take the
+	// defaults, read a summary, confirm, and watch the command refuse for a flag the menu
+	// never mentioned — `db create` without --owner, `db user add` without --database.
+	// Being walked into a failure by the thing that was supposed to help is worse than
+	// having no menu.
+	for _, f := range available {
+		if !requiredFlag(f) {
+			continue
+		}
+		v, err := askFlag(p, f)
+		if err != nil {
+			return nil, err
+		}
+		if v != "" {
+			set[f.Name] = v
+		}
+	}
+
 	for {
 		options := []choice{{Value: "..done", Label: "Run it", Note: describeChosen(set)}}
 		for _, f := range available {
@@ -282,9 +317,32 @@ func askFlag(p *prompter, f *pflag.Flag) (string, error) {
 	if f.DefValue != "[]" {
 		def = f.DefValue
 	}
+	// The type goes in the prompt, because the usage text does not always say what shape
+	// the value takes and the reader has no help page in front of them. `--ssh-key` wants
+	// a path; somebody pasted a key into it, which is a fair reading of a bare "value:".
+	label := "--" + f.Name
+	if kind := valueKind(f); kind != "" {
+		label += " " + kind
+	}
 	// Validated by the command itself when it runs. Re-implementing each flag's rule here
 	// would be a second copy of every validator, and they would disagree.
-	return p.ask("--"+f.Name+"  "+p.dim(f.Usage)+"\n  value:", def, nil)
+	return p.ask(label+"  "+p.dim(f.Usage)+"\n  value:", def, nil)
+}
+
+// valueKind describes what a flag takes, in the words its own help uses where it has them.
+func valueKind(f *pflag.Flag) string {
+	// pflag's own placeholder, from a `name` in backquotes in the usage string.
+	if name, _ := pflag.UnquoteUsage(f); name != "" && name != "string" {
+		return "<" + name + ">"
+	}
+	switch f.Value.Type() {
+	case "stringArray", "stringSlice":
+		return "<value, repeatable>"
+	case "string":
+		return "<value>"
+	default:
+		return "<" + f.Value.Type() + ">"
+	}
 }
 
 func isBoolFlag(f *pflag.Flag) bool {

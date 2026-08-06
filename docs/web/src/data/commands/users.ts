@@ -24,7 +24,7 @@ export const users: CommandGroup = {
       flags: [
         {
           name: '--ssh-key',
-          arg: '<path|url|->',
+          arg: '<key|path|url|->',
           type: 'path | url | -',
           repeatable: true,
           description:

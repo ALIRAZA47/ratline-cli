@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 )
@@ -34,6 +35,15 @@ const (
 	// AnnoSkipLock marks a mutating command that must not take the lock,
 	// for the certbot deploy hook, which runs while an issue command holds it.
 	AnnoSkipLock = "ratline_skip_lock"
+	// AnnoRequiredFlag marks a flag the command refuses to run without.
+	//
+	// ratline enforces required flags by hand, in the command, because the messages are
+	// worth writing — "a user is scoped to one database; that is what makes it
+	// least-privilege" beats cobra's generic refusal. But that left nothing declarative
+	// for the interactive layer to read, so the menu offered `--owner` and `--database`
+	// in a list of optional extras, let the operator confirm, and only then did the
+	// command refuse. This is the marker that stops the two disagreeing.
+	AnnoRequiredFlag = "ratline_required"
 	// AnnoOwnWizard marks a command that collects its own input interactively.
 	//
 	// Four commands have hand-written wizards that do more than ask for flags —
@@ -54,6 +64,32 @@ func SkipLock(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoSkip
 
 // OwnWizard marks a command that collects its own input under -i.
 func OwnWizard(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoOwnWizard) }
+
+// Required marks flags the command will refuse to run without, so the interactive layer
+// asks for them rather than offering them among the optional extras.
+//
+// It does not enforce anything: the command still does that, with its own message. This
+// only tells the menu and -i what to ask for first.
+func Required(cmd *cobra.Command, names ...string) *cobra.Command {
+	for _, n := range names {
+		f := cmd.Flags().Lookup(n)
+		if f == nil {
+			// A typo here would silently un-require a flag, which is how this class of
+			// bug started. Panicking at construction means it cannot reach a server.
+			panic("cli: Required names --" + n + ", which " + cmd.Name() + " does not have")
+		}
+		if f.Annotations == nil {
+			f.Annotations = map[string][]string{}
+		}
+		f.Annotations[AnnoRequiredFlag] = []string{"true"}
+	}
+	return cmd
+}
+
+// requiredFlag reports whether a flag was marked with Required.
+func requiredFlag(f *pflag.Flag) bool {
+	return f != nil && len(f.Annotations[AnnoRequiredFlag]) > 0
+}
 
 func annotate(cmd *cobra.Command, key string) *cobra.Command {
 	if cmd.Annotations == nil {

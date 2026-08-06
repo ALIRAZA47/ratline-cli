@@ -397,6 +397,24 @@ ssh-keygen -t ed25519 -N '' -f /tmp/site.key -q
 check "key add --scope global" "$RATLINE" key add --scope global --label "Ops laptop" --key /tmp/global.key.pub
 check "key add --scope site" "$RATLINE" key add --scope site --site static.test \
         --label "Contractor" --key /tmp/site.key.pub --expires 90d
+
+# The key itself, pasted rather than saved to a file. Reported from a real server: it was
+# read as a filename, and the error named "no such file: /root/ssh-ed25519 AAAAC3Nz… ark@ark".
+ssh-keygen -t ed25519 -N '' -f /tmp/pasted.key -q
+pasted=$(cat /tmp/pasted.key.pub)
+check "a pasted key is taken as the key" "$RATLINE" key add --scope global \
+    --label "Pasted" --key "$pasted"
+contains "and it is installed" "Pasted" "$("$RATLINE" key list)"
+# Removed again, because a later assertion checks that the *last* global key cannot be
+# taken away without --force — and leaving a second one behind quietly disarms it.
+"$RATLINE" key remove "Pasted" --yes >/dev/null 2>&1
+
+# A private key pasted by mistake must be named as such. It is several lines, so the
+# multi-line check used to match first and answer "the key spans more than one line" —
+# true, and burying the only thing that matters.
+privout=$("$RATLINE" key add --scope global --label "Oops" --key "$(cat /tmp/pasted.key)" 2>&1 || true)
+contains "a pasted private key is called a private key" "private key" "$privout"
+rm -f /tmp/pasted.key /tmp/pasted.key.pub
 check "key list" "$RATLINE" key list
 contains "key test names the confinement" "not a kernel boundary" \
         "$("$RATLINE" key test "$(ssh-keygen -lf /tmp/site.key.pub | awk '{print $2}')" 2>&1 | tr 'A-Z' 'a-z')"
@@ -931,6 +949,16 @@ else
         check "a hand-written file with comments is accepted" \
             "$RATLINE" db connect --from-file /tmp/hand.uri --force
         check "and it works" "$RATLINE" db ping
+        # A required flag must be asked for, not offered among the optional extras and
+        # then refused after the operator confirms. `db create` without --owner is what
+        # made that visible.
+        refute "db create refuses without --owner" "$RATLINE" db create nowhere
+        contains "and says which flag" "--owner" \
+            "$("$RATLINE" db create nowhere 2>&1 || true)"
+        refute "db user add refuses without --database" "$RATLINE" db user add nobody
+        contains "and says which flag" "--database" \
+            "$("$RATLINE" db user add nobody 2>&1 || true)"
+
         # Two strings is a refusal, not a coin toss between admin credentials.
         printf '%s\n%s\n' "$RATLINE_TEST_MONGO_URI" "$RATLINE_TEST_MONGO_URI" > /tmp/two.uri
         chmod 0600 /tmp/two.uri

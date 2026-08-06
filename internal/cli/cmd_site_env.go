@@ -500,5 +500,6 @@ func newEnvImportCommand(g *Globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "The .env file to import (required)")
+	Required(cmd, "file")
 	return Mutating(cmd)
 }

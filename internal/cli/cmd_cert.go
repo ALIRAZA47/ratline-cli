@@ -569,6 +569,7 @@ func newCertImportCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.KeyPath, "key", "", "Private key, not passphrase-encrypted (required)")
 	f.StringVar(&opts.ChainPath, "chain", "", "Intermediates, if not already in --cert")
 	f.BoolVar(&noAttach, "no-attach", false, "Install without pointing the vhost at it")
+	Required(cmd, "cert", "key")
 	return Mutating(cmd)
 }
 
@@ -776,6 +777,7 @@ func newCertAccountCommand(g *Globals) *cobra.Command {
 		},
 	}
 	register.Flags().StringVar(&email, "email", "", "Contact address (required)")
+	Required(register, "email")
 	cmd.AddCommand(Mutating(register))
 	return cmd
 }

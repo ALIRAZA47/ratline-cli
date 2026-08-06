@@ -128,6 +128,16 @@ func (m *Manager) readKeyRef(ctx context.Context, ref string, stdin io.Reader) (
 	case strings.HasPrefix(ref, "http://"):
 		return nil, rlerr.Usagef("refusing to fetch a key over plain HTTP").
 			WithHint("use an https URL, so the key cannot be swapped in transit")
+	case looksLikeAKey(ref):
+		// The key itself, pasted. Asked for a key and handed a key, taking it is the
+		// only sensible reading — and at a prompt, pasting is what everybody does.
+		// Treating it as a filename produced "no such file: /root/ssh-ed25519 AAAAC3Nz…
+		// ark@ark", which is a dead end dressed as a path.
+		//
+		// A public key is not a secret, so unlike a password there is no reason to keep
+		// it out of argv. It is still parsed and validated exactly like one read from a
+		// file — this only decides where the bytes come from.
+		return []byte(ref), nil
 	default:
 		path, err := expandPath(ref)
 		if err != nil {
@@ -556,4 +566,29 @@ func urlPathSegment(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// keyTypePrefixes are the algorithm names an OpenSSH public key line begins with.
+//
+// Deliberately a prefix test rather than a full parse: this only chooses between "read a
+// file at this path" and "these are the bytes", and anything that gets it wrong is caught
+// immediately afterwards by Parse, which is the real validator. A filename that begins
+// with "ssh-ed25519 " and contains a space is not a thing anybody has.
+var keyTypePrefixes = []string{
+	"ssh-ed25519 ", "ssh-rsa ", "ssh-dss ",
+	"ecdsa-sha2-nistp256 ", "ecdsa-sha2-nistp384 ", "ecdsa-sha2-nistp521 ",
+	"sk-ssh-ed25519@openssh.com ", "sk-ecdsa-sha2-nistp256@openssh.com ",
+}
+
+// looksLikeAKey reports whether a reference is the key material itself.
+func looksLikeAKey(ref string) bool {
+	trimmed := strings.TrimSpace(ref)
+	for _, p := range keyTypePrefixes {
+		if strings.HasPrefix(trimmed, p) {
+			return true
+		}
+	}
+	// A private key pasted by mistake must reach Parse, which says so in those words,
+	// rather than being read as a path and reported as a missing file.
+	return strings.HasPrefix(trimmed, "-----BEGIN")
 }

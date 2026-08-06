@@ -129,6 +129,7 @@ func newDBUserAddCommand(g *Globals) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("database", g.completeDatabases)
 	_ = cmd.RegisterFlagCompletionFunc("role", completeDBRoles)
 	_ = cmd.RegisterFlagCompletionFunc("attach", g.completeDomains)
+	Required(cmd, "database")
 	return Mutating(cmd)
 }
 
@@ -400,6 +401,7 @@ func newDBUserGrantCommand(g *Globals) *cobra.Command {
 	cmd.Flags().StringVar(&role, "role", "", "Role to grant, replacing any existing (required)")
 	cmd.Flags().StringVar(&authDB, "auth-db", "", "Authentication database, when the username is ambiguous")
 	_ = cmd.RegisterFlagCompletionFunc("role", completeDBRoles)
+	Required(cmd, "role")
 	return Mutating(cmd)
 }
 

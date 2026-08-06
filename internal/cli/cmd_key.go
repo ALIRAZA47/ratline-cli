@@ -281,7 +281,7 @@ func newKeyAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&scope, "scope", "", "global, user or site (required)")
 	f.StringVar(&userName, "user", "", "Tenant, for --scope user")
 	f.StringVar(&site, "site", "", "Domain, for --scope site")
-	f.StringArrayVar(&keyRefs, "key", nil, "Public key: a path, an https URL, or - for stdin (repeatable)")
+	f.StringArrayVar(&keyRefs, "key", nil, "Public key: the key itself, a path, an https URL, or - for stdin (repeatable)")
 	f.StringVar(&fromGitHub, "from-github", "", "Fetch a user's public keys from github.com")
 	f.StringVar(&fromGitLab, "from-gitlab", "", "Fetch a user's public keys from gitlab.com")
 	f.BoolVar(&sftpOnly, "sftp-only", false, "Force SFTP with no shell")
@@ -294,6 +294,7 @@ func newKeyAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&command, "command", "", "Named preset from config: sftp-only, rsync-only or git-only")
 	f.BoolVar(&allowDuplicate, "allow-duplicate", false, "Permit a fingerprint that is already installed elsewhere")
 	f.StringVar(&isolation, "isolation", "", "Site scope only: default, or strict to add a chroot (needs features.strict_isolation)")
+	Required(cmd, "label", "scope")
 	return OwnWizard(Mutating(cmd))
 }
 
@@ -636,6 +637,7 @@ func newKeyMoveCommand(g *Globals) *cobra.Command {
 	f.StringVar(&toScope, "to-scope", "", "New scope: global, user or site")
 	f.StringVar(&toUser, "user", "", "Tenant, for --to-scope user")
 	f.StringVar(&toSite, "site", "", "Domain, for --to-scope site")
+	Required(cmd, "to-scope")
 	return Mutating(cmd)
 }
 

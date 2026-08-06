@@ -330,6 +330,7 @@ func newDBCreateCommand(g *Globals) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("owner", g.completeUsers)
 	_ = cmd.RegisterFlagCompletionFunc("attach", g.completeDomains)
 	_ = cmd.RegisterFlagCompletionFunc("role", completeDBRoles)
+	Required(cmd, "owner")
 	return Mutating(cmd)
 }
 

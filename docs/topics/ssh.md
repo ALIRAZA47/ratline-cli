@@ -10,6 +10,15 @@ A key is added at one of three scopes, and the scope decides what it can reach:
 
     ratline key add --scope user --user acme --key ~/.ssh/id_ed25519.pub --label "deploy laptop"
     ratline key add --scope site --site app.example.com --key deploy.pub --label "ci"
+
+`--key` takes a path, an `https://` URL, `-` for stdin, or the key itself — pasting is what
+everybody does at a prompt, and a public key is not a secret, so there is no reason to make
+you save it to a file first:
+
+    ratline key add --scope user --user acme --label laptop \
+      --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA… you@laptop'
+
+Whichever way it arrives, it is parsed and checked identically.
     ratline key list --user acme
     ratline key remove <fingerprint>
 

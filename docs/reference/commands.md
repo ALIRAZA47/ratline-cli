@@ -919,7 +919,7 @@ Flags:
       --quota string          Disk quota, e.g. 20G (needs filesystem quota support)
       --sftp-only             SFTP only, chrooted to the home directory, with no shell
       --shell string          Login shell (default from config; /usr/sbin/nologin to disable)
-      --ssh-key stringArray   Public key: a path, an https URL, or - for stdin (repeatable)
+      --ssh-key stringArray   Public key: the key itself, a path, an https URL, or - for stdin (repeatable)
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
@@ -1131,7 +1131,7 @@ Flags:
       --from-gitlab string    Fetch a user's public keys from gitlab.com
   -h, --help                  help for add
       --isolation string      Site scope only: default, or strict to add a chroot (needs features.strict_isolation)
-      --key stringArray       Public key: a path, an https URL, or - for stdin (repeatable)
+      --key stringArray       Public key: the key itself, a path, an https URL, or - for stdin (repeatable)
       --label string          Human label, so this key can be recognised later (required)
       --no-agent-forwarding   Refuse agent forwarding (the default outside global scope)
       --no-port-forwarding    Refuse port forwarding (already the default)

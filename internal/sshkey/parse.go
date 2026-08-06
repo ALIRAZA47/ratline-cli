@@ -67,19 +67,24 @@ func Parse(line string, p Policy) (*PublicKey, []Warning, error) {
 	if strings.ContainsRune(line, 0) {
 		return nil, nil, rlerr.Usagef("the key contains a NUL byte")
 	}
-	// A key spanning lines would let an attacker append a second, unreviewed
-	// entry to authorized_keys.
 	trimmed := strings.TrimRight(line, "\r\n")
-	if strings.ContainsAny(trimmed, "\n\r") {
-		return nil, nil, rlerr.Usagef("the key spans more than one line").
-			WithHint("pass one key at a time, or a file containing one key per line")
-	}
 	if strings.TrimSpace(trimmed) == "" {
 		return nil, nil, rlerr.Usagef("the key is empty")
 	}
+	// Before the multi-line check, deliberately. A pasted private key is several lines,
+	// so the line check matched first and answered "the key spans more than one line" —
+	// true, unhelpful, and burying the only thing that matters, which is that somebody
+	// has just handed their private key to a command that installs things.
 	if strings.HasPrefix(strings.TrimSpace(trimmed), "-----BEGIN") {
 		return nil, nil, rlerr.Usagef("that is a private key, not a public key").
-			WithHint("pass the .pub file instead, and never share the private half")
+			WithHint("pass the .pub file instead, and never share the private half — " +
+				"if this one left your machine, treat it as compromised and rotate it")
+	}
+	// A key spanning lines would let an attacker append a second, unreviewed
+	// entry to authorized_keys.
+	if strings.ContainsAny(trimmed, "\n\r") {
+		return nil, nil, rlerr.Usagef("the key spans more than one line").
+			WithHint("pass one key at a time, or a file containing one key per line")
 	}
 
 	parsed, comment, options, _, err := ssh.ParseAuthorizedKey([]byte(trimmed))

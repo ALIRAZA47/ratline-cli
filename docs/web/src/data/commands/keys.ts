@@ -31,7 +31,7 @@ export const keys: CommandGroup = {
         },
         {
           name: '--key',
-          arg: '<path|url|->',
+          arg: '<key|path|url|->',
           type: 'path | url | -',
           description: 'The public key. `-` reads from stdin.',
         },

@@ -55,6 +55,7 @@ func newUserSudoCommand(g *Globals) *cobra.Command {
 	}
 	grant.Flags().StringArrayVar(&commands, "command", nil,
 		"An absolute command with its full arguments (repeatable, required)")
+	Required(grant, "command")
 	cmd.AddCommand(Mutating(grant))
 
 	revoke := &cobra.Command{

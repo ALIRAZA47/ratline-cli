@@ -135,7 +135,7 @@ func newUserAddCommand(g *Globals) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringArrayVar(&sshKeys, "ssh-key", nil, "Public key: a path, an https URL, or - for stdin (repeatable)")
+	f.StringArrayVar(&sshKeys, "ssh-key", nil, "Public key: the key itself, a path, an https URL, or - for stdin (repeatable)")
 	f.BoolVar(&passwordLogin, "password-login", false, "Allow password login (default: keys only)")
 	f.StringVar(&shell, "shell", "", "Login shell (default from config; /usr/sbin/nologin to disable)")
 	f.BoolVar(&sftpOnly, "sftp-only", false, "SFTP only, chrooted to the home directory, with no shell")
