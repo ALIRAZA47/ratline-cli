@@ -74,16 +74,26 @@ func TestAdminURIRefusesSomethingThatIsNotAConnectionString(t *testing.T) {
 
 func TestAdminURIMissingSaysHowToWriteIt(t *testing.T) {
 	// The first thing anybody hits. The error is the documentation.
+	//
+	// It used to spell out the manual recipe — mkdir, printf, chmod 0600 — and this test
+	// asserted on those words. That recipe is now the thing to avoid: printf reads a % in
+	// the password as a format verb and truncates the string. So the error names the
+	// command that does all three correctly, and the assertion follows the intent rather
+	// than the old wording.
 	m, _ := testManager(t)
 	_, err := m.AdminURI()
 	if err == nil {
 		t.Fatal("a missing file should be an error")
 	}
 	combined := err.Error() + " " + rlerr.Hint(err)
-	for _, want := range []string{"0600", "mongodb://", "chmod"} {
+	for _, want := range []string{"0600", "ratline db connect"} {
 		if !strings.Contains(combined, want) {
 			t.Errorf("the error should mention %q so it can be acted on, got:\n%s", want, combined)
 		}
+	}
+	// And must not send anybody back to the recipe that caused the bug.
+	if strings.Contains(combined, "printf") {
+		t.Errorf("the error still recommends printf:\n%s", combined)
 	}
 }
 
