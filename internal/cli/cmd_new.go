@@ -53,8 +53,11 @@ type step struct {
 	what string
 	argv []string
 	// undo is nil for a step that must not be undone: one that built something we did not
-	// create, or one whose cost has already been paid.
+	// create, or one whose cost has already been paid. kept says why, in a sentence the
+	// preview can print — a step that is not taken back is exactly what somebody reading a
+	// preview needs told, and leaving it implicit is how it gets missed.
 	undo []string
+	kept string
 }
 
 // plan is everything this run has decided, before any of it happens.
@@ -201,6 +204,8 @@ func (s *stack) plan(ctx context.Context) (plan, error) {
 		p.steps = append(p.steps, step{
 			what: "issuing a certificate for " + s.Domain,
 			argv: argv,
+			kept: "A certificate is the exception: issuing one spends a rate limit, so it is " +
+				"not revoked.",
 		})
 	}
 	return p, nil
@@ -237,9 +242,17 @@ func (s *stack) rehearse(p plan) {
 	for _, st := range p.steps {
 		s.g.Printf("    %s\n", commandLine(st.argv))
 	}
-	if n := undoable(p); n > 0 {
-		s.g.Printf("\nIf any of them failed, the %s before it would be removed.\n",
-			plural(n, "thing"))
+	// Deliberately not a count. How many things come back depends on which step fails, so
+	// any number printed here is wrong for every case but one — and the first version said
+	// "the 3 things before it would be removed" about a three-step plan, where the most that
+	// can ever be removed is two.
+	if undoable(p) > 0 {
+		s.g.Printf("\nIf any of them failed, everything created before it would be removed.\n")
+	}
+	for _, st := range p.steps {
+		if st.kept != "" {
+			s.g.Printf("%s\n", st.kept)
+		}
 	}
 	s.g.Printf("\nNothing was written. The domain, the tenant name and the database name were\n" +
 		"checked; the steps themselves were not run, so anything only the server knows —\n" +

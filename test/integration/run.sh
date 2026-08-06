@@ -1552,6 +1552,24 @@ contains "it plans the tenant"   "ratline user add previewuser" "$out"
 contains "it plans the site"     "ratline site add preview.test" "$out"
 contains "it plans the database" "ratline db create preview_test" "$out"
 contains "it says nothing was written" "Nothing was written" "$out"
+contains "it says what a failure would take back" \
+    "everything created before it would be removed" "$out"
+
+# Not a count. How many things come back depends on which step fails, so any number is
+# wrong for every case but one — the first version said "the 3 things before it would be
+# removed" about a three-step plan, where the most that can ever be removed is two.
+case "$out" in
+    *"things before it"*|*"thing before it"*)
+        bad "the preview does not count what it would undo" "it printed a number" ;;
+    *)  ok "the preview does not count what it would undo" ;;
+esac
+
+# A step that is not taken back has to be named, or "everything created before it" is
+# read as covering the certificate too.
+contains "a preview with --tls names the step it will not undo" \
+    "A certificate is the exception" \
+    "$("$RATLINE" new static tlspreview.test --user previewuser --tls --email ops@preview.test --dry-run 2>&1)"
+
 refute "and nothing was" test -d /home/previewuser
 refute "no tenant was created" id previewuser
 contains "the plan is in --json too" '"dry_run": true' \
@@ -1576,8 +1594,14 @@ exits_with 2 "new static refuses --with-db" \
 # The database step is made to fail by asking for a name that cannot exist, rather than by
 # turning a feature off — so the failure is the ordinary kind an operator hits, and the
 # steps before it really did run.
+#
+# The exit code is deliberately not asserted. Which step fails depends on the environment:
+# with the node runtime available the site is built and the database step fails on the name
+# (exit 2), and without it the site step fails first (exit 3). Pinning the code made this
+# test pass or fail on whether a tarball downloaded, which says nothing about unwinding.
+# What must hold in both cases is that nothing is left behind, and that is what is checked.
 before_sites=$("$RATLINE" --json site list | tr ',' '\n' | grep -c domain || true)
-exits_with 2 "a stack whose database cannot be named fails" \
+refute "a stack whose database cannot be named fails" \
     "$RATLINE" new node unwind.test --user unwinduser --with-db --db-name 'not a valid name' --yes
 refute "the tenant it created is gone" id unwinduser
 refute "the home it created is gone" test -d /home/unwinduser
@@ -1637,7 +1661,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=345
+EXPECTED_MINIMUM=348
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

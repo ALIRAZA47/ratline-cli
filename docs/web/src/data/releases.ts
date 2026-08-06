@@ -39,6 +39,32 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.9.2',
+    date: '2026-08-06',
+    summary:
+      'The preview counted what a failure would take back, and the count could not be right.',
+    assertions: 350,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'The preview overstated the rollback',
+        body:
+          'It ended "If any of them failed, the 3 things before it would be removed" — about a three-step plan, where the most that can ever be removed is two. How many things come back depends on which step fails, so any number printed there is wrong for every case but one. It says "everything created before it would be removed" now, and names the steps it will not take back rather than leaving the exception implicit: a certificate that was issued is not revoked, because that spends a rate limit.',
+      },
+      {
+        title: 'Which step is not undone is now a property of the step',
+        body:
+          'It was going to be inferred from the label text. A step carries the reason it is kept, so the preview and the code that decides cannot disagree about it.',
+      },
+      {
+        kind: 'fix',
+        title: 'An integration test asserted the wrong thing',
+        body:
+          'The unwind test pinned an exit code, and which step fails depends on the environment — with the Node runtime available the site is built and the database step fails on its name, and without it the site step fails first. So the test passed or failed on whether a tarball downloaded, which says nothing about unwinding. It asserts that nothing is left behind, which must hold either way.',
+      },
+    ],
+  },
+  {
     version: 'v0.9.1',
     date: '2026-08-06',
     summary:
@@ -58,7 +84,7 @@ This would run 3 commands:
     ratline site add app.example.com --user acme --ssl none --runtime node
     ratline db create app_example_com --owner acme --attach app.example.com
 
-If any of them failed, the 2 things before it would be removed.
+If any of them failed, everything created before it would be removed.
 
 Nothing was written.`,
       },

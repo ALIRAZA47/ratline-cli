@@ -79,7 +79,8 @@ func TestADryRunPrintsThePlanRatherThanFailingOnIt(t *testing.T) {
 		{what: "tenant", argv: []string{"user", "add", "acme"}, undo: []string{"user", "delete", "acme"}},
 		{what: "site", argv: []string{"site", "add", "app.example.com", "--user", "acme"},
 			undo: []string{"site", "delete", "app.example.com"}},
-		{what: "cert", argv: []string{"cert", "issue", "app.example.com"}},
+		{what: "cert", argv: []string{"cert", "issue", "app.example.com"},
+			kept: "A certificate is the exception: it is not revoked."},
 	}}
 	s.rehearse(p)
 
@@ -94,10 +95,22 @@ func TestADryRunPrintsThePlanRatherThanFailingOnIt(t *testing.T) {
 			t.Errorf("the rehearsal does not mention %q:\n%s", want, got)
 		}
 	}
-	// Two of the three steps are undoable; the certificate is not, and counting it would
-	// promise to take back something this command will not take back.
-	if !strings.Contains(got, "the 2 things before it would be removed") {
-		t.Errorf("the rehearsal miscounts what it would undo:\n%s", got)
+	if !strings.Contains(got, "everything created before it would be removed") {
+		t.Errorf("the rehearsal does not say what a failure would take back:\n%s", got)
+	}
+	// A step that is not taken back has to be named, or a preview that promises everything
+	// comes back is read as covering the certificate too.
+	if !strings.Contains(got, "A certificate is the exception") {
+		t.Errorf("the rehearsal does not name the step it will not undo:\n%s", got)
+	}
+	// And it must not put a number on it. How many things come back depends on which step
+	// fails; the first version said "the 3 things before it" about a three-step plan, where
+	// the most that can ever be removed is two.
+	for _, wrong := range []string{"1 thing before", "2 things before", "3 things before"} {
+		if strings.Contains(got, wrong) {
+			t.Errorf("the rehearsal counts what it would undo (%q), which is only ever right "+
+				"for one of the steps:\n%s", wrong, got)
+		}
 	}
 	// It must not claim to have checked what it did not check.
 	if strings.Contains(got, "would succeed") || strings.Contains(got, "will work") {
