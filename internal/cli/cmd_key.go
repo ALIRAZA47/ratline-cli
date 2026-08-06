@@ -294,7 +294,7 @@ func newKeyAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&command, "command", "", "Named preset from config: sftp-only, rsync-only or git-only")
 	f.BoolVar(&allowDuplicate, "allow-duplicate", false, "Permit a fingerprint that is already installed elsewhere")
 	f.StringVar(&isolation, "isolation", "", "Site scope only: default, or strict to add a chroot (needs features.strict_isolation)")
-	return Mutating(cmd)
+	return OwnWizard(Mutating(cmd))
 }
 
 // addUserKeys installs the keys given to `user add` at user scope.

@@ -107,7 +107,7 @@ func (g *Globals) bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&g.Verbose, "verbose", "v", false, "Debug logging")
 	fs.BoolVar(&g.DryRun, "dry-run", false, "Print every mutation without making it")
 	fs.BoolVarP(&g.Yes, "yes", "y", false, "Assume yes; required for destructive operations without a terminal")
-	fs.BoolVarP(&g.Interactive, "interactive", "i", false, "Prompt for whatever was not supplied as a flag")
+	fs.BoolVarP(&g.Interactive, "interactive", "i", false, "Ask which options to set before running (arguments are still required)")
 	fs.BoolVar(&g.NoInput, "no-input", false, "Never prompt; fail instead (implied when stdout is not a terminal)")
 	fs.StringVar(&g.ConfigPath, "config", "", "Configuration file (default "+config.DefaultPath+")")
 }
@@ -203,6 +203,60 @@ func (g *Globals) setup(cmd *cobra.Command) error {
 	}
 	if g.DryRun {
 		g.Log.Info("dry run: no changes will be made")
+	}
+	return g.collectInteractively(cmd)
+}
+
+// collectInteractively honours -i on every command.
+//
+// The flag is global and its help said "prompt for whatever was not supplied as a flag",
+// which was true of four commands out of ninety-nine. Everywhere else it parsed, set a
+// field, and nothing read it — so an operator who reached for it got silence and then the
+// usual usage error.
+//
+// It offers the command's own flags, the same picker the menu uses, and writes the answers
+// into the flagset. What runs afterwards is exactly what would have run had the flags been
+// typed: no second path through the logic, which is the property that stops the interactive
+// surface drifting away from the real one.
+//
+// Positional arguments are not collected here and the flag's help no longer implies they
+// are. Cobra validates Args before any PreRun hook, so a missing <domain> has already been
+// refused by the time this runs — filling it in would mean reimplementing argument
+// validation to get one prompt.
+func (g *Globals) collectInteractively(cmd *cobra.Command) error {
+	switch {
+	case !g.Interactive, !g.CanPrompt(), g.completionMode:
+		return nil
+	case annotated(cmd, AnnoOwnWizard):
+		// It asks for more than flags, and asking twice is worse than not asking.
+		return nil
+	case len(cmd.Commands()) > 0:
+		// A group; `ratline db -i` has nothing of its own to collect.
+		return nil
+	}
+	p := newPrompter(g)
+	p.heading(cmd.CommandPath())
+	if cmd.Short != "" {
+		p.note("%s", cmd.Short)
+	}
+	chosen, err := askOptions(p, cmd)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(chosen); i++ {
+		name := strings.TrimPrefix(chosen[i], "--")
+		f := cmd.Flags().Lookup(name)
+		if f == nil {
+			continue
+		}
+		value := "true"
+		if !isBoolFlag(f) && i+1 < len(chosen) {
+			i++
+			value = chosen[i]
+		}
+		if err := cmd.Flags().Set(name, value); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeUsage, "--%s", name)
+		}
 	}
 	return nil
 }

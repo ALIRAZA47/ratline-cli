@@ -229,7 +229,7 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.ClientMaxBodySize, "client-max-body-size", "", "Upload limit, e.g. 20M")
 	f.BoolVar(&opts.HSTS, "hsts", false, "Send Strict-Transport-Security (only with a trusted certificate)")
 	f.StringSliceVar(&relax, "relax", nil, "Turn off a named systemd hardening directive for this site")
-	return Mutating(cmd)
+	return OwnWizard(Mutating(cmd))
 }
 
 func newSiteListCommand(g *Globals) *cobra.Command {

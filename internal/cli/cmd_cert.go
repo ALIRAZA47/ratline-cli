@@ -168,7 +168,7 @@ func newCertIssueCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&opts.Force, "force", false, "Re-issue even if a valid certificate exists, and proceed past preflight")
 	f.BoolVar(&noAttach, "no-attach", false, "Obtain the certificate without pointing the vhost at it")
 	f.BoolVar(&opts.CertbotDryRun, "dry-run", false, "Validate fully without issuing, and without spending budget")
-	return Mutating(cmd)
+	return OwnWizard(Mutating(cmd))
 }
 
 // printPreflight shows the checks, failures first.

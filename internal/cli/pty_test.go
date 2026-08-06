@@ -265,3 +265,24 @@ func stripANSI(s string) string {
 }
 
 var _ = bufio.NewReader
+
+// -i has to be wired into setup, not merely implemented.
+//
+// The buffer-driven test calls collectInteractively directly, which proves it works and
+// not that anything calls it: removing the call from setup left every test passing. It
+// cannot be covered over buffers either, because resolve() recomputes the TTY flags from
+// the real streams — so a strings.Builder is correctly judged not to be a terminal and the
+// collector correctly declines to prompt. A real pty is the only way to see the wiring.
+//
+// `explain` is the one leaf that runs without root, a config file or a state database.
+func TestInteractiveFlagIsWiredIntoSetup(t *testing.T) {
+	bin := buildTestBinary(t)
+
+	// "..done" leaves the option picker immediately, so this asserts the picker appeared
+	// rather than exercising the prompting again.
+	got := runOnPTY(t, bin, nil, "..done\n", "explain", "-i", "layout")
+
+	if !strings.Contains(got, "--raw") {
+		t.Errorf("-i did not offer the command's options, so it is a no-op again:\n%s", got)
+	}
+}

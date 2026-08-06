@@ -142,7 +142,7 @@ func newUserAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&quota, "quota", "", "Disk quota, e.g. 20G (needs filesystem quota support)")
 	f.StringVar(&memoryMax, "memory-max", "", "Default memory ceiling inherited by this user's sites, e.g. 512M")
 	f.StringVar(&comment, "comment", "", "Description recorded in /etc/passwd")
-	return Mutating(cmd)
+	return OwnWizard(Mutating(cmd))
 }
 
 func loginDescription(u *state.User) string {

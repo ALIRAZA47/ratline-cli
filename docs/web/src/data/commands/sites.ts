@@ -590,6 +590,7 @@ done`,
       description: [
         '.env lives at /home/<user>/<domain>/.env, mode 0600 owned by the site user, and is loaded by systemd’s EnvironmentFile= — read as root before privileges are dropped, which is why the file can be 0600 and the app can still see it. It is never inside a directory nginx can serve, and nginx additionally denies dotfiles.',
         'Values are masked in `env list` unless --reveal, and redacted in logs and errors. Names must match ^[A-Za-z_][A-Za-z0-9_]*$.',
+        '`env set` takes KEY=VALUE, and also a bare KEY — which it asks for, without echoing what you type. Prefer the bare form for anything secret: KEY=VALUE puts the value in argv, world-readable through /proc/PID/cmdline for as long as the command runs, and then in your shell history, which outlives the secret. KEY=VALUE is still the clearer thing to write for LOG_LEVEL=info.',
       ],
       flags: [
         {
@@ -623,8 +624,15 @@ done`,
       ],
       examples: [
         {
+          title: 'A secret: name it, and paste the value at the prompt',
           lang: 'shell',
-          code: `ratline site env set api.example.com DATABASE_URL=postgres://localhost/acme LOG_LEVEL=info
+          code: `ratline site env set api.example.com DATABASE_URL
+DATABASE_URL (not echoed): ▏`,
+        },
+        {
+          lang: 'shell',
+          title: 'Not a secret: KEY=VALUE is clearer',
+          code: `ratline site env set api.example.com LOG_LEVEL=info
 ratline site env list api.example.com
 ratline site env list api.example.com --reveal`,
         },

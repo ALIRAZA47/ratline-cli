@@ -167,7 +167,7 @@ Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
   -h, --help            help for ratline
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -213,7 +213,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -257,7 +257,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -310,7 +310,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -353,7 +353,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -387,7 +387,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -419,7 +419,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -446,7 +446,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -489,7 +489,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -546,7 +546,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -596,7 +596,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -641,7 +641,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -674,7 +674,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -v, --verbose         Debug logging
@@ -713,7 +713,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -750,7 +750,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -780,7 +780,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -803,7 +803,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -840,7 +840,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -869,7 +869,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -895,7 +895,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -924,7 +924,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -951,7 +951,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -973,7 +973,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -995,7 +995,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1017,7 +1017,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1044,7 +1044,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1069,7 +1069,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1103,7 +1103,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1144,7 +1144,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1182,7 +1182,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1209,7 +1209,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1239,7 +1239,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1265,7 +1265,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1290,7 +1290,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1317,7 +1317,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1339,7 +1339,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1362,7 +1362,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1390,7 +1390,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1450,7 +1450,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1483,7 +1483,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1505,7 +1505,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1527,7 +1527,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1549,7 +1549,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1571,7 +1571,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1593,7 +1593,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1615,7 +1615,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1637,7 +1637,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1659,7 +1659,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1686,7 +1686,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1718,7 +1718,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1744,7 +1744,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1782,7 +1782,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1815,7 +1815,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1848,7 +1848,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1878,7 +1878,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1912,7 +1912,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1937,7 +1937,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -1982,7 +1982,7 @@ Flags:
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2016,7 +2016,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2038,7 +2038,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2062,7 +2062,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2084,7 +2084,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2119,7 +2119,7 @@ Flags:
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2142,7 +2142,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2168,7 +2168,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2201,7 +2201,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2231,7 +2231,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2258,7 +2258,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2286,7 +2286,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2312,7 +2312,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2336,7 +2336,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2360,7 +2360,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2386,7 +2386,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2423,7 +2423,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2460,7 +2460,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2491,7 +2491,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2518,7 +2518,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2558,7 +2558,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2592,7 +2592,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2615,7 +2615,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2644,7 +2644,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2675,7 +2675,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2704,7 +2704,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2729,7 +2729,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2757,7 +2757,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2788,7 +2788,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2817,7 +2817,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2843,7 +2843,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2870,7 +2870,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2897,7 +2897,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2920,7 +2920,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2944,7 +2944,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2970,7 +2970,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -2996,7 +2996,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3018,7 +3018,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3040,7 +3040,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3062,7 +3062,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3073,10 +3073,18 @@ Global Flags:
 ##### `ratline site env set`
 
 ```
-Set one or more variables and restart the service
+KEY=VALUE sets a value directly. A bare KEY is asked for instead, without
+echoing what you type — which is how a secret should be set from a terminal.
+
+An environment variable is usually a credential, and KEY=VALUE puts it in argv:
+world-readable through /proc for as long as the command runs, and then in your
+shell history, which outlives the secret. That form is still there for the
+LOG_LEVEL=info case, where it is the clearer thing to write.
+
+With no assignments at all, it asks for names until you enter a blank one.
 
 Usage:
-  ratline site env set <domain> KEY=VALUE [KEY=VALUE ...] [flags]
+  ratline site env set <domain> [KEY=VALUE | KEY ...] [flags]
 
 Flags:
   -h, --help    help for set
@@ -3085,7 +3093,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3093,10 +3101,14 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Examples:
+  # not a secret: say it outright
   ratline site env set api.example.com LOG_LEVEL=info
 
-  # a secret, kept out of the process table and the shell history
-  printf 'DATABASE_URL=%s' "$url" | ratline site env set api.example.com --stdin
+  # a secret: name it, and paste the value at the prompt
+  ratline site env set api.example.com DATABASE_URL
+
+  # for automation, where there is no terminal
+  ratline site env set api.example.com --stdin < vars.env
 ```
 
 ##### `ratline site env get`
@@ -3114,7 +3126,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3136,7 +3148,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3159,7 +3171,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3182,7 +3194,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3205,7 +3217,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3227,7 +3239,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3250,7 +3262,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3275,7 +3287,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3297,7 +3309,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3319,7 +3331,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3341,7 +3353,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3363,7 +3375,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3386,7 +3398,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3417,7 +3429,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3451,7 +3463,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3483,7 +3495,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3515,7 +3527,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only
@@ -3550,7 +3562,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-  -i, --interactive     Prompt for whatever was not supplied as a flag
+  -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
   -q, --quiet           Errors only

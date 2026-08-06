@@ -268,6 +268,27 @@ if "$RATLINE" site add api.test --user alice --runtime python \
     contains "env list masks values" "•" "$("$RATLINE" site env list api.test)"
     contains "env list --reveal shows them" "debug" "$("$RATLINE" site env list api.test --reveal)"
 
+    # A bare KEY is asked for instead of being passed in argv. That is the whole point:
+    # an environment variable is usually a credential, and KEY=VALUE is world-readable
+    # through /proc for as long as the command runs, then lives in the shell history.
+    #
+    # `script` gives the command a real pty, because the prompt is refused without one —
+    # which is itself the behaviour automation depends on, asserted just below.
+    if command -v script >/dev/null 2>&1; then
+        printf 'sk-live-not-in-argv\n' | \
+            script -qec "$RATLINE site env set api.test API_TOKEN" /dev/null >/dev/null 2>&1
+        contains "a bare KEY is prompted for and stored" \
+            "sk-live-not-in-argv" "$("$RATLINE" site env list api.test --reveal)"
+        contains "and it is masked by default" "•" "$("$RATLINE" site env list api.test)"
+    else
+        bad "script is not installed" "the interactive env path cannot be tested"
+    fi
+    # Without a terminal it must refuse rather than block on a read that never returns.
+    refute "a bare KEY with no terminal is refused, not hung" \
+        sh -c "$RATLINE site env set api.test SOME_TOKEN </dev/null"
+    contains "and it names the two ways in" "--stdin" \
+        "$("$RATLINE" site env set api.test SOME_TOKEN </dev/null 2>&1 || true)"
+
     # Isolation: alice's service must not be able to read bob's home.
     check "bob has a home" test -d /home/bob
     echo secret > /home/bob/secret.txt

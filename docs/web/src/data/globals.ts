@@ -47,7 +47,8 @@ export const globalFlags: Flag[] = [
     type: 'bool',
     default: 'false',
     description:
-      'Launch the guided wizard, prompting only for what was not supplied as a flag.',
+      'Ask which options to set before running. Works on every command.',
+    note: 'Four commands — user add, site add, cert issue, key add — have richer wizards that also suggest a runtime or read a key from a URL, and -i runs those instead. Everywhere else it offers the command’s own flags, the same list the bare-`ratline` menu shows, and writes the answers into the flagset so what runs is exactly what would have run had you typed them. Positional arguments are still required on the command line: cobra validates those before any prompt could happen.',
   },
   {
     name: '--no-input',

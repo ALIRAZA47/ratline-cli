@@ -38,11 +38,11 @@ export function ConceptInteractive() {
               ],
               [
                 <code key="b" className="font-mono text-xs">ratline &lt;command&gt; -i</code>,
-                'The wizard for that command, pre-filled with the flags already supplied. It only asks about what is missing.',
+                'Asks which options to set, then runs it. Works on every command: the list comes from the command’s own flags. Four commands — user add, site add, cert issue, key add — have richer wizards that also suggest a runtime or fetch a key, and -i runs those instead.',
               ],
               [
                 'Missing required flags, on a TTY',
-                'An offer rather than a usage dump: “Missing --user and --runtime. Run with -i for a guided setup, or see \'ratline site add --help\'.”',
+                'It asks for them, one question each, and writes the answers into the flagset — so what runs is exactly what would have run had the flags been typed. Without a terminal it is unchanged: exit 2, naming every missing flag at once.',
               ],
               [
                 <span key="c">

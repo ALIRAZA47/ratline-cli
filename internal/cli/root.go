@@ -34,6 +34,13 @@ const (
 	// AnnoSkipLock marks a mutating command that must not take the lock,
 	// for the certbot deploy hook, which runs while an issue command holds it.
 	AnnoSkipLock = "ratline_skip_lock"
+	// AnnoOwnWizard marks a command that collects its own input interactively.
+	//
+	// Four commands have hand-written wizards that do more than ask for flags —
+	// `site add` sniffs the project to suggest a runtime, `key add` reads a public key
+	// from a file or a URL. The generic -i collector must leave those alone, or an
+	// operator gets asked for everything twice.
+	AnnoOwnWizard = "ratline_own_wizard"
 )
 
 // Mutating marks a command as changing state.
@@ -44,6 +51,9 @@ func NonRoot(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoAllow
 
 // SkipLock marks a mutating command that must not take the global lock.
 func SkipLock(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoSkipLock) }
+
+// OwnWizard marks a command that collects its own input under -i.
+func OwnWizard(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoOwnWizard) }
 
 func annotate(cmd *cobra.Command, key string) *cobra.Command {
 	if cmd.Annotations == nil {

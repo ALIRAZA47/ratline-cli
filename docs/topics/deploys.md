@@ -43,11 +43,22 @@ compromised CI credential reaches one repository and one site.
 
 ## Secrets
 
-    ratline site env set app.example.com DATABASE_URL --stdin
+    ratline site env set app.example.com DATABASE_URL
+    DATABASE_URL (not echoed): ▏
 
-`--stdin` because a value in argv is visible in `ps` output to every user on the
-machine for as long as the command runs. Values are redacted in logs, in errors and
-in `env list` unless `--reveal` is passed. `.env` is `0600` and lives outside the
-document root, so nginx has no path by which it could serve it.
+Naming the variable without a value is the prompt: what you paste is not echoed, and it
+does not reach argv or your shell history. `--stdin` does the same job where there is no
+terminal to ask on:
+
+    ratline site env set app.example.com --stdin < vars.env
+
+Both exist because a value in argv is visible in `ps` output to every user on the
+machine for as long as the command runs — and then in your shell history, which
+outlives the secret. `KEY=VALUE` still works and is the clearer thing to write for
+something like `LOG_LEVEL=info`.
+
+Values are redacted in logs, in errors and in `env list` unless `--reveal` is passed.
+`.env` is `0600` and lives outside the document root, so nginx has no path by which it
+could serve it.
 
 See also: `ratline explain node`, `ratline explain diagnose`.

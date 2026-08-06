@@ -147,12 +147,22 @@ func newSiteEnvCommand(g *Globals) *cobra.Command {
 func newEnvSetCommand(g *Globals) *cobra.Command {
 	var fromStdin bool
 	cmd := &cobra.Command{
-		Use:   "set <domain> KEY=VALUE [KEY=VALUE ...]",
+		Use:   "set <domain> [KEY=VALUE | KEY ...]",
 		Short: "Set one or more variables and restart the service",
-		Args:  cobra.MinimumNArgs(1),
-		Example: "  ratline site env set api.example.com LOG_LEVEL=info\n\n" +
-			"  # a secret, kept out of the process table and the shell history\n" +
-			"  printf 'DATABASE_URL=%s' \"$url\" | ratline site env set api.example.com --stdin",
+		Long: "KEY=VALUE sets a value directly. A bare KEY is asked for instead, without\n" +
+			"echoing what you type — which is how a secret should be set from a terminal.\n\n" +
+			"An environment variable is usually a credential, and KEY=VALUE puts it in argv:\n" +
+			"world-readable through /proc for as long as the command runs, and then in your\n" +
+			"shell history, which outlives the secret. That form is still there for the\n" +
+			"LOG_LEVEL=info case, where it is the clearer thing to write.\n\n" +
+			"With no assignments at all, it asks for names until you enter a blank one.",
+		Args: cobra.MinimumNArgs(1),
+		Example: "  # not a secret: say it outright\n" +
+			"  ratline site env set api.example.com LOG_LEVEL=info\n\n" +
+			"  # a secret: name it, and paste the value at the prompt\n" +
+			"  ratline site env set api.example.com DATABASE_URL\n\n" +
+			"  # for automation, where there is no terminal\n" +
+			"  ratline site env set api.example.com --stdin < vars.env",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st, err := g.Store(cmd.Context())
 			if err != nil {
@@ -175,8 +185,28 @@ func newEnvSetCommand(g *Globals) *cobra.Command {
 				}
 			}
 			if len(assignments) == 0 {
-				return rlerr.Usagef("no assignments were given").
-					WithHint("pass KEY=VALUE, or --stdin and pipe them in")
+				if !g.CanPrompt() {
+					return rlerr.Usagef("no assignments were given").
+						WithHint("pass KEY=VALUE, a bare KEY to be asked for the value, " +
+							"or --stdin and pipe them in")
+				}
+				// Nothing named: ask for names until the operator stops. The value is
+				// read without echo either way, because whether a variable is a secret
+				// is not something ratline can tell from its name.
+				p := newPrompter(g)
+				for {
+					key, err := p.ask("Variable name (blank to finish):", "", nil)
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(key) == "" {
+						break
+					}
+					assignments = append(assignments, strings.TrimSpace(key))
+				}
+				if len(assignments) == 0 {
+					return ErrCancelled
+				}
 			}
 
 			e, err := g.openEnvFile(site)
@@ -187,7 +217,25 @@ func newEnvSetCommand(g *Globals) *cobra.Command {
 			for _, a := range assignments {
 				key, value, ok := strings.Cut(a, "=")
 				if !ok {
-					return rlerr.Usagef("%q is not a KEY=VALUE assignment", log.Redacted)
+					// A bare KEY means "ask me for the value", which used to be a usage
+					// error. It is the safe way to set a secret from a terminal: an
+					// environment variable is usually a credential, and KEY=VALUE puts it
+					// in argv — world-readable through /proc for as long as the command
+					// runs, and then in your shell history, which outlives the secret.
+					if !g.CanPrompt() {
+						return rlerr.Usagef("%q is not a KEY=VALUE assignment", log.Redacted).
+							WithHint("on a terminal, pass the name alone and ratline asks for the "+
+								"value without echoing it:\n"+
+								"        ratline site env set %s SECRET_KEY\n\n"+
+								"        For automation, pipe the assignments in:\n"+
+								"        ratline site env set %s --stdin < vars.env",
+								site.Domain, site.Domain)
+					}
+					key = a
+					var err error
+					if value, err = g.readSecret(key + " (not echoed): "); err != nil {
+						return err
+					}
 				}
 				if err := e.set(key, value); err != nil {
 					return err
