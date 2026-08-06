@@ -126,3 +126,12 @@ environment. No script is built from user input and the admin URI never appears 
   the test fail, put it back. Several tests here passed because the command refused before
   ever reaching the code under test — and a mutation test only counts if the mutation
   actually applied, which is worth checking before believing the result.
+- **Assert the property, not the exit code, when which step fails depends on the
+  environment.** A composite whose steps can each fail exits 2 or 3 depending on whether a
+  runtime tarball downloaded, so pinning the code made an unwind test pass or fail on the
+  network while saying nothing about unwinding. What must hold in every case — nothing left
+  behind — is the thing to check.
+- **A command that composes other commands cannot rehearse itself by running them with
+  `--dry-run`.** Each step preconditions on the previous one having really happened, so the
+  second is told "no such user" and the preview reports a failure for something perfectly
+  buildable. Resolve the plan without executing it and print that.
