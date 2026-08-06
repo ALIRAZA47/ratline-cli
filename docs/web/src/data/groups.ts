@@ -6,6 +6,7 @@ import { databases } from './commands/databases';
 import { runtimes } from './commands/runtimes';
 import { configuration } from './commands/configuration';
 import { ops } from './commands/ops';
+import { provision } from './commands/provision';
 import type { Command, CommandGroup } from './types';
 
 /**
@@ -21,6 +22,7 @@ import type { Command, CommandGroup } from './types';
  * and `kubectl apply` do, and the group page became an index.
  */
 export const commandGroups: CommandGroup[] = [
+  provision,
   users,
   keys,
   sites,

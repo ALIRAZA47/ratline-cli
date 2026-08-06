@@ -454,14 +454,44 @@ func (m *Manager) Delete(ctx context.Context, opts DeleteOptions) error {
 		}
 	}
 
-	// The account is removed with its home; the group goes with it because
-	// --user-group created it.
+	// nginx is a member of the tenant's group, so that it can read the site's public
+	// directory without the world being able to. That membership has to go first:
+	// userdel removes the primary group only when it is empty, so leaving nginx in it
+	// left the group behind — and `user add` with the same name afterwards refused with
+	// "a group named X already exists … it will not adopt a group it did not create",
+	// which is both true and maddening, because ratline had created it. Deleting a tenant
+	// and recreating it is an ordinary thing to want, and it was impossible.
+	if nginx := m.nginxUser(); nginx != "" {
+		if _, err := m.Runner.Run(ctx, system.Cmd{
+			Name: "gpasswd", Args: []string{"--delete", nginx, opts.Name},
+			Mutates: true, Label: "remove nginx from the group",
+			// 3 is "not a member", which is the state we want either way.
+			OKExit: []int{3},
+		}); err != nil {
+			m.Log.Debug("could not remove nginx from the group", "user", opts.Name, "err", err)
+		}
+	}
+
+	// The account is removed with its home, and the group with it now that it is empty.
 	if _, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "userdel", Args: []string{"--remove", opts.Name}, Mutates: true, Label: "userdel",
 		// 6 means "no such user", which is success for an idempotent delete.
 		OKExit: []int{6},
 	}); err != nil {
 		return err
+	}
+	// And if anything else was in the group, userdel still will not have taken it. A
+	// group with no user is a name that cannot be reused, so it is removed explicitly.
+	if !m.DryRun {
+		if _, err := m.Runner.Run(ctx, system.Cmd{
+			Name: "groupdel", Args: []string{opts.Name}, Mutates: true, Label: "groupdel",
+			// 6 is "no such group": userdel already took it, which is the common case.
+			OKExit: []int{6, 8},
+		}); err != nil {
+			m.Log.Warn("the tenant's group is still there; creating a user with this name "+
+				"again will refuse until it is removed",
+				"group", opts.Name, "fix", "groupdel "+opts.Name)
+		}
 	}
 	// userdel leaves the home behind if anything under it is busy, and a
 	// residual home is exactly what `site delete --purge` is checked against.
@@ -547,3 +577,11 @@ func (m *Manager) SetPassword(ctx context.Context, name, password string) error 
 	u.PasswordLogin = true
 	return m.State.PutUser(ctx, u)
 }
+
+// nginxUser is the account nginx runs as, which is added to every tenant's group so it can
+// read that tenant's public directory without the world being able to.
+//
+// Empty means grantNginxGroup added nobody, so there is nobody to remove. Defaulting to
+// www-data here instead would have the delete path act on a membership the add path never
+// created, on exactly the servers that configured it away.
+func (m *Manager) nginxUser() string { return m.Cfg.Users.NginxUser }

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
 )
 
@@ -36,11 +39,33 @@ func TestTheSchemaDescribesTheRealCommandTree(t *testing.T) {
 	if leaves < 50 {
 		t.Errorf("only %d leaf commands in the schema; the walk is not reaching the tree", leaves)
 	}
-	// The audit found thirteen enforced flags. A schema that reports none would look
-	// perfectly healthy while telling an agent that nothing is required.
-	if required != 13 {
-		t.Errorf("required flags in the schema = %d, want 13 — the same set "+
-			"TestEveryEnforcedFlagIsMarkedRequired counts", required)
+	// The schema's required set must be exactly what the command tree says is required.
+	//
+	// Pinning a number here meant adding a command with a required flag broke this test
+	// for no reason, and tempted whoever hit it to raise the number without checking. The
+	// pair is what matters: a schema that reports nothing required would look perfectly
+	// healthy while telling an agent it may omit --owner.
+	inTree := 0
+	var count func(c *cobra.Command)
+	count = func(c *cobra.Command) {
+		c.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
+			if requiredFlag(f) && !f.Hidden {
+				inTree++
+			}
+		})
+		for _, child := range runnableChildren(c) {
+			count(child)
+		}
+	}
+	for _, c := range runnableChildren(NewRootCommand(&Globals{})) {
+		count(c)
+	}
+	if required != inTree {
+		t.Errorf("the schema reports %d required flags, the command tree has %d — "+
+			"an agent is being told the wrong thing about what it may omit", required, inTree)
+	}
+	if required == 0 {
+		t.Error("no required flags at all; the annotation is not reaching the schema")
 	}
 	if len(s.Exits) != 11 {
 		t.Errorf("exit codes = %d, want 11", len(s.Exits))

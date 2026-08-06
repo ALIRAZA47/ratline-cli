@@ -136,6 +136,7 @@ SSH KEYS
 
 SITES
   site         Create and manage sites
+  new          Provision a whole stack in one command
 
 CERTIFICATES
   cert         Issue, attach, renew and import TLS certificates
@@ -320,6 +321,49 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Use "ratline site [command] --help" for more information about a command.
+```
+
+### `ratline new`
+
+```
+A tenant, a site, optionally a database and a certificate — in one command, with
+defaults that suit the runtime.
+
+All of it is possible with four commands. The difference is what happens when one
+of them fails: four commands leave you a tenant and a site and no database, and a
+command that has already exited. This removes everything it created and tells you
+what it removed.
+
+Each step is the same command you would have typed, so nothing here can develop
+its own idea of what a site is. The equivalent commands are printed at the end.
+
+Usage:
+  ratline new [command]
+
+Available Commands:
+  node        A tenant, a Node site and optionally a database, in one command
+  python      A tenant, a Python site and optionally a database, in one command
+  static      A tenant and a static site, in one command
+
+Flags:
+  -h, --help   help for new
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline new node app.example.com --user acme --with-db
+  ratline new python api.example.com --user acme --app-module app.main:app --asgi
+  ratline new static www.example.com --user acme --spa --tls --email ops@example.com
+
+Use "ratline new [command] --help" for more information about a command.
 ```
 
 ### `ratline cert`
@@ -2020,6 +2064,145 @@ Global Flags:
 
 Examples:
   ratline site troubleshoot app.example.com
+```
+
+#### `ratline new node`
+
+```
+Defaults suited to a Node application: PM2 supervision, a Unix socket, and the
+package manager detected from the lockfile.
+
+A framework that cannot bind a socket — Next.js standalone is the common one —
+needs --listen port.
+
+Usage:
+  ratline new node <domain> [flags]
+
+Flags:
+      --build-command string     Build command; a multi-step build belongs in a script
+      --db-env-key string        Variable the connection string is written to (default MONGODB_URI)
+      --db-name string           Name for that database (default: derived from the domain)
+      --email string             ACME contact address, for --tls
+      --entry string             The file that starts the server (default "server.js")
+  -h, --help                     help for node
+      --install-command string   Dependency install command
+      --instances int            PM2 cluster workers
+      --listen string            socket (default) or port
+      --node string              Managed Node version, e.g. 24
+      --package-manager string   npm, pnpm, yarn or bun (detected from the lockfile)
+      --public string            Directory nginx serves directly, bypassing the application
+      --ssh-key string           Public key for the tenant: the key itself, a path, or an https URL
+      --tls                      Also issue a certificate; DNS must already point here
+      --user string              Tenant that owns this site; created if it does not exist (required)
+      --with-db                  Also create a MongoDB database and attach it to the site
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline new node app.example.com --user acme --with-db
+
+  # Next.js standalone
+  ratline new node app.example.com --user acme --listen port \
+      --entry .next/standalone/server.js --build-command ./bin/build
+```
+
+#### `ratline new python`
+
+```
+Defaults suited to a Python application: a virtualenv, Gunicorn on a Unix socket,
+and workers derived from the CPU count.
+
+--asgi for FastAPI, Starlette or Django's asgi.py; leave it off for Flask and for
+Django's wsgi.py.
+
+Usage:
+  ratline new python <domain> [flags]
+
+Flags:
+      --app-module string     Import path of the callable, e.g. app.main:app (required)
+      --asgi                  Treat the application as ASGI
+      --db-env-key string     Variable the connection string is written to (default MONGODB_URI)
+      --db-name string        Name for that database (default: derived from the domain)
+      --email string          ACME contact address, for --tls
+  -h, --help                  help for python
+      --manage-py string      Django manage.py, enabling --migrate and --collectstatic on deploys
+      --python string         Managed Python version, e.g. 3.12
+      --requirements string   Requirements file
+      --server string         gunicorn (default) or uvicorn
+      --ssh-key string        Public key for the tenant: the key itself, a path, or an https URL
+      --static-dir string     Directory nginx serves directly
+      --static-url string     URL prefix for it
+      --tls                   Also issue a certificate; DNS must already point here
+      --user string           Tenant that owns this site; created if it does not exist (required)
+      --with-db               Also create a MongoDB database and attach it to the site
+      --workers int           Gunicorn workers
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline new python api.example.com --user acme --app-module app.main:app --asgi --with-db
+
+  # Django
+  ratline new python site.example.com --user acme \
+      --app-module project.wsgi:application --manage-py manage.py
+```
+
+#### `ratline new static`
+
+```
+No unit, no socket, nothing running: nginx serves the files and that is all.
+
+--spa serves the index document for unmatched paths, which is what a client-side
+router needs and what a plain static site must not have.
+
+Usage:
+  ratline new static <domain> [flags]
+
+Flags:
+      --build-command string   Build command
+      --build-output string    Directory the build writes, published as the document root
+      --db-env-key string      Variable the connection string is written to (default MONGODB_URI)
+      --db-name string         Name for that database (default: derived from the domain)
+      --email string           ACME contact address, for --tls
+  -h, --help                   help for static
+      --index string           Index document (default index.html)
+      --root string            Document root under the site directory (default public)
+      --spa                    Serve the index document for unmatched paths
+      --ssh-key string         Public key for the tenant: the key itself, a path, or an https URL
+      --tls                    Also issue a certificate; DNS must already point here
+      --user string            Tenant that owns this site; created if it does not exist (required)
+      --with-db                Also create a MongoDB database and attach it to the site
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline new static www.example.com --user acme --tls --email ops@example.com
+  ratline new static app.example.com --user acme --spa \
+      --build-command 'npm run build' --build-output dist
 ```
 
 #### `ratline cert issue`

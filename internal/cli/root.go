@@ -175,6 +175,7 @@ func NewRootCommand(g *Globals) *cobra.Command {
 		newSiteCommand(g),
 		newCertCommand(g),
 		newRuntimeCommand(g),
+		newNewCommand(g),
 		newSchemaCommand(g),
 		newMCPCommand(g),
 		newInitCommand(g),
