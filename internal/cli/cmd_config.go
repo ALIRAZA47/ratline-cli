@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -342,12 +343,20 @@ func newConfigEditCommand(g *Globals) *cobra.Command {
 			// Edited in ratline's own run directory rather than beside the real file, so a
 			// crashed editor cannot leave a half-written config.yaml.tmp that a later
 			// reconcile mistakes for something managed.
+			// One level down, for the reason in mongo.stageScript: paths.run_dir is the
+			// shared parent of every site's socket directory, and creating it 0750
+			// root-owned locks every tenant out of binding its own socket.
 			dir := g.Cfg.Paths.RunDir
 			if dir == "" {
 				dir = os.TempDir()
-			}
-			if _, err := system.EnsureDir(dir, 0o750, system.KeepUnchanged, system.KeepUnchanged); err != nil {
-				return err
+			} else {
+				if _, err := system.EnsureDir(dir, 0o755, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+					return err
+				}
+				dir = filepath.Join(dir, "staging")
+				if _, err := system.EnsureDir(dir, 0o700, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+					return err
+				}
 			}
 			tmp, err := os.CreateTemp(dir, "config-*.yaml")
 			if err != nil {

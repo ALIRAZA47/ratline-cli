@@ -89,13 +89,19 @@ func (n Node) Install(ctx context.Context, c *Context) error {
 	}
 	// The managed Node's bin directory has to be first on PATH so that a
 	// lifecycle script calling `node` gets the same interpreter the service will.
-	env := system.UserEnv(c.Identity,
-		"PATH="+filepath.Dir(nodeBin)+":"+system.DefaultPath,
-		"NODE_ENV=production",
+	// NODE_ENV=production makes npm skip devDependencies whatever the flags say, so it
+	// is set only when they are genuinely unwanted. The build step still gets it, which
+	// is where frameworks actually key their production output off it.
+	envv := []string{
+		"PATH=" + filepath.Dir(nodeBin) + ":" + system.DefaultPath,
 		"npm_config_fund=false",
 		"npm_config_audit=false",
 		"npm_config_update_notifier=false",
-	)
+	}
+	if c.Site.BuildCommand == "" {
+		envv = append(envv, "NODE_ENV=production")
+	}
+	env := system.UserEnv(c.Identity, envv...)
 	_, err = runAsOwner(ctx, c, system.Cmd{
 		Path:    argv[0],
 		Args:    argv[1:],
@@ -120,19 +126,49 @@ func (n Node) installArgv(c *Context, pm string) ([]string, error) {
 		return append([]string{resolveProgram(parsed.Argv[0], c)}, parsed.Argv[1:]...), nil
 	}
 	hasLock := func(name string) bool { return system.Exists(filepath.Join(c.AppDir, name)) }
+
+	// Dev dependencies are build dependencies.
+	//
+	// Every install was production-only — npm --omit=dev, pnpm --prod, yarn and bun
+	// --production — which is right for a site that ships what it committed, and wrong
+	// for one that builds. Tailwind, TypeScript, PostCSS, Vite and webpack all live in
+	// devDependencies, so a Next.js site failed its build with
+	//
+	//	Cannot find module '@tailwindcss/postcss'
+	//
+	// on a server where the install had just reported success. Practically no modern
+	// Node project could be built at all.
+	//
+	// So: omit them only when there is nothing to build. They stay on disk afterwards —
+	// pruning risks removing something the built output turns out to need at runtime,
+	// and a wrong prune fails at request time rather than at deploy time.
+	needsDev := c.Site.BuildCommand != ""
+
 	switch pm {
 	case "pnpm":
+		argv := []string{resolveProgram("pnpm", c), "install"}
 		if hasLock("pnpm-lock.yaml") {
-			return []string{resolveProgram("pnpm", c), "install", "--frozen-lockfile", "--prod"}, nil
+			argv = append(argv, "--frozen-lockfile")
 		}
-		return []string{resolveProgram("pnpm", c), "install", "--prod"}, nil
+		if !needsDev {
+			argv = append(argv, "--prod")
+		}
+		return argv, nil
 	case "yarn":
+		argv := []string{resolveProgram("yarn", c), "install"}
 		if hasLock("yarn.lock") {
-			return []string{resolveProgram("yarn", c), "install", "--frozen-lockfile", "--production"}, nil
+			argv = append(argv, "--frozen-lockfile")
 		}
-		return []string{resolveProgram("yarn", c), "install", "--production"}, nil
+		if !needsDev {
+			argv = append(argv, "--production")
+		}
+		return argv, nil
 	case "bun":
-		return []string{resolveProgram("bun", c), "install", "--frozen-lockfile", "--production"}, nil
+		argv := []string{resolveProgram("bun", c), "install", "--frozen-lockfile"}
+		if !needsDev {
+			argv = append(argv, "--production")
+		}
+		return argv, nil
 	default:
 		npm, err := n.binary(c, "npm")
 		if err != nil {
@@ -140,10 +176,14 @@ func (n Node) installArgv(c *Context, pm string) ([]string, error) {
 		}
 		// npm ci is the reproducible install: it fails rather than silently
 		// updating the lockfile, which is what you want on a server.
+		argv := []string{npm, "install", "--no-audit", "--no-fund"}
 		if hasLock("package-lock.json") {
-			return []string{npm, "ci", "--omit=dev"}, nil
+			argv = []string{npm, "ci", "--no-audit", "--no-fund"}
 		}
-		return []string{npm, "install", "--omit=dev", "--no-audit", "--no-fund"}, nil
+		if !needsDev {
+			argv = append(argv, "--omit=dev")
+		}
+		return argv, nil
 	}
 }
 
@@ -176,10 +216,13 @@ func (n Node) Build(ctx context.Context, c *Context) error {
 	if err != nil {
 		return err
 	}
-	env := system.UserEnv(c.Identity,
-		"PATH="+filepath.Dir(nodeBin)+":"+filepath.Join(c.AppDir, "node_modules", ".bin")+":"+system.DefaultPath,
-		"NODE_ENV=production",
-	)
+	// The site's own variables, then ratline's PATH last so nothing can redirect the
+	// build to a different interpreter. NODE_ENV comes first so a project that wants a
+	// different value can say so in .env.
+	buildEnv := append([]string{"NODE_ENV=production"}, c.SiteEnv()...)
+	buildEnv = append(buildEnv,
+		"PATH="+filepath.Dir(nodeBin)+":"+filepath.Join(c.AppDir, "node_modules", ".bin")+":"+system.DefaultPath)
+	env := system.UserEnv(c.Identity, buildEnv...)
 	c.Log.Info("building", "command", c.Site.BuildCommand)
 	_, err = runAsOwner(ctx, c, system.Cmd{
 		Path:    resolveProgram(parsed.Argv[0], c),
@@ -284,9 +327,26 @@ func (n Node) directStartCommand(ctx context.Context, c *Context) (string, unit.
 			return "", opts, err
 		}
 	}
+	// A missing entry point is only a mistake once there is code to check it against.
+	//
+	// Creating the site before pushing any code is a normal workflow — a private repo, a
+	// build produced by CI, an rsync from a laptop — and it was impossible: `site add`
+	// warned "the application directory is empty … deploy your code, then run site
+	// deploy", and then failed on the entry point and rolled the directory it had just
+	// made back out of existence. The advice and the behaviour contradicted each other,
+	// and --repo was the only way through.
+	//
+	// With code present the check still fires, because then a missing entry means --entry
+	// does not match the project and that is worth catching before the unit is written.
 	if !c.DryRun && !system.Exists(entry) {
-		return "", opts, rlerr.Preconditionf("the entry point %s does not exist", entry).
-			WithHint("deploy your code first, or check --entry against your project layout")
+		if HasApplicationCode(c.AppDir) {
+			return "", opts, rlerr.Preconditionf("the entry point %s does not exist", entry).
+				WithHint("check --entry against your project layout; the application " +
+					"directory has code in it but not that file")
+		}
+		c.Log.Warn("the entry point does not exist yet, so the site is configured but not started",
+			"entry", c.Site.Entry,
+			"next", "deploy your code, then 'ratline site deploy "+c.Site.Domain+" --install --build --restart'")
 	}
 	return shellSafeJoin(nodeBin, []string{entry}), opts, nil
 }
@@ -397,9 +457,11 @@ func resolveEntry(c *Context) (string, error) {
 			return "", err
 		}
 	}
-	if !c.DryRun && !system.Exists(entry) {
+	// Same rule as buildStartCommand: only a mistake once there is code to check against.
+	if !c.DryRun && !system.Exists(entry) && HasApplicationCode(c.AppDir) {
 		return "", rlerr.Preconditionf("the entry point %s does not exist", entry).
-			WithHint("deploy your code first, or check --entry against your project layout")
+			WithHint("check --entry against your project layout; the application " +
+				"directory has code in it but not that file")
 	}
 	return entry, nil
 }

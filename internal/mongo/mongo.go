@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -231,12 +232,28 @@ func (m *Manager) stageScript() (string, error) {
 	if err != nil {
 		return "", rlerr.Wrap(err, rlerr.CodeGeneric, "reading the embedded MongoDB script")
 	}
+	// A private subdirectory, not the shared run directory itself.
+	//
+	// paths.run_dir is the parent of every site's socket directory, and each tenant has to traverse
+	// it to bind its own socket. Creating it 0750 root-owned here locked every one of
+	// them out — and because `db ping` usually runs long before the first socket site
+	// exists, the failure surfaced much later as a site that would not start:
+	//
+	//	connection to /run/ratline/<slug>/app.sock failed: [Errno 13] Permission denied
+	//
+	// So the parent stays 0755 and the staging goes one level down, where 0700 costs
+	// nobody anything.
 	dir := m.Cfg.Paths.RunDir
 	if dir == "" {
 		dir = os.TempDir()
-	}
-	if _, err := system.EnsureDir(dir, 0o750, system.KeepUnchanged, system.KeepUnchanged); err != nil {
-		return "", err
+	} else {
+		if _, err := system.EnsureDir(dir, 0o755, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+			return "", err
+		}
+		dir = filepath.Join(dir, "staging")
+		if _, err := system.EnsureDir(dir, 0o700, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+			return "", err
+		}
 	}
 	f, err := os.CreateTemp(dir, "mongo-op-*.js")
 	if err != nil {

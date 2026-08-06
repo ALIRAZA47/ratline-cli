@@ -436,6 +436,16 @@ func (m *Manager) EnsureTimers(ctx context.Context) error {
 func (m *Manager) Control(ctx context.Context, site *state.Site, verb string) error {
 	unitName := validate.UnitName(site.Owner, site.Domain)
 
+	// Whenever a unit is about to come up, not only when one is written. /run is tmpfs,
+	// so the shared socket parent may simply be absent — after a reboot, or after
+	// anything else recreated it with the wrong mode — and a restart is exactly the
+	// moment a site discovers that.
+	if verb == "start" || verb == "restart" || verb == "reload" {
+		if err := m.EnsureRuntimeDir(ctx); err != nil {
+			return err
+		}
+	}
+
 	// Clear a stale failure before trying to bring the unit up.
 	//
 	// StartLimitBurst puts a unit that has crash-looped into a state where systemd
@@ -764,4 +774,50 @@ func orDefault(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// EnsureRuntimeDir guarantees the shared parent of every site's socket directory.
+//
+// /run is tmpfs, so this directory is recreated on every boot by whatever needs it first,
+// and whatever that is decides the mode for every site. ratline itself was the culprit:
+// staging a mongosh script created it 0750 root-owned, and on a server where `db ping` ran
+// before the first socket site — which is the normal order — every later tenant was locked
+// out of a directory they must traverse to bind their own socket:
+//
+//	connection to /run/ratline/<slug>/app.sock failed: [Errno 13] Permission denied
+//
+// and nginx, which also has to reach through it, answers 502 — a symptom that points at
+// the site rather than at the directory above it.
+//
+// Two halves, because a fix that only works while ratline is running is not a fix for a
+// directory that disappears on reboot: the tmpfiles rule handles every future boot, and
+// the directory is corrected here and now for the server in front of us.
+func (m *Manager) EnsureRuntimeDir(ctx context.Context) error {
+	if m.DryRun {
+		m.Log.Info("would ensure the shared runtime directory", "path", m.Cfg.Paths.RunDir)
+		return nil
+	}
+	if _, err := system.EnsureDir(m.Cfg.Paths.RunDir, 0o755, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+		return err
+	}
+
+	body, err := templates.FS.ReadFile("tmpfiles/ratline.conf")
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "reading the embedded tmpfiles rule")
+	}
+	path := "/usr/lib/tmpfiles.d/ratline.conf"
+	if err := system.WriteFileAtomic(path, body, 0o644, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+		return err
+	}
+	// Applied now as well as at boot, so an existing server does not have to reboot to
+	// get the fix.
+	if _, err := m.Runner.Run(ctx, system.Cmd{
+		Name: "systemd-tmpfiles", Args: []string{"--create", path},
+		Mutates: true, OKExit: []int{0},
+	}); err != nil {
+		// Not fatal: the directory has already been corrected above, and the rule is on
+		// disk for the next boot whether or not this binary is present.
+		m.Log.Debug("systemd-tmpfiles could not be run", "err", err)
+	}
+	return nil
 }

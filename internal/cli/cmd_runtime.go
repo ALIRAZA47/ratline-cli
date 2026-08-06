@@ -520,6 +520,17 @@ func (g *Globals) installPython(ctx context.Context, version string) error {
 			g.Log.Info("would link the system Python", "from", candidate, "to", target)
 			return nil
 		}
+		// An interpreter that cannot make a virtualenv is not a runtime ratline can use.
+		//
+		// Debian and Ubuntu ship python3.12 and put venv in python3.12-venv, so the
+		// interpreter is present and `python -m venv` fails. Adopting it anyway reported
+		// "Python 3.12 is available … and is now managed", and the failure surfaced three
+		// commands later out of `site add`, which then rolled the whole site back. The
+		// apt path below already installs the venv package; this is the path that
+		// adopted an interpreter without checking it.
+		if err := g.ensurePythonVenv(ctx, candidate, version); err != nil {
+			return err
+		}
 		// MkdirAllMode rather than EnsureDir: EnsureDir is a single level, and on a
 		// fresh box neither .../python nor .../python/<version> exists yet, so it
 		// failed with ENOENT on the very first `runtime install python`.
@@ -613,4 +624,47 @@ func newRuntimeDefaultCommand(g *Globals) *cobra.Command {
 		},
 	}
 	return Mutating(cmd)
+}
+
+// ensurePythonVenv checks that an interpreter can actually create a virtualenv, and
+// installs the distribution's venv package if it cannot.
+//
+// `python -m venv` is the only thing ratline uses a Python runtime for, so an interpreter
+// without it is not usable however present it looks. Checked with ensurepip rather than by
+// creating a throwaway environment: it is the piece Debian splits out, and importing it
+// costs milliseconds where building a venv costs seconds on every runtime install.
+func (g *Globals) ensurePythonVenv(ctx context.Context, interpreter, version string) error {
+	works := func() bool {
+		_, err := g.Runner.Run(ctx, system.Cmd{
+			Path: interpreter, Args: []string{"-c", "import ensurepip, venv"},
+			Label: "check python venv support",
+		})
+		return err == nil
+	}
+	if works() {
+		return nil
+	}
+
+	pkg := "python" + version + "-venv"
+	if !g.Bins.Available("apt-get") {
+		return rlerr.Preconditionf("%s cannot create a virtualenv", interpreter).
+			WithHint("its venv module is missing; install this distribution's equivalent of "+
+				"%s and re-run this command", pkg)
+	}
+	g.Log.Info("the interpreter cannot create a virtualenv; installing the package that provides it",
+		"package", pkg)
+	if _, err := g.Runner.Run(ctx, system.Cmd{
+		Name: "apt-get", Args: []string{"install", "-y", pkg},
+		Mutates: true, Stream: true,
+		Timeout: g.Cfg.Runtimes.InstallTimeout.D(), Label: "apt-get install " + pkg,
+	}); err != nil {
+		return rlerr.Wrap(err, rlerr.CodePrecondition, "installing %s failed", pkg).
+			WithHint("ratline needs 'python -m venv' to work; install %s by hand and re-run", pkg)
+	}
+	if !works() {
+		return rlerr.Preconditionf("%s still cannot create a virtualenv after installing %s",
+			interpreter, pkg).
+			WithHint("check 'python%s -m venv --help' by hand", version)
+	}
+	return nil
 }

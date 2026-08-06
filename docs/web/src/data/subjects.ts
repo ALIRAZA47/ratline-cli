@@ -61,6 +61,8 @@ export const subjects: Subject[] = [
     concepts: ['/concepts/model', '/concepts/supervision'],
     topics: ['layout', 'sockets', 'static', 'node', 'python', 'deploys', 'limits'],
     guides: [
+      '/guides/deploy-node',
+      '/guides/deploy-python',
       '/guides/node',
       '/guides/fastapi',
       '/guides/nextjs',

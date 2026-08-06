@@ -240,9 +240,16 @@ func (Python) Build(ctx context.Context, c *Context) error {
 		return err
 	}
 	c.Log.Info("building", "command", c.Site.BuildCommand)
+	// The site's own variables, the same ones the service is started with. A Django
+	// collectstatic reads DJANGO_SETTINGS_MODULE and usually a database URL; a build
+	// without them fails on configuration the running site has.
+	buildEnv := c.SiteEnv()
+	buildEnv = append(buildEnv,
+		"PATH="+filepath.Join(c.VenvDir, "bin")+":"+system.DefaultPath)
 	_, err = runAsOwner(ctx, c, system.Cmd{
 		Path:    resolveProgram(parsed.Argv[0], c),
 		Args:    parsed.Argv[1:],
+		Env:     system.UserEnv(c.Identity, buildEnv...),
 		Timeout: c.Cfg.Runtimes.BuildTimeout.D(),
 		Label:   "build",
 	})
@@ -408,11 +415,15 @@ func resolveProgram(program string, c *Context) string {
 	if filepath.IsAbs(program) {
 		return program
 	}
-	// A venv or node_modules binary is what a project almost always means.
-	for _, dir := range []string{
+	// A venv or node_modules binary is what a project almost always means, then the
+	// managed runtime the site is pinned to — that is where its npm and its python live —
+	// and only then the system PATH.
+	dirs := []string{
 		filepath.Join(c.VenvDir, "bin"),
 		filepath.Join(c.AppDir, "node_modules", ".bin"),
-	} {
+	}
+	dirs = append(dirs, c.RuntimeBinDirs()...)
+	for _, dir := range dirs {
 		candidate := filepath.Join(dir, program)
 		if system.Exists(candidate) {
 			return candidate

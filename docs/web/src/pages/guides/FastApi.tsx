@@ -13,6 +13,14 @@ export function GuideFastApi() {
         lede="An ASGI application on a Unix socket, in its own virtualenv, with static files served by nginx and secrets that never touch argv."
       />
 
+      <Callout tone="note" title="Starting from nothing?">
+        <p>
+          <Link to="/guides/deploy-python">Deploy a Python app, start to finish</Link> walks the whole thing —
+          runtime, tenant, code, database, environment, TLS — in the order you run it.
+          This page is the detail behind the parts specific to this framework.
+        </p>
+      </Callout>
+
       <Facts
         rows={[
           ['runtime', <code key="a">python</code>],

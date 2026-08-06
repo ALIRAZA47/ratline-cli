@@ -13,6 +13,14 @@ export function GuideNextJs() {
         lede="output: 'standalone' produces a self-contained server.js, which is exactly the shape --entry wants. The interesting parts are the build memory, the static bypass, and the fact that the managed Node binary is invoked by absolute path."
       />
 
+      <Callout tone="note" title="Starting from nothing?">
+        <p>
+          <Link to="/guides/deploy-node">Deploy a Node app, start to finish</Link> walks the whole thing —
+          runtime, tenant, code, database, environment, TLS — in the order you run it.
+          This page is the detail behind the parts specific to this framework.
+        </p>
+      </Callout>
+
       <Facts
         rows={[
           ['runtime', <code key="a">node</code>],

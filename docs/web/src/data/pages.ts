@@ -175,6 +175,24 @@ export const pageMeta: Record<string, PageMeta> = {
   },
 
   // ── Guides and runbooks ───────────────────────────────────────────────────────────
+  '/guides/deploy-node': {
+    label: 'Deploy a Node app, start to finish',
+    blurb: 'Bare server to a Next.js app on HTTPS with a database — every command in order.',
+    keywords: [
+      'deploy', 'next.js', 'nextjs', 'node', 'start to finish', 'end to end', 'first deploy',
+      'standalone', 'bin/build', 'rsync', 'npm install', 'devdependencies', 'tailwind',
+      'how do i deploy', 'walkthrough', 'tutorial',
+    ],
+  },
+  '/guides/deploy-python': {
+    label: 'Deploy a Python app, start to finish',
+    blurb: 'Bare server to a FastAPI app on a socket with a database, and the two failures worth knowing.',
+    keywords: [
+      'deploy', 'fastapi', 'python', 'django', 'start to finish', 'end to end', 'gunicorn',
+      'uvicorn', 'venv', 'app-module', 'collectstatic', 'walkthrough', 'tutorial',
+      'permission denied socket',
+    ],
+  },
   '/guides/node': {
     label: 'Node sites and PM2',
     blurb: 'Why PM2 supervises by default, what it costs, and how to turn it off.',

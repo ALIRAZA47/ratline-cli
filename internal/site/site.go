@@ -230,7 +230,24 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions) (res *AddResult, err
 	}
 	res.Steps = append(res.Steps, "vhost")
 
-	if site.Dynamic() && site.Enabled {
+	// Started only when there is something to start.
+	//
+	// A site created before its code arrives is a normal thing to want: a private
+	// repository the server cannot clone, a build produced by CI, an rsync from a laptop.
+	// It was impossible. `site add` warned "the application directory is empty … deploy
+	// your code, then run site deploy", wrote the unit, started it, watched PM2 report
+	// "Script not found", and rolled the whole site back out of existence — so the advice
+	// it had just printed could never be followed. --repo was the only way through.
+	//
+	// Now the site is configured and left stopped, and the next step is the one already
+	// being recommended.
+	switch {
+	case site.Dynamic() && site.Enabled && !hasApplicationCode(rc.AppDir):
+		m.Log.Warn("configured, but not started: there is no code in the application directory yet",
+			"dir", rc.AppDir,
+			"next", "deploy your code, then 'ratline site deploy "+site.Domain+" --install --build --restart'")
+		res.Steps = append(res.Steps, "awaiting-code")
+	case site.Dynamic() && site.Enabled:
 		health, err := m.startAndWait(ctx, site)
 		if err != nil {
 			return nil, err
@@ -655,6 +672,11 @@ func (m *Manager) writeManifest(site *state.Site, id *system.Identity) error {
 }
 
 func (m *Manager) applyUnit(ctx context.Context, site *state.Site, rt runtime.Runtime, rc *runtime.Context, rb *system.Rollback) error {
+	// Before the unit, because the unit is what creates the socket directory inside it
+	// and systemd would otherwise leave the shared parent owned by this one tenant.
+	if err := m.Unit.EnsureRuntimeDir(ctx); err != nil {
+		return err
+	}
 	execStart, opts, err := rt.StartCommand(ctx, rc)
 	if err != nil {
 		return err

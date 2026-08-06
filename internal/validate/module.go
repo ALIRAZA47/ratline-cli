@@ -54,11 +54,13 @@ func NodeEntry(s string) error {
 	}
 	dir, file := filepath.Split(s)
 	if dir != "" {
-		if err := Subdir(strings.TrimSuffix(dir, "/")); err != nil {
+		// RuntimeSubdir, not Subdir: node executes this file, nginx never serves it, so a
+		// leading dot is ordinary. .next/standalone/server.js is the Next.js entry point.
+		if err := RuntimeSubdir(strings.TrimSuffix(dir, "/")); err != nil {
 			return err
 		}
 	}
-	if !subdirSegmentRe.MatchString(file) {
+	if !runtimeSegmentRe.MatchString(file) {
 		return rlerr.Usagef("invalid entry point %q", s).
 			WithHint("give a path relative to the application directory, for example server.js or dist/main.js")
 	}

@@ -1241,6 +1241,48 @@ else
     printf '  skip  git unavailable\n'
 fi
 
+# ---------------------------------------------------------------- runtime directory
+#
+# Every dynamic site binds its socket in a subdirectory of paths.run_dir, so that shared
+# parent has to stay traversable by every tenant and by nginx. Anything that creates it
+# decides that for all of them, and /run is tmpfs so it is recreated constantly.
+#
+# ratline itself got this wrong: staging a mongosh script created /run/ratline 0750
+# root-owned, and on a server where `db ping` ran before the first socket site — the normal
+# order — every later site died with "[Errno 13] Permission denied" on its own socket and
+# nginx answered 502. The order below is the order that reproduced it.
+
+info "the shared runtime directory"
+
+rm -rf /run/ratline
+"$RATLINE" db ping >/dev/null 2>&1 || true
+if [ -d /run/ratline ]; then
+    mode=$(stat -c '%a' /run/ratline)
+    if [ "$mode" = "755" ]; then
+        ok "a db command leaves the shared runtime directory traversable ($mode)"
+    else
+        bad "a db command left /run/ratline at $mode" "every tenant's socket is now unreachable"
+    fi
+    if [ -d /run/ratline/staging ]; then
+        contains "and stages its script one level down, privately" \
+            "700" "$(stat -c '%a' /run/ratline/staging)"
+    fi
+else
+    ok "no runtime directory was created by a db command"
+fi
+
+# And a socket site started afterwards must still be able to bind.
+"$RATLINE" site restart api.test >/dev/null 2>&1
+sleep 3
+check "a socket site starts after a db command" \
+    test -S /run/ratline/alice-api_test/app.sock
+contains "and nginx can reach it" "200" \
+    "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: api.test' http://127.0.0.1/ 2>/dev/null || echo 000)"
+
+# The rule that re-establishes it on every boot, since /run does not survive one.
+check "a tmpfiles rule is installed for the next boot" test -f /usr/lib/tmpfiles.d/ratline.conf
+check "and it applies cleanly" systemd-tmpfiles --create /usr/lib/tmpfiles.d/ratline.conf
+
 # ---------------------------------------------------------------- sudo
 #
 # The escape hatch, and the one path in this tool that can hand a tenant root. The unit

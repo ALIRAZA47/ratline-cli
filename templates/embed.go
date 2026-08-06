@@ -9,5 +9,5 @@ package templates
 
 import "embed"
 
-//go:embed all:nginx all:systemd all:logrotate all:mongo
+//go:embed all:nginx all:systemd all:logrotate all:mongo all:tmpfiles
 var FS embed.FS

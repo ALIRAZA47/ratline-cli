@@ -52,6 +52,8 @@ const GuideDebug502 = lazy(() => import('./pages/guides/Debug502').then((m) => (
 const GuideNodePm2 = lazy(() => import('./pages/guides/NodePm2').then((m) => ({ default: m.GuideNodePm2 })));
 const GuideInheritedServer = lazy(() => import('./pages/guides/InheritedServer').then((m) => ({ default: m.GuideInheritedServer })));
 const GuideMongoDatabase = lazy(() => import('./pages/guides/MongoDatabase').then((m) => ({ default: m.GuideMongoDatabase })));
+const GuideDeployNode = lazy(() => import('./pages/guides/DeployNode').then((m) => ({ default: m.GuideDeployNode })));
+const GuideDeployPython = lazy(() => import('./pages/guides/DeployPython').then((m) => ({ default: m.GuideDeployPython })));
 
 export default function App() {
   return (
@@ -108,6 +110,8 @@ export default function App() {
         <Route path="guides/node" element={<GuideNodePm2 />} />
         <Route path="guides/inherited-server" element={<GuideInheritedServer />} />
         <Route path="guides/mongodb" element={<GuideMongoDatabase />} />
+        <Route path="guides/deploy-node" element={<GuideDeployNode />} />
+        <Route path="guides/deploy-python" element={<GuideDeployPython />} />
 
         <Route path="*" element={<NotFound />} />
       </Route>

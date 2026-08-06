@@ -17,6 +17,20 @@ import (
 // flag).
 var subdirSegmentRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 
+// runtimeSegmentRe is the same rule with a leading dot allowed.
+//
+// The dot is refused above because nginx denies hidden files, so a document root inside
+// one would 403 every request — a good early error. That reasoning does not reach a path
+// nginx never touches. `.next/standalone/server.js` is the file node executes, and every
+// Next.js standalone deployment in existence uses it; `.output/server/index.mjs` is Nuxt's
+// and `.svelte-kit/output` is SvelteKit's.
+//
+// Applying the document-root rule to the entry point made the command in ratline's own
+// Next.js guide fail with "the segment \".next\" may only contain letters, digits, dot,
+// underscore and hyphen" — which lists a dot as allowed, because the rule is about where
+// the dot sits rather than whether it appears.
+var runtimeSegmentRe = regexp.MustCompile(`^[A-Za-z0-9_.][A-Za-z0-9._-]*$`)
+
 // AbsClean requires an absolute path and returns its cleaned form.
 func AbsClean(p string) (string, error) {
 	if p == "" {
@@ -37,7 +51,13 @@ func AbsClean(p string) (string, error) {
 // These land in nginx configs and unit files after being joined onto a site
 // directory, so traversal, absolute paths and shell-significant characters are
 // all refused here rather than being cleaned away silently.
-func Subdir(name string) error {
+func Subdir(name string) error { return subdir(name, subdirSegmentRe, false) }
+
+// RuntimeSubdir is Subdir for a path only the runtime touches — an entry point, not a
+// document root — where a leading dot is ordinary rather than a mistake.
+func RuntimeSubdir(name string) error { return subdir(name, runtimeSegmentRe, true) }
+
+func subdir(name string, segmentRe *regexp.Regexp, hidden bool) error {
 	if name == "" {
 		return rlerr.Usagef("the directory name is empty")
 	}
@@ -61,8 +81,20 @@ func Subdir(name string) error {
 		case ".", "..":
 			return rlerr.Usagef("invalid directory name %q: %q is not allowed", name, s)
 		}
-		if !subdirSegmentRe.MatchString(s) {
-			return rlerr.Usagef("invalid directory name %q: the segment %q may only contain letters, digits, dot, underscore and hyphen", name, s)
+		if !segmentRe.MatchString(s) {
+			// Naming where the character may sit, because "may only contain … dot" while
+			// rejecting ".next" reads as a contradiction to anybody holding one.
+			e := rlerr.Usagef("invalid directory name %q: the segment %q may only contain "+
+				"letters, digits, dot, underscore and hyphen", name, s)
+			if !hidden && strings.HasPrefix(s, ".") {
+				return e.WithHint("it may not begin with a dot: nginx denies hidden files, so " +
+					"a document root inside one would refuse every request. A build that " +
+					"writes into .next or .output is served through the application instead")
+			}
+			if strings.HasPrefix(s, "-") {
+				return e.WithHint("it may not begin with a hyphen, which git and tar read as a flag")
+			}
+			return e
 		}
 	}
 	return nil

@@ -6,7 +6,9 @@ package runtime
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
@@ -105,4 +107,101 @@ func runAsOwner(ctx context.Context, c *Context, cmd system.Cmd) (*system.Result
 	cmd.Stream = true
 	cmd.Mutates = true
 	return c.Runner.Run(ctx, cmd)
+}
+
+// HasApplicationCode reports whether anything has been deployed into the application
+// directory yet.
+//
+// Dotfiles do not count: a bare git clone that failed, or a stray .DS_Store, is not code.
+// The same rule the site layer uses to decide whether to install and build, so the two
+// cannot disagree about whether a site is still waiting for its first deploy.
+func HasApplicationCode(appDir string) bool {
+	entries, err := os.ReadDir(appDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// RuntimeBinDirs are the bin directories of the managed runtime this site is pinned to.
+//
+// A site created with --node 24 gets its node from /opt/ratline/runtimes/node/24/bin, and
+// so must its npm. resolveProgram did not know that: it searched the venv, node_modules,
+// the default PATH, and then gave up on /usr/bin/<program> — so `npm install` on a server
+// with no system Node failed with
+//
+//	could not run /usr/bin/npm install: fork/exec /usr/bin/npm: no such file or directory
+//
+// which reads as a missing package rather than as ratline looking in the wrong place. The
+// managed runtimes exist precisely so a server does not need a system Node.
+func (c *Context) RuntimeBinDirs() []string {
+	var out []string
+	switch c.Site.Runtime {
+	case "node":
+		version := c.Site.NodeVersion
+		if version == "" {
+			version = c.Cfg.Runtimes.NodeDefault
+		}
+		if version != "" {
+			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", version, "bin"))
+		}
+	case "python":
+		version := c.Site.PythonVersion
+		if version == "" {
+			version = c.Cfg.Runtimes.PythonDefault
+		}
+		if version != "" {
+			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "python", version, "bin"))
+		}
+	}
+	return out
+}
+
+// SiteEnv reads the site's .env, the same file systemd hands the service.
+//
+// The build needs it as much as the service does. Next.js evaluates route modules while
+// collecting page data, static generation reads whatever the pages read, and NEXT_PUBLIC_*
+// values are inlined at build time — so a build without the environment fails on code that
+// works perfectly at run time. On this project it failed with
+//
+//	Error: MONGODB_URI is not set
+//
+// from a module that the service would have started with quite happily.
+//
+// Parsed the way systemd's EnvironmentFile parser does, which is not a shell: KEY=VALUE
+// lines, no expansion, no command substitution. Anything else is skipped rather than
+// guessed at, because a build that receives a half-interpreted value is worse than one
+// that receives nothing.
+func (c *Context) SiteEnv() []string {
+	body, err := os.ReadFile(filepath.Join(c.SiteDir, ".env"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		// PATH is ratline's to decide: the build must use the managed runtime, and a
+		// value from .env would quietly send it to a different interpreter.
+		if key == "PATH" {
+			continue
+		}
+		out = append(out, key+"="+value)
+	}
+	return out
 }
