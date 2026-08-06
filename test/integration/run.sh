@@ -1556,6 +1556,26 @@ check "doctor is clean at the end" "$RATLINE" doctor
 # ---------------------------------------------------------------- result
 
 printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
+
+# A section that skips itself must not read as success.
+#
+# Several sections are guarded on something the environment has to provide — a Node
+# tarball, a MongoDB server, a working DNS resolver — and print "skip" when it is missing.
+# That is right for a developer running this on a train, and wrong for CI: the node section
+# once vanished entirely because the runtime download failed, taking nine assertions with
+# it, and the suite reported "306 passed, 0 failed" in green.
+#
+# The count only ever goes up as tests are added, so a floor catches the disappearance
+# without needing to know which section went. Raise it when you add a section.
+EXPECTED_MINIMUM=315
+if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
+    red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
+    printf '        A section skipped itself. Look for "skip" above — something the\n'
+    printf '        environment has to provide was missing, so this run proves less\n'
+    printf '        than a passing run normally does.\n'
+    FAIL=$((FAIL + 1))
+fi
+
 if [ "$FAIL" -gt 0 ]; then
     red "integration suite FAILED"
     # Shut the container down with a failing code, since systemd is PID 1.

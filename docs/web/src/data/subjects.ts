@@ -63,6 +63,8 @@ export const subjects: Subject[] = [
     guides: [
       '/guides/deploy-node',
       '/guides/deploy-python',
+      '/guides/github-actions',
+      '/guides/agents',
       '/guides/node',
       '/guides/fastapi',
       '/guides/nextjs',

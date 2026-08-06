@@ -470,10 +470,27 @@ func (m *Manager) Delete(ctx context.Context, opts DeleteOptions) error {
 			return rlerr.Wrap(err, rlerr.CodeGeneric, "removing %s", u.Home)
 		}
 	}
+	// The keys go with the account.
+	//
+	// Removing the home takes authorized_keys with it, so the grant stops working — but
+	// the rows stayed, and `key list` went on showing keys for a tenant that no longer
+	// existed while `doctor` reported the server clean. A privilege audit that lists
+	// grants against a deleted account is worse than one that lists nothing: the reader
+	// cannot tell a stale row from a live one.
+	orphans, err := m.State.ListKeys(ctx, state.KeyFilter{Scope: "user", Owner: opts.Name, IncludeRevoked: true})
+	if err != nil {
+		return err
+	}
+	for _, k := range orphans {
+		if err := m.State.DeleteKey(ctx, k.ID); err != nil {
+			return err
+		}
+	}
 	if err := m.State.DeleteUser(ctx, opts.Name); err != nil {
 		return err
 	}
-	m.Log.Info("user deleted", "user", opts.Name, "sites_removed", len(sites))
+	m.Log.Info("user deleted", "user", opts.Name,
+		"sites_removed", len(sites), "keys_removed", len(orphans))
 	return nil
 }
 

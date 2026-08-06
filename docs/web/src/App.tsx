@@ -54,6 +54,8 @@ const GuideInheritedServer = lazy(() => import('./pages/guides/InheritedServer')
 const GuideMongoDatabase = lazy(() => import('./pages/guides/MongoDatabase').then((m) => ({ default: m.GuideMongoDatabase })));
 const GuideDeployNode = lazy(() => import('./pages/guides/DeployNode').then((m) => ({ default: m.GuideDeployNode })));
 const GuideDeployPython = lazy(() => import('./pages/guides/DeployPython').then((m) => ({ default: m.GuideDeployPython })));
+const GuideContinuousDeployment = lazy(() => import('./pages/guides/ContinuousDeployment').then((m) => ({ default: m.GuideContinuousDeployment })));
+const GuideAgents = lazy(() => import('./pages/guides/Agents').then((m) => ({ default: m.GuideAgents })));
 
 export default function App() {
   return (
@@ -112,6 +114,8 @@ export default function App() {
         <Route path="guides/mongodb" element={<GuideMongoDatabase />} />
         <Route path="guides/deploy-node" element={<GuideDeployNode />} />
         <Route path="guides/deploy-python" element={<GuideDeployPython />} />
+        <Route path="guides/github-actions" element={<GuideContinuousDeployment />} />
+        <Route path="guides/agents" element={<GuideAgents />} />
 
         <Route path="*" element={<NotFound />} />
       </Route>

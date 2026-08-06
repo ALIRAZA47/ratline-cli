@@ -66,6 +66,21 @@ func (g *Globals) writeEnvelope(e Envelope) error {
 	return nil
 }
 
+// writeJSON writes a value to stdout without the envelope.
+//
+// Used only by `ratline schema`, which *is* the description of the envelope: wrapping it
+// in the thing it documents would make a caller unwrap one before it could read what the
+// wrapper looks like.
+func (g *Globals) writeJSON(v any) error {
+	enc := json.NewEncoder(g.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "writing JSON output")
+	}
+	return nil
+}
+
 // Table renders aligned columns for human output. Piped output gets the same
 // text without colour, so `ratline site list | grep` behaves.
 type Table struct {

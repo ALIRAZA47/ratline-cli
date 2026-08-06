@@ -175,6 +175,24 @@ export const pageMeta: Record<string, PageMeta> = {
   },
 
   // ── Guides and runbooks ───────────────────────────────────────────────────────────
+  '/guides/agents': {
+    label: 'Driving ratline from an AI agent',
+    blurb: 'A published command contract, and an MCP server that is read-only until you say otherwise.',
+    keywords: [
+      'ai', 'agent', 'llm', 'mcp', 'model context protocol', 'claude', 'automation',
+      'schema', 'machine readable', 'json', 'tool use', 'copilot', 'autonomous deploy',
+      'ratline mcp', 'ratline schema',
+    ],
+  },
+  '/guides/github-actions': {
+    label: 'Deploy from GitHub Actions',
+    blurb: 'A workflow with a key that can run exactly one command as root and nothing else.',
+    keywords: [
+      'github actions', 'ci', 'cd', 'continuous deployment', 'workflow', 'pipeline',
+      'deploy on push', 'deploy on merge', 'secrets', 'ssh key', 'known_hosts',
+      'automate deploys', 'gitlab ci', 'sudo grant', 'deploy key',
+    ],
+  },
   '/guides/deploy-node': {
     label: 'Deploy a Node app, start to finish',
     blurb: 'Bare server to a Next.js app on HTTPS with a database — every command in order.',

@@ -236,6 +236,69 @@ ratline user delete acme --purge --backup /var/backups/ratline`,
       seeAlso: [{ label: 'Transactional behaviour', to: '/concepts/transactions' }],
     },
     {
+      id: 'user-sudo-grant',
+      name: 'ratline user sudo grant',
+      args: '<username>',
+      status: 'built',
+      summary: 'Install a sudo rule for exactly the commands named, and nothing else.',
+      description: [
+        'Created users get no sudo. This exists because a real deployment occasionally needs one specific command — a client\u2019s CI restarting their own service, which is exactly what the GitHub Actions guide uses it for.',
+        'Every rule pins the full argument list. A grant of just the program name would let the tenant pass any arguments to it, and most programs with arbitrary arguments are equivalent to root.',
+        'Staged to a temporary file and validated with visudo before it is installed, because a malformed sudoers file locks every sudo user out of the machine. If visudo rejects it, nothing is written.',
+      ],
+      flags: [
+        {
+          name: '--command',
+          arg: '<absolute command>',
+          type: 'string',
+          repeatable: true,
+          required: true,
+          description: 'An absolute command with its full arguments. Repeat for more than one.',
+          note: 'A relative name would resolve through the caller\u2019s PATH at sudo time, which would let the tenant choose what runs as root. Refused.',
+        },
+      ],
+      refuses: [
+        'Anything at all unless users.allow_sudo is true. The setting only permits the escape hatch to exist; each grant is still validated separately.',
+        'A relative program name, or one that does not exist on the server.',
+        'An empty command list. There is no spelling of a blanket ALL grant.',
+      ],
+      examples: [
+        {
+          title: 'What a CI deploy key is allowed to do',
+          lang: 'shell',
+          code: `ratline config set users.allow_sudo true
+ratline user sudo grant acme \\
+  --command '/usr/local/bin/ratline site deploy app.example.com --install --build --restart --json'
+
+sudo -l -U acme    # ask sudo itself, rather than trusting the grant`,
+        },
+      ],
+      seeAlso: [{ label: 'Deploy from GitHub Actions', to: '/guides/github-actions' }],
+    },
+    {
+      id: 'user-sudo-revoke',
+      name: 'ratline user sudo revoke',
+      args: '<username>',
+      status: 'built',
+      summary: 'Remove a tenant\u2019s sudo grant.',
+      description: [
+        'Removes only a file ratline wrote. An operator\u2019s own rule in /etc/sudoers.d is not ratline\u2019s to delete, and deleting one could remove their last route back into the machine.',
+        'sudoers is re-validated afterwards. Removing a file can only make it valid, but proving it costs nothing and this is the file that matters most.',
+      ],
+      examples: [{ lang: 'shell', code: 'ratline user sudo revoke acme' }],
+    },
+    {
+      id: 'user-sudo-list',
+      name: 'ratline user sudo list',
+      status: 'built',
+      summary: 'Every tenant with a ratline-installed grant, and what it permits.',
+      description: [
+        'Read back out of the files rather than from state, so a rule edited by hand shows up as it actually is.',
+        'An unreadable /etc/sudoers.d is an error rather than an empty list: for a privilege audit, \u201cnobody has sudo\u201d is the opposite of the safe answer to give when you do not know.',
+      ],
+      examples: [{ lang: 'shell', code: 'ratline user sudo list' }],
+    },
+    {
       id: 'user-password-set',
       name: 'ratline user password set',
       args: '<username>',
