@@ -27,7 +27,6 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -109,11 +108,9 @@ func (m *Manager) AdminURI() (string, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", rlerr.Preconditionf("there is no MongoDB admin connection string at %s", path).
-				WithHint("write one there, readable only by root:\n"+
-					"        install -d -o root -g root -m 0700 %s\n"+
-					"        printf 'mongodb://admin:PASSWORD@127.0.0.1:27017/?authSource=admin' > %s\n"+
-					"        chmod 0600 %s",
-					filepath.Dir(path), path, path)
+				WithHint("run 'ratline db connect' and paste it at the prompt — it creates the\n" +
+					"        directory, writes the file 0600 root-owned, and checks the\n" +
+					"        credentials before keeping any of it")
 		}
 		return "", rlerr.Wrap(err, rlerr.CodeGeneric, "reading %s", path)
 	}
@@ -132,12 +129,13 @@ func (m *Manager) AdminURI() (string, error) {
 	if uri == "" {
 		return "", rlerr.Preconditionf("%s is empty", path)
 	}
-	if !strings.HasPrefix(uri, "mongodb://") && !strings.HasPrefix(uri, "mongodb+srv://") {
-		return "", rlerr.Preconditionf("%s does not look like a MongoDB connection string", path).
-			WithHint("it should begin with mongodb:// or mongodb+srv://")
-	}
-	if _, err := url.Parse(uri); err != nil {
-		return "", rlerr.Wrap(err, rlerr.CodePrecondition, "the connection string in %s is not a valid URI", path)
+	// The same rule `db connect` applies to the string before storing it. Two copies of
+	// this check drifted apart once already: connect tested only the prefix, so a string
+	// that could not be parsed was written to disk and rejected here instead — by a
+	// message naming this file, in a command that had said nothing was stored.
+	if err := validate.MongoURI(uri); err != nil {
+		return "", rlerr.Wrap(err, rlerr.CodePrecondition, "the connection string in %s is unusable", path).
+			WithHint("replace it with 'ratline db connect --force'")
 	}
 	return uri, nil
 }

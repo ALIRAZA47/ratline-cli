@@ -36,11 +36,10 @@ func newDBCommand(g *Globals) *cobra.Command {
 			"connection string. That string lives in a file rather than in config.yaml, at\n" +
 			"paths.mongo_uri_file, mode 0600: it is the root password for every database on\n" +
 			"the server.\n\n" +
-			"    install -d -o root -g root -m 0700 /etc/ratline/db\n" +
-			"    printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' \\\n" +
-			"      > /etc/ratline/db/mongodb.uri && chmod 0600 /etc/ratline/db/mongodb.uri\n\n" +
-			"Then turn it on with features.db_provisioning, and check the server is reachable\n" +
-			"with 'ratline db ping'.\n\n" +
+			"    ratline db connect\n\n" +
+			"That prompts for the string — not echoed, never in argv, never in your shell\n" +
+			"history — creates the directory, writes the file, turns provisioning on, and\n" +
+			"proves the credentials work before keeping any of it.\n\n" +
 			"Every role ratline grants is scoped to a single database. The cluster-wide ones —\n" +
 			"root, readWriteAnyDatabase — are deliberately not offered: granting one to a\n" +
 			"tenant's application hands it every other tenant's data.",

@@ -12,6 +12,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/mongo"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
 // Turning database provisioning on used to be four manual steps: create a 0700 directory,
@@ -36,15 +37,18 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 		Long: "Stores the admin connection string, turns on features.db_provisioning, and proves\n" +
 			"the credentials work before committing either. If the server cannot be reached, or\n" +
 			"rejects them, nothing is left behind.\n\n" +
-			"The string is read from stdin, not from a flag. Anything in argv is world-readable\n" +
-			"through /proc, so a password passed as an argument is visible to every account on\n" +
-			"the box for as long as the command runs — and it lands in your shell history, which\n" +
-			"outlives the password.\n\n" +
+			"With no flags it prompts, and what you paste is not echoed. It is never a flag\n" +
+			"value: anything in argv is world-readable through /proc for as long as the command\n" +
+			"runs, and it would land in your shell history, which outlives the password.\n\n" +
+			"Do not pipe it through printf. A password containing a % is read as a format verb\n" +
+			"and the string arrives truncated, usually with no host in it. The prompt has\n" +
+			"nothing in between.\n\n" +
 			"It is written to paths.mongo_uri_file at 0600, root-owned, in a 0700 directory.",
-		Example: "  # from a password manager, or a file, never as an argument\n" +
-			"  printf 'mongodb://admin:PASS@127.0.0.1:27017/?authSource=admin' | \\\n" +
-			"    ratline db connect --stdin\n\n" +
-			"  ratline db connect --from-file /root/atlas.uri\n" +
+		Example: "  # paste it at the prompt: not echoed, not in argv, not in shell history\n" +
+			"  ratline db connect\n\n" +
+			"  # for automation, where there is no terminal\n" +
+			"  ratline db connect --stdin < /root/mongodb.uri\n" +
+			"  ratline db connect --from-file /root/atlas.uri\n\n" +
 			"  ratline db ping",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -56,24 +60,40 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 					return rlerr.Wrap(err, rlerr.CodePrecondition, "reading %s", fromFile)
 				}
 				uri = strings.TrimSpace(string(body))
-			default:
-				// --stdin is the only other way in, and it is required rather than
-				// implied: a command that silently blocks on an empty stdin looks hung.
-				if uri == "" {
-					return rlerr.Usagef("no connection string was given").
-						WithHint("pipe it in:\n" +
-							"        printf 'mongodb://…' | ratline db connect --stdin\n" +
-							"        ratline db connect --from-file /root/mongodb.uri\n\n" +
-							"        It is not a flag on purpose: argv is world-readable " +
-							"through /proc, and it would land in your shell history")
+			case uri != "":
+				// Already read from stdin.
+			case g.CanPrompt():
+				// Asked for, rather than demanded on stdin.
+				//
+				// Telling people to pipe it in with `printf` was wrong, and it broke a real
+				// setup: printf reads `%` in the password as a format verb, so a perfectly
+				// good connection string arrived truncated at the percent sign with no host
+				// in it. `!` has the same problem under history expansion. A prompt has no
+				// such layer — nothing between the paste and the variable — and it keeps the
+				// secret out of argv and shell history just as well, which was the actual
+				// reason for the rule.
+				var err error
+				if uri, err = g.readSecret(
+					"MongoDB admin connection string (not echoed): "); err != nil {
+					return err
 				}
+				uri = strings.TrimSpace(uri)
+			default:
+				return rlerr.InputRequiredf("no connection string was given").
+					WithHint("run 'ratline db connect' on a terminal and paste it at the prompt.\n" +
+						"        For automation, without a terminal:\n" +
+						"        ratline db connect --stdin < /root/mongodb.uri\n" +
+						"        ratline db connect --from-file /root/mongodb.uri\n\n" +
+						"        It is not a flag on purpose: argv is world-readable " +
+						"through /proc, and it would land in your shell history")
 			}
-			if uri == "" {
-				return rlerr.Usagef("the connection string is empty")
-			}
-			if !strings.HasPrefix(uri, "mongodb://") && !strings.HasPrefix(uri, "mongodb+srv://") {
-				return rlerr.Usagef("that does not look like a MongoDB connection string").
-					WithHint("it should begin with mongodb:// or mongodb+srv://")
+
+			// Validated before anything is written. This used to check only the prefix, and
+			// the real parse happened when the file was read back — so a mangled string was
+			// stored, then rejected by a message naming a file the operator had never
+			// touched, from a command that said in the same breath that nothing was stored.
+			if err := validate.MongoURI(uri); err != nil {
+				return err
 			}
 
 			path := g.Cfg.Paths.MongoURIFile
@@ -211,7 +231,7 @@ func newDBEnableCommand(g *Globals) *cobra.Command {
 			if _, err := mgr.AdminURI(); err != nil {
 				return rlerr.Wrap(err, rlerr.CodePrecondition,
 					"there is no usable connection string, so turning this on would do nothing").
-					WithHint("printf 'mongodb://…' | ratline db connect --stdin")
+					WithHint("ratline db connect")
 			}
 			if g.DryRun {
 				g.Log.Info("would turn database provisioning on")

@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
@@ -162,4 +163,78 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// MongoURI checks a MongoDB connection string before anything is done with it.
+//
+// This exists because the check that was here — "does it start with mongodb://" — let a
+// mangled string through, and the real parse happened much later, inside the code that
+// reads the file back. So an operator whose shell had eaten their connection string got
+// told the file was invalid, naming a path they had never written to, from a command that
+// said in the same breath that nothing had been stored.
+//
+// The specific case that produced it: a password containing a percent sign, passed through
+// `printf`, which read it as a format verb and truncated the string mid-URI. What arrived
+// was `mongodb://admin:PASSWORD` with no host at all — which `url.Parse` reads as a port,
+// giving "invalid port after host". Hence the explicit host check and its own message: the
+// operator's problem is a missing host, not a malformed port.
+func MongoURI(uri string) error {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return rlerr.Usagef("the connection string is empty")
+	}
+	if !strings.HasPrefix(uri, "mongodb://") && !strings.HasPrefix(uri, "mongodb+srv://") {
+		return rlerr.Usagef("that does not look like a MongoDB connection string").
+			WithHint("it should begin with mongodb:// or mongodb+srv://")
+	}
+
+	// The authority is everything between the scheme and the first / or ?.
+	rest := uri[strings.Index(uri, "//")+2:]
+	authority := rest
+	if i := strings.IndexAny(authority, "/?"); i >= 0 {
+		authority = authority[:i]
+	}
+	// Userinfo cannot contain a bare @ — it must be percent-encoded — so the last one
+	// separates the credentials from the host.
+	hasCredentials := strings.Contains(authority, "@")
+
+	u, err := url.Parse(uri)
+	if err != nil {
+		// url.Parse describes the parser's confusion, not the operator's mistake. The
+		// commonest mistake by far produces "invalid port", because a truncated string
+		// leaves `user:password` where `host:port` was expected — so it is worth saying
+		// what that actually means before repeating the parser.
+		if !hasCredentials {
+			return rlerr.Usagef("that connection string has no @, so there is no host in it").
+				WithHint("it should look like mongodb://user:password@host:27017/?authSource=admin.\n"+
+					"        What is there reads as host %q with an unusable port, which is what a\n"+
+					"        shell leaves behind when it truncates the password — printf treats a %% "+
+					"as a format verb.\n        Run 'ratline db connect' with no flags and paste it "+
+					"at the prompt; nothing interprets it there.",
+					hostOf(authority))
+		}
+		return rlerr.Usagef("that connection string is not a valid URI").
+			WithHint("if the password contains %% or !, a shell may have mangled it before " +
+				"ratline saw it. Run 'ratline db connect' with no flags and paste it at " +
+				"the prompt instead, where nothing interprets it")
+	}
+	if u.Host == "" {
+		return rlerr.Usagef("that connection string has no host").
+			WithHint("it should look like mongodb://user:password@host:27017/?authSource=admin")
+	}
+	// SRV records carry the port, and mongosh refuses a +srv URI that also names one.
+	if strings.HasPrefix(uri, "mongodb+srv://") && u.Port() != "" {
+		return rlerr.Usagef("a mongodb+srv:// connection string must not name a port").
+			WithHint("SRV records supply the ports; drop the :%s", u.Port())
+	}
+	return nil
+}
+
+// hostOf returns the part of an authority before the first colon, for a message that
+// names what the parser actually saw.
+func hostOf(authority string) string {
+	if i := strings.Index(authority, ":"); i >= 0 {
+		return authority[:i]
+	}
+	return authority
 }
