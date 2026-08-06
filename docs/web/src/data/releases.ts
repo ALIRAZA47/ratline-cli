@@ -39,6 +39,44 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.9.0',
+    date: '2026-08-06',
+    summary:
+      'One command builds a whole stack — tenant, site, database, certificate — and removes all of it if any step fails.',
+    assertions: 315,
+    changes: [
+      {
+        kind: 'feature',
+        title: '`ratline new node|python|static` provisions a stack',
+        body:
+          'A tenant, a site, optionally a database attached to it and optionally a certificate, with defaults suited to the runtime. All of it is already possible with four commands; the difference is what happens when one fails. Four commands give four independent transactions — the database step refuses and you are left with a tenant, a site, and a command that has already exited. This gives one.',
+        code: `ratline new node app.example.com --user acme --with-db
+ratline new python api.example.com --user acme --app-module app.main:app --asgi
+ratline new static www.example.com --user acme --spa --tls --email ops@example.com`,
+      },
+      {
+        title: 'It composes the commands, not the managers',
+        body:
+          'Every step is the same code path you get by typing it — the same validation, the same refusals, the same messages — so this cannot develop its own idea of what a node site is, and a flag added to `site add` tomorrow is available here tomorrow. The equivalent commands are printed at the end, because this is a shortcut for the common case rather than a replacement for knowing the tool.',
+      },
+      {
+        title: 'What it will not undo',
+        body:
+          'A tenant that already existed was not this command’s to create, so it is not its to delete. A certificate has already been counted against the rate limit, and revoking it would cost another one to get back where you are. Everything else it made, it removes.',
+      },
+      {
+        kind: 'fix',
+        title: 'Deleting a tenant left its system group behind',
+        body:
+          'nginx is a member of every tenant’s group, so it can read that tenant’s public directory without the world being able to — and userdel will not remove a group that is not empty. So deleting a tenant and creating one with the same name refused with "a group named X already exists … it will not adopt a group it did not create", which is both true and maddening, because ratline had created it. nginx is removed from the group first now.',
+      },
+    ],
+    known: [
+      'A static site refuses --with-db: nothing is running to read the connection string.',
+      'Next.js standalone binds a port rather than a socket, so those sites need --listen port.',
+    ],
+  },
+  {
     version: 'v0.8.0',
     date: '2026-08-06',
     summary:
