@@ -39,6 +39,46 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.6.1',
+    date: '2026-08-06',
+    summary:
+      'The menu no longer walks you into a command it never asked the questions for.',
+    assertions: 310,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'The menu asks for required flags instead of offering them',
+        body:
+          '`--owner` and `--database` sat in the list of optional extras, so you could take the defaults, read a summary, confirm, and watch the command refuse for something the menu never mentioned. Required-ness was enforced by hand in each command — the messages are worth writing — but nothing declared it where the interactive layer could read it. There is a marker now, applied to all thirteen, and a test that reads the source for both forms of enforcement and fails if any is unmarked.',
+      },
+      {
+        kind: 'fix',
+        title: 'The menu hands over to a command’s own wizard',
+        body:
+          '`user add`, `site add`, `cert issue` and `key add` have wizards that know things the generic flag picker cannot — site add sniffs the project to suggest a runtime, user add offers ~/.ssh/id_ed25519.pub and checks it is there. The menu collected their flags generically instead, so the four commands with the best interactive support gave the worst experience through the menu.',
+      },
+      {
+        kind: 'fix',
+        title: 'A pasted public key is taken as a key',
+        body:
+          'It was read as a filename, and the error named "no such file: /root/ssh-ed25519 AAAAC3Nz… ark@ark". Asked for a key and handed a key, taking it is the only sensible reading — and at a prompt, pasting is what everybody does. A public key is not a secret, so unlike a password there is no reason to keep it out of argv; it is parsed and validated identically either way. The prompt also names the kind of value a flag wants now, which is how somebody ended up pasting a key into a flag expecting a path.',
+        code: `ratline key add --scope user --user acme --label laptop \\
+  --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA… you@laptop'`,
+      },
+      {
+        kind: 'security',
+        title: 'A pasted private key is called a private key',
+        body:
+          'A private key is several lines, so the multi-line check matched before the one that recognises it — answering "the key spans more than one line", which is true and buries the only thing that matters. It now says what happened and tells you to rotate it.',
+      },
+    ],
+    known: [
+      'The menu collects flags, not positional arguments: cobra validates those before any prompt could run.',
+      'DNS-01 is covered against a challenge test server, not a real DNS provider’s API.',
+      'ratline db manages MongoDB only.',
+    ],
+  },
+  {
     version: 'v0.6.0',
     date: '2026-08-06',
     summary:
