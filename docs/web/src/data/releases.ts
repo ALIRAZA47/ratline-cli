@@ -39,6 +39,68 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.7.0',
+    date: '2026-08-06',
+    summary:
+      'Deploying a real Next.js app and a real FastAPI app to a live server found five faults that made both impossible. All fixed.',
+    assertions: 315,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'No Node project could be built',
+        body:
+          'Every install was production-only — npm --omit=dev, pnpm --prod, yarn and bun --production, plus NODE_ENV=production, which makes npm skip devDependencies whatever the flags say. Tailwind, TypeScript, PostCSS and Vite all live in devDependencies, so a build failed with "Cannot find module \'@tailwindcss/postcss\'" right after an install that reported success. Dev dependencies are now installed whenever there is a build command, and omitted when there is not.',
+      },
+      {
+        kind: 'fix',
+        title: 'The build ran without the site’s environment',
+        body:
+          'Next.js evaluates route modules while collecting page data, so a build failed with "MONGODB_URI is not set" on code the service would have started with quite happily. Both runtimes now pass the site’s .env to the build — the same variables the service gets — with ratline’s PATH applied last so nothing can redirect the build to a different interpreter. Django’s collectstatic needed the same thing.',
+      },
+      {
+        kind: 'fix',
+        title: 'A managed runtime’s npm was not used',
+        body:
+          'A site pinned to managed Node 24 resolved npm to /usr/bin/npm and failed with "fork/exec /usr/bin/npm: no such file or directory" — on a server with no system Node, which is the server managed runtimes exist for. Build tools now come from the runtime the site is pinned to.',
+      },
+      {
+        kind: 'fix',
+        title: 'A site could not be created before its code arrived',
+        body:
+          '`site add` warned "the application directory is empty … deploy your code, then run site deploy", then started the unit, watched it fail, and rolled the site out of existence — so the advice it printed could never be followed. --repo was the only way in, which rules out a private repository, a build from CI, or an rsync from a laptop. The site is now configured and left stopped.',
+      },
+      {
+        kind: 'fix',
+        title: '`--entry .next/standalone/server.js` was refused',
+        body:
+          'The entry point was validated with the document-root rule, which forbids a leading dot because nginx denies hidden files — correct for a directory nginx serves, irrelevant for a file node executes. That is the path in ratline’s own Next.js guide, so the guide had never been run. Nuxt’s .output and SvelteKit’s .svelte-kit were refused for the same reason.',
+      },
+      {
+        kind: 'security',
+        title: 'One tenant’s socket directory could lock out every other',
+        body:
+          'paths.run_dir is the shared parent of every site’s socket directory. Staging a mongosh script created it 0750 root-owned, so on a server where `db ping` ran before the first socket site — the normal order — every later tenant failed to bind with "[Errno 13] Permission denied" and nginx answered 502. Staging moved into a private 0700 subdirectory, the parent is kept traversable and reinstated on every unit start, and a tmpfiles rule re-establishes it after each boot, since /run is tmpfs.',
+      },
+      {
+        kind: 'fix',
+        title: '`runtime install python` accepted an interpreter that cannot make a virtualenv',
+        body:
+          'Debian and Ubuntu split venv into python3.12-venv, so the interpreter is present and `python -m venv` fails. ratline reported the runtime ready and the failure surfaced three commands later, out of site add, after it had rolled the site back. Checked at install time now, and the package installed.',
+      },
+      {
+        kind: 'feature',
+        title: 'Two guides written by doing it',
+        body:
+          'Deploy a Node app and Deploy a Python app: bare server to a running site with a database and TLS, every command in the order you run it, written from the deployment that found the faults above rather than from the command reference.',
+      },
+    ],
+    known: [
+      'Next.js standalone binds a port rather than a Unix socket, so those sites need --listen port. Sites that can speak a socket should keep the default.',
+      'Dev dependencies stay on disk after a build: a wrong prune fails at request time rather than at deploy time.',
+      'DNS-01 is covered against a challenge test server, not a real DNS provider’s API.',
+    ],
+  },
+  {
     version: 'v0.6.1',
     date: '2026-08-06',
     summary:
