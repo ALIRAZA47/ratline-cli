@@ -39,6 +39,67 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.6.0',
+    date: '2026-08-06',
+    summary:
+      'Nothing asks you to pipe a secret through printf any more. Every command is reachable from a menu, and -i works on all of them.',
+    assertions: 303,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`db connect` asks for the connection string',
+        body:
+          'Reported from a real server: `printf` reads a % in a password as a format verb, so the string arrived truncated with no host in it, and the error blamed /etc/ratline/db/mongodb.uri — a file that command had not written, in the same breath as saying nothing was stored. Recommending printf for a secret was always wrong; the rule that matters is that it must not be in argv or the shell history, and a prompt satisfies that without putting a format-string interpreter in the way. `db connect` with no flags now prompts, with echo off. --stdin and --from-file remain for automation.',
+        code: `ratline db connect
+MongoDB admin connection string (not echoed): ▏`,
+      },
+      {
+        kind: 'fix',
+        title: 'It validates the string before writing it, and says what is wrong',
+        body:
+          'connect checked only the mongodb:// prefix and never parsed, so a mangled string was stored and rejected later by the code that reads it back. Both paths share one validator now, applied before anything is written. And "invalid port after host" — url.Parse’s wording — sends you to look at ports, when the real problem is that there is no @ and therefore no host. The message says that, and names the cause.',
+      },
+      {
+        kind: 'security',
+        title: '`site env set` no longer needs the secret in argv',
+        body:
+          'Its declared usage was `set <domain> KEY=VALUE`, so the primary documented form put the value in argv — world-readable through /proc for as long as the command runs, then in your shell history. A bare KEY now means "ask me", which used to be a usage error. KEY=VALUE still works and is the clearer thing to write for LOG_LEVEL=info.',
+        code: `ratline site env set api.example.com DATABASE_URL
+DATABASE_URL (not echoed): ▏`,
+      },
+      {
+        kind: 'feature',
+        title: 'The menu covers every command, because it is generated',
+        body:
+          'Bare `ratline` on a terminal opened a hand-written menu listing five groups with two or three verbs each — about a dozen of the eighty-six commands, with the rest unreachable unless you already knew they existed. It walks the command tree now: 99 commands, each with its own help text and its own flags, taken from the same place the command parses them. Options are a list rather than twenty forced questions, and it prints the equivalent command before running anything.',
+        code: 'ratline',
+      },
+      {
+        kind: 'feature',
+        title: '-i works on every command, and asks for missing flags',
+        body:
+          'The global -i said "prompt for whatever was not supplied as a flag" and was read by four commands. It now offers any command’s own options, and a command that refuses for a missing required flag asks for it instead — writing the answer into the flagset, so what runs is exactly what would have run had you typed it. Unchanged without a terminal, or under --no-input or --json: a script that starts asking questions is a script that hangs.',
+      },
+      {
+        title: 'The connection-string file explains itself',
+        body:
+          'The whole file used to be trimmed and used as the URI, so the first instinct on creating a credential in /etc — a line saying what it is — broke it. Blank lines and # comments are skipped now, and `db connect` writes a header for whoever finds the file during an audit. Two connection strings in one file is an error rather than a guess.',
+      },
+      {
+        kind: 'security',
+        title: 'The sudo grant path has tests',
+        body:
+          'GrantSudo is the one function that can hand a tenant root and nothing was testing it — not the unit tests, not the integration suite. Behaviour unchanged; what is new is that each guard is proved by breaking it and watching a test fail, and that the suite runs a real visudo and then asks sudo itself, via `sudo -l`, whether the rule is as narrow as ratline claims.',
+      },
+    ],
+    known: [
+      'The interactive menu collects flags, not positional arguments: cobra validates those before any prompt could run, so `ratline site show` still needs its domain on the command line.',
+      'DNS-01 is covered against a challenge test server, not a real DNS provider’s API.',
+      'ratline db manages MongoDB only.',
+      'No whole-server restore: `restore` handles one site or one tenant.',
+    ],
+  },
+  {
     version: 'v0.5.0',
     date: '2026-08-06',
     summary:
