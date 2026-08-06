@@ -45,7 +45,7 @@ export const pageMeta: Record<string, PageMeta> = {
     blurb: 'What changed in each version, and what is still missing.',
     keywords: [
       'changelog', 'release notes', 'whats new', 'what is new', 'versions', 'upgrade',
-      'update', 'history', 'v0.1.0', 'v0.2.0', 'v0.3.0', 'v0.4.0', 'v0.5.0', 'v0.6.0', 'v0.6.1', 'v0.7.0', 'v0.8.0', 'v0.9.0',
+      'update', 'history', 'v0.1.0', 'v0.2.0', 'v0.3.0', 'v0.4.0', 'v0.5.0', 'v0.6.0', 'v0.6.1', 'v0.7.0', 'v0.8.0', 'v0.9.0', 'v0.9.1',
     ],
   },
 

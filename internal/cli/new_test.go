@@ -62,6 +62,65 @@ func TestTheGlobalFlagsArePassedToEveryStep(t *testing.T) {
 	}
 }
 
+// A dry run prints the plan instead of running the steps.
+//
+// Running them was the first behaviour, and it was wrong in the worst way a preview can be:
+// the tenant step correctly created nothing, so the site step was told "no such user" and
+// the command exited 3 — reporting a failure for a stack that was perfectly buildable. A
+// preview that invents errors is worse than no preview, because it stops people building
+// things that would have worked.
+func TestADryRunPrintsThePlanRatherThanFailingOnIt(t *testing.T) {
+	out := &strings.Builder{}
+	g := &Globals{DryRun: true, Stdout: out, Stderr: out}
+	g.Log = log.Discard()
+	s := &stack{g: g, Domain: "app.example.com", Owner: "acme"}
+
+	p := plan{steps: []step{
+		{what: "tenant", argv: []string{"user", "add", "acme"}, undo: []string{"user", "delete", "acme"}},
+		{what: "site", argv: []string{"site", "add", "app.example.com", "--user", "acme"},
+			undo: []string{"site", "delete", "app.example.com"}},
+		{what: "cert", argv: []string{"cert", "issue", "app.example.com"}},
+	}}
+	s.rehearse(p)
+
+	got := out.String()
+	for _, want := range []string{
+		"ratline user add acme",
+		"ratline site add app.example.com --user acme",
+		"ratline cert issue app.example.com",
+		"Nothing was written",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the rehearsal does not mention %q:\n%s", want, got)
+		}
+	}
+	// Two of the three steps are undoable; the certificate is not, and counting it would
+	// promise to take back something this command will not take back.
+	if !strings.Contains(got, "the 2 things before it would be removed") {
+		t.Errorf("the rehearsal miscounts what it would undo:\n%s", got)
+	}
+	// It must not claim to have checked what it did not check.
+	if strings.Contains(got, "would succeed") || strings.Contains(got, "will work") {
+		t.Errorf("the rehearsal promises more than it verified:\n%s", got)
+	}
+}
+
+// A printed command has to be one that can be pasted back.
+//
+// The summary is the part of this command people learn the tool from. An install command
+// with a space in it, printed bare, is a line that looks copyable and silently does
+// something else.
+func TestAPrintedCommandSurvivesBeingPastedBack(t *testing.T) {
+	got := commandLine([]string{"site", "add", "a.example.com", "--install-command", "npm ci --omit=dev"})
+	want := "ratline site add a.example.com --install-command 'npm ci --omit=dev'"
+	if got != want {
+		t.Errorf("commandLine() = %q, want %q", got, want)
+	}
+	if got := commandLine([]string{"user", "add", "acme"}); got != "ratline user add acme" {
+		t.Errorf("commandLine() quoted something that needed no quoting: %q", got)
+	}
+}
+
 // A dry run must record nothing to undo.
 //
 // The undo steps are deletes. Recording one for a step that never happened means a later
@@ -76,8 +135,11 @@ func TestADryRunRecordsNothingToUndo(t *testing.T) {
 
 		// `explain` needs no root, no configuration and no state, so this exercises run()
 		// itself rather than the command it happens to be given.
-		if err := s.run(t.Context(), "a step", []string{"user", "delete", "nobody"},
-			"explain", "layout"); err != nil {
+		if err := s.run(t.Context(), step{
+			what: "a step",
+			argv: []string{"explain", "layout"},
+			undo: []string{"user", "delete", "nobody"},
+		}); err != nil {
 			t.Fatalf("dry=%v: %v", dry, err)
 		}
 

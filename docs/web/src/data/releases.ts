@@ -39,6 +39,48 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.9.1',
+    date: '2026-08-06',
+    summary:
+      'A dry run of a whole stack reported a failure for a stack that was perfectly buildable.',
+    assertions: 347,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`ratline new --dry-run` invented an error',
+        body:
+          'It ran each step with --dry-run passed down. So the tenant step correctly created nothing, and the site step was then told there is no such user — exit 3, for a stack with nothing wrong with it. A preview that invents errors is worse than no preview, because it stops people building things that would have worked.',
+        code: `ratline new node app.example.com --user acme --with-db --dry-run
+
+This would run 3 commands:
+
+    ratline user add acme
+    ratline site add app.example.com --user acme --ssl none --runtime node
+    ratline db create app_example_com --owner acme --attach app.example.com
+
+If any of them failed, the 2 things before it would be removed.
+
+Nothing was written.`,
+      },
+      {
+        title: 'It prints the plan instead',
+        body:
+          'Every command with its defaults filled in, in the order they would run. The steps are not executed, not even as dry runs of their own — each one preconditions on the one before it having really happened. What is checked is everything the command decides for you: the domain, the tenant name, the database name derived from the domain. What only the server knows is still open, and it says so rather than implying otherwise.',
+      },
+      {
+        title: 'The closing summary can no longer drift',
+        body:
+          'The plan is decided once, up front, and both the preview and the "same thing, one command at a time" summary read that same list. Previously the summary re-derived the database name and always printed a `user add` line — including for a tenant that already existed and never had one run.',
+      },
+      {
+        kind: 'fix',
+        title: 'The composite had no integration coverage at all',
+        body:
+          'It shipped verified by hand, which is exactly how the dry run got out. Thirty assertions now cover it in the real harness: the preview writes nothing, the happy path builds and is safe to run twice, a failing step takes back the tenant and the site it created, and a tenant that already existed survives.',
+      },
+    ],
+  },
+  {
     version: 'v0.9.0',
     date: '2026-08-06',
     summary:

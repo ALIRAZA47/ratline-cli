@@ -9,6 +9,7 @@ export const provision: CommandGroup = {
     'Everything here is already possible with four commands. The difference is what happens when one of them fails: four commands leave you a tenant and a site and no database, and a command that has already exited. `ratline new` removes everything it created and tells you what it removed.',
     'Each step is the same command you would have typed — the same validation, the same refusals, the same messages — so this cannot develop its own idea of what a node site is, and a flag added to `site add` tomorrow is available here tomorrow. The equivalent commands are printed at the end, because this is a shortcut for the common case rather than a replacement for knowing the tool.',
     'An existing tenant is used as it is, and is not removed if a later step fails: it was not this command’s to create, so it is not its to delete. A certificate is not revoked either — it has already been counted against the rate limit, and throwing it away would cost another one to get back.',
+    '`--dry-run` prints the plan: every command with its defaults filled in, in the order they would run. It does not run them, not even as dry runs of their own — each step preconditions on the one before it having really happened, so rehearsing them in order means the site step is told there is no such user, which is not true and never was. What it does check is everything this command decides for you: the domain, the tenant name, the database name derived from the domain. What only the server knows — whether that runtime is installed, whether the domain is taken — is still open. Rehearse a single step with its own `--dry-run`.',
   ],
   commands: [
     {
@@ -52,7 +53,7 @@ export const provision: CommandGroup = {
   --entry .next/standalone/server.js --build-command ./bin/build`,
         },
         {
-          title: 'Rehearse it first; --dry-run reaches every step',
+          title: 'See the plan first — the resolved commands, with nothing written',
           lang: 'shell',
           code: 'ratline new node app.example.com --user acme --with-db --dry-run',
         },

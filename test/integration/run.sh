@@ -1533,6 +1533,76 @@ wait $locker
 check "--dry-run changes nothing" "$RATLINE" --dry-run site add dry.test --user alice --runtime static
 refute "the dry-run site was not created" test -d /home/alice/dry.test
 
+# ---------------------------------------------------------------- composite
+
+info "ratline new builds a whole stack, or none of it"
+
+# The preview.
+#
+# This is the one that got away: the composite shipped covered only by hand-testing, and
+# --dry-run was broken on the day it was written. It ran each step with --dry-run passed
+# down, so the tenant step correctly created nothing and the site step was then told
+# "no such user" — exit 3, reporting failure for a stack that was perfectly buildable.
+# A preview that invents errors stops people building things that would have worked.
+out=$("$RATLINE" new node preview.test --user previewuser --with-db --dry-run 2>&1)
+rc=$?
+[ "$rc" = 0 ] && ok "a dry run of a whole stack exits 0" \
+    || bad "a dry run of a whole stack exits 0" "exit $rc: $(printf '%s' "$out" | tail -3)"
+contains "it plans the tenant"   "ratline user add previewuser" "$out"
+contains "it plans the site"     "ratline site add preview.test" "$out"
+contains "it plans the database" "ratline db create preview_test" "$out"
+contains "it says nothing was written" "Nothing was written" "$out"
+refute "and nothing was" test -d /home/previewuser
+refute "no tenant was created" id previewuser
+contains "the plan is in --json too" '"dry_run": true' \
+    "$("$RATLINE" --json new node preview.test --user previewuser --dry-run 2>&1)"
+
+# The happy path.
+check "new static builds a stack" "$RATLINE" new static stack.test --user stackuser --yes
+check "the tenant exists" id stackuser
+check "the site exists" test -d /home/stackuser/stack.test/public
+check "the vhost is live" test -L /etc/nginx/sites-enabled/stack.test.conf
+check "nginx accepts it" nginx -t
+contains "it prints the equivalent commands" "ratline site add stack.test" \
+    "$("$RATLINE" new static stack.test --user stackuser --yes 2>&1)"
+check "running it twice is safe" "$RATLINE" new static stack.test --user stackuser --yes
+
+# A static site has nothing to read a connection string with.
+exits_with 2 "new static refuses --with-db" \
+    "$RATLINE" new static nodb.test --user stackuser --with-db --yes
+
+# The whole point: a failing step takes back everything the command created.
+#
+# The database step is made to fail by asking for a name that cannot exist, rather than by
+# turning a feature off — so the failure is the ordinary kind an operator hits, and the
+# steps before it really did run.
+before_sites=$("$RATLINE" --json site list | tr ',' '\n' | grep -c domain || true)
+exits_with 2 "a stack whose database cannot be named fails" \
+    "$RATLINE" new node unwind.test --user unwinduser --with-db --db-name 'not a valid name' --yes
+refute "the tenant it created is gone" id unwinduser
+refute "the home it created is gone" test -d /home/unwinduser
+refute "the vhost it created is gone" test -f /etc/nginx/sites-available/unwind.test.conf
+refute "the site directory is gone" test -d /home/unwinduser/unwind.test
+after_sites=$("$RATLINE" --json site list | tr ',' '\n' | grep -c domain || true)
+[ "$after_sites" = "$before_sites" ] && ok "the site count is back where it started" \
+    || bad "the site count is back where it started" "$before_sites then $after_sites"
+check "nginx is still valid after the unwind" nginx -t
+
+# A tenant that already existed is not this command's to remove.
+check "a stack on an existing tenant" "$RATLINE" new static second.test --user stackuser --yes
+exits_with 2 "and a later one that fails" \
+    "$RATLINE" new static second.test --user stackuser --root /etc/passwd --yes
+check "the existing tenant survived" id stackuser
+
+check "new static delete" "$RATLINE" site delete stack.test --purge --yes
+check "new second delete" "$RATLINE" site delete second.test --purge --yes
+check "the composite tenant deletes" "$RATLINE" user delete stackuser --purge --yes
+# The group has to go with it, or creating the same tenant again refuses — nginx is a
+# member of every tenant group, and userdel will not remove one that is not empty.
+refute "and its group went too" getent group stackuser
+check "so the name is free again" "$RATLINE" user add stackuser
+check "cleaning up" "$RATLINE" user delete stackuser --purge --yes
+
 # ---------------------------------------------------------------- teardown
 
 info "delete leaves no residue"
@@ -1567,7 +1637,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=315
+EXPECTED_MINIMUM=345
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

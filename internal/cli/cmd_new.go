@@ -45,12 +45,26 @@ type stack struct {
 	siteArgs []string
 
 	// done records what to undo, innermost last.
-	done []undoStep
+	done []step
 }
 
-type undoStep struct {
+// step is one command to run, and how to take it back.
+type step struct {
 	what string
 	argv []string
+	// undo is nil for a step that must not be undone: one that built something we did not
+	// create, or one whose cost has already been paid.
+	undo []string
+}
+
+// plan is everything this run has decided, before any of it happens.
+//
+// Deciding first and executing second is what makes --dry-run answerable and keeps the
+// closing summary honest: both read the same list, so the commands printed at the end are
+// the commands that ran rather than a second derivation that can drift from them.
+type plan struct {
+	steps []step
+	notes []string
 }
 
 // inherited carries the global flags into each step.
@@ -76,14 +90,14 @@ func (s *stack) inherited() []string {
 }
 
 // run executes one step and records how to undo it.
-func (s *stack) run(ctx context.Context, what string, undo []string, argv ...string) error {
-	full := append(argv, s.inherited()...)
-	s.g.Printf("\n→ %s\n", what)
+func (s *stack) run(ctx context.Context, st step) error {
+	full := append(append([]string{}, st.argv...), s.inherited()...)
+	s.g.Printf("\n→ %s\n", st.what)
 	if err := s.g.runArgv(ctx, full); err != nil {
 		return err
 	}
-	if undo != nil && !s.g.DryRun {
-		s.done = append(s.done, undoStep{what: what, argv: undo})
+	if st.undo != nil && !s.g.DryRun {
+		s.done = append(s.done, st)
 	}
 	return nil
 }
@@ -94,75 +108,72 @@ func (s *stack) run(ctx context.Context, what string, undo []string, argv ...str
 // the operator needs to know which thing rather than being told the whole command failed.
 func (s *stack) unwind(ctx context.Context) {
 	for i := len(s.done) - 1; i >= 0; i-- {
-		step := s.done[i]
-		s.g.Log.Warn("undoing", "step", step.what)
-		argv := append(step.argv, "--yes")
+		st := s.done[i]
+		s.g.Log.Warn("undoing", "step", st.what)
+		argv := append(append([]string{}, st.undo...), "--yes")
 		if err := s.g.runArgv(ctx, argv); err != nil {
 			s.g.Log.Error("could not undo a step; it is still there",
-				"step", step.what, "fix", strings.Join(step.argv, " "), "err", err)
+				"step", st.what, "fix", strings.Join(st.undo, " "), "err", err)
 		}
 	}
 }
 
-// provision builds the stack, unwinding everything on the first failure.
-func (s *stack) provision(ctx context.Context) (err error) {
+// plan decides every step and runs none of them.
+//
+// Everything the composite chooses on the operator's behalf is resolved here — whether the
+// tenant needs creating, the database name derived from the domain — so that --dry-run has
+// something true to print and the summary at the end has one source.
+func (s *stack) plan(ctx context.Context) (plan, error) {
+	var p plan
 	if _, err := validate.Domain(s.Domain); err != nil {
-		return err
+		return p, err
 	}
 	if err := validate.Username(s.Owner); err != nil {
-		return err
+		return p, err
 	}
-
-	defer func() {
-		if err != nil && len(s.done) > 0 {
-			s.g.Log.Warn("a step failed, so everything this command created is being removed",
-				"created", len(s.done))
-			s.unwind(ctx)
-		}
-	}()
 
 	// The tenant, if it is not already there. An existing one is left alone and is not
 	// undone on failure: it was not ours to create, so it is not ours to remove.
-	st, serr := s.g.Store(ctx)
-	if serr != nil {
-		return serr
+	st, err := s.g.Store(ctx)
+	if err != nil {
+		return p, err
 	}
 	if _, gerr := st.GetUser(ctx, s.Owner); gerr != nil {
 		argv := []string{"user", "add", s.Owner}
 		if s.SSHKey != "" {
 			argv = append(argv, "--ssh-key", s.SSHKey)
 		}
-		if err = s.run(ctx, "creating the tenant "+s.Owner,
-			[]string{"user", "delete", s.Owner, "--purge"}, argv...); err != nil {
-			return err
-		}
+		p.steps = append(p.steps, step{
+			what: "creating the tenant " + s.Owner,
+			argv: argv,
+			undo: []string{"user", "delete", s.Owner, "--purge"},
+		})
 	} else {
-		s.g.Printf("\n→ tenant %s already exists, leaving it alone\n", s.Owner)
+		p.notes = append(p.notes, "tenant "+s.Owner+" already exists, leaving it alone")
 		if s.SSHKey != "" {
-			if err = s.run(ctx, "adding the key to "+s.Owner, nil,
-				"key", "add", "--scope", "user", "--user", s.Owner,
-				"--label", s.Domain+" deploy", "--key", s.SSHKey); err != nil {
-				return err
-			}
+			p.steps = append(p.steps, step{
+				what: "adding the key to " + s.Owner,
+				argv: []string{"key", "add", "--scope", "user", "--user", s.Owner,
+					"--label", s.Domain + " deploy", "--key", s.SSHKey},
+			})
 		}
 	}
 
-	// The site. TLS is asked for separately below, so that a certificate failure — the
-	// likeliest step to fail, and the one with a rate limit attached — does not take the
-	// site down with it.
-	siteArgv := append([]string{"site", "add", s.Domain, "--user", s.Owner, "--ssl", "none"},
-		s.siteArgs...)
-	if err = s.run(ctx, "creating the site "+s.Domain,
-		[]string{"site", "delete", s.Domain, "--purge"}, siteArgv...); err != nil {
-		return err
-	}
+	// The site. TLS is a separate step below, so that a certificate failure — the likeliest
+	// step to fail, and the one with a rate limit attached — does not take the site with it.
+	p.steps = append(p.steps, step{
+		what: "creating the site " + s.Domain,
+		argv: append([]string{"site", "add", s.Domain, "--user", s.Owner, "--ssl", "none"},
+			s.siteArgs...),
+		undo: []string{"site", "delete", s.Domain, "--purge"},
+	})
 
 	if s.WithDB {
 		name := s.DBName
 		if name == "" {
 			name = databaseNameFor(s.Domain)
-			if err = validate.DatabaseName(name); err != nil {
-				return rlerr.Wrap(err, rlerr.CodeUsage,
+			if err := validate.DatabaseName(name); err != nil {
+				return p, rlerr.Wrap(err, rlerr.CodeUsage,
 					"the database name derived from %s is not usable", s.Domain).
 					WithHint("pass --db-name with one you choose")
 			}
@@ -171,10 +182,11 @@ func (s *stack) provision(ctx context.Context) (err error) {
 		if s.EnvKey != "" {
 			argv = append(argv, "--env-key", s.EnvKey)
 		}
-		if err = s.run(ctx, "creating the database "+name,
-			[]string{"db", "drop", name, "--force"}, argv...); err != nil {
-			return err
-		}
+		p.steps = append(p.steps, step{
+			what: "creating the database " + name,
+			argv: argv,
+			undo: []string{"db", "drop", name, "--force"},
+		})
 	}
 
 	if s.TLS {
@@ -186,45 +198,101 @@ func (s *stack) provision(ctx context.Context) (err error) {
 		// against the rate limit, and throwing it away would mean spending another one to
 		// get back to where we are. It is attached to a site that is about to be removed,
 		// which `cert list` reports as orphaned and `doctor` will mention.
-		if err = s.run(ctx, "issuing a certificate for "+s.Domain, nil, argv...); err != nil {
+		p.steps = append(p.steps, step{
+			what: "issuing a certificate for " + s.Domain,
+			argv: argv,
+		})
+	}
+	return p, nil
+}
+
+// provision runs the plan, unwinding everything it created on the first failure.
+func (s *stack) provision(ctx context.Context, p plan) (err error) {
+	defer func() {
+		if err != nil && len(s.done) > 0 {
+			s.g.Log.Warn("a step failed, so everything this command created is being removed",
+				"created", len(s.done))
+			s.unwind(ctx)
+		}
+	}()
+	for _, st := range p.steps {
+		if err = s.run(ctx, st); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// summarise prints what exists now and the commands that would have built it.
+// rehearse prints the plan for --dry-run.
+//
+// The steps are not run, not even with --dry-run passed down. Each one preconditions on the
+// one before it having really happened, so rehearsing them in order means the site step is
+// told there is no such user — an error that is not real, reported for a stack that is
+// perfectly buildable. Printing the resolved plan says the true thing instead.
+func (s *stack) rehearse(p plan) {
+	if s.g.Quiet {
+		return
+	}
+	s.g.Printf("\nThis would run %s:\n\n", plural(len(p.steps), "command"))
+	for _, st := range p.steps {
+		s.g.Printf("    %s\n", commandLine(st.argv))
+	}
+	if n := undoable(p); n > 0 {
+		s.g.Printf("\nIf any of them failed, the %s before it would be removed.\n",
+			plural(n, "thing"))
+	}
+	s.g.Printf("\nNothing was written. The domain, the tenant name and the database name were\n" +
+		"checked; the steps themselves were not run, so anything only the server knows —\n" +
+		"whether that runtime is installed, whether the domain is already taken — is not\n" +
+		"decided yet. Rehearse a single step with its own --dry-run.\n")
+}
+
+// summarise prints what exists now and the commands that built it.
 //
 // The equivalent commands are the point: this is a shortcut for the common case, not a
 // replacement for knowing the tool. An operator who reads them once can do the uncommon
-// case by hand.
-func (s *stack) summarise() {
+// case by hand. They come from the plan, so they are what ran — a tenant that already
+// existed does not get a `user add` line it never needed.
+func (s *stack) summarise(p plan) {
 	if s.g.JSON || s.g.Quiet {
 		return
 	}
 	s.g.Printf("\n%s is ready.\n", s.Domain)
-
-	var lines []string
-	lines = append(lines, "ratline user add "+s.Owner)
-	lines = append(lines, "ratline site add "+s.Domain+" --user "+s.Owner+" "+strings.Join(s.siteArgs, " "))
-	if s.WithDB {
-		name := s.DBName
-		if name == "" {
-			name = databaseNameFor(s.Domain)
-		}
-		lines = append(lines, "ratline db create "+name+" --owner "+s.Owner+" --attach "+s.Domain)
-	}
-	if s.TLS {
-		lines = append(lines, "ratline cert issue "+s.Domain)
-	}
 	s.g.Printf("\nThe same thing, one command at a time:\n")
-	for _, l := range lines {
-		s.g.Printf("    %s\n", l)
+	for _, st := range p.steps {
+		s.g.Printf("    %s\n", commandLine(st.argv))
 	}
 	s.g.Printf("\nNext:\n    ratline site show %s\n", s.Domain)
 	if !s.TLS {
 		s.g.Printf("    ratline cert issue %s        # once DNS points here\n", s.Domain)
 	}
+}
+
+// commandLine renders a step for a human to copy.
+//
+// Only for display: nothing here is ever parsed back into a command. Quoting is applied to
+// arguments containing a space so that copying the line into a shell runs what it appears to
+// run, which matters for a value like --install-command 'npm ci --omit=dev'.
+func commandLine(argv []string) string {
+	out := make([]string, 0, len(argv)+1)
+	out = append(out, "ratline")
+	for _, a := range argv {
+		if strings.ContainsAny(a, " \t'\"") {
+			a = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+		out = append(out, a)
+	}
+	return strings.Join(out, " ")
+}
+
+func undoable(p plan) int {
+	n := 0
+	for _, st := range p.steps {
+		if st.undo != nil {
+			n++
+		}
+	}
+	return n
 }
 
 func newNewCommand(g *Globals) *cobra.Command {
@@ -274,16 +342,42 @@ func (s *stack) finish(cmd *cobra.Command, args []string) error {
 		return rlerr.Usagef("--tls needs an email address").
 			WithHint("pass --email, or record one once with 'ratline cert account register --email …'")
 	}
-	if err := s.provision(cmd.Context()); err != nil {
+	p, err := s.plan(cmd.Context())
+	if err != nil {
+		return err
+	}
+	for _, n := range p.notes {
+		s.g.Printf("\n→ %s\n", n)
+	}
+
+	planned := make([]string, 0, len(p.steps))
+	for _, st := range p.steps {
+		planned = append(planned, commandLine(st.argv))
+	}
+
+	if s.g.DryRun {
+		s.rehearse(p)
+		if s.g.JSON {
+			return s.g.EmitJSON(map[string]any{
+				"domain": s.Domain, "owner": s.Owner,
+				"database": s.WithDB, "tls": s.TLS,
+				"dry_run": true, "plan": planned,
+			})
+		}
+		return nil
+	}
+
+	if err := s.provision(cmd.Context(), p); err != nil {
 		return err
 	}
 	if s.g.JSON {
 		return s.g.EmitJSON(map[string]any{
 			"domain": s.Domain, "owner": s.Owner,
 			"database": s.WithDB, "tls": s.TLS,
+			"dry_run": false, "plan": planned,
 		})
 	}
-	s.summarise()
+	s.summarise(p)
 	return nil
 }
 
