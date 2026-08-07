@@ -649,6 +649,68 @@ ratline site env list api.example.com --reveal`,
       ],
     },
     {
+      id: 'site-cron',
+      name: 'ratline site cron',
+      args: '<add|list|remove|run|logs>',
+      status: 'built',
+      summary: 'Scheduled jobs for a site, as systemd timers.',
+      description: [
+        'A job runs on a schedule as the site’s tenant, in the site’s directory, with the site’s .env, sandbox and memory ceiling.',
+        'These are systemd timers rather than crontab lines. A crontab line runs outside every limit the site is held to — no memory ceiling, no filesystem protection, no cgroup — and nothing in status, doctor, reconcile, export or backup knows it is there. The thing on a server most likely to be quietly broken should not also be the thing nothing watches.',
+        'Schedules may be written as cron or in systemd’s own syntax. Either way systemd is asked to confirm the result before anything is written, and the next few run times are printed so a translation can be checked.',
+      ],
+      flags: [
+        { name: '--schedule', arg: '<expr>', type: 'string', required: true,
+          description: 'When to run: cron (`0 3 * * *`) or systemd (`daily`, `Mon *-*-* 09:00`).',
+          note: 'Cron treats day-of-month and day-of-week as “either” when both are set, which a timer cannot express — that one case is refused rather than translated wrongly. @reboot is refused too: a timer fires on a clock, and the answer there is a worker.' },
+        { name: '--command', arg: '<path…>', type: 'string', required: true,
+          description: 'What to run, as a path and arguments.',
+          note: 'systemd parses this itself, so it is an argv rather than a shell line. A pipe or a redirection is refused; anything needing one belongs in a script.' },
+        { name: '--persistent', type: 'bool', default: 'false',
+          description: 'Run a firing that was missed while the server was off.',
+          note: 'cron has no equivalent: a nightly job on a machine that was down at 3am simply does not run, and nothing says so.' },
+        { name: '--timeout', arg: '<duration>', type: 'string', description: 'Give up after this long, e.g. 30m.' },
+        { name: '--memory-max', arg: '<size>', type: 'string', description: 'Memory ceiling for this job (default: the site’s).' },
+        { name: '--disabled', type: 'bool', default: 'false', description: 'Create it without arming the timer.' },
+      ],
+      examples: [
+        { lang: 'shell', code: `ratline site cron add app.example.com nightly \\
+    --schedule '0 3 * * *' --command /home/acme/app.example.com/app/bin/nightly` },
+        { title: 'Find out it works, rather than waiting until 3am', lang: 'shell',
+          code: `ratline site cron run app.example.com nightly
+ratline site cron logs app.example.com nightly` },
+      ],
+      seeAlso: [
+        { label: 'Scheduled jobs and workers', to: '/topics/jobs' },
+        { label: 'ratline site worker', to: '/reference/site/worker' },
+      ],
+    },
+    {
+      id: 'site-worker',
+      name: 'ratline site worker',
+      args: '<add|list|remove|logs>',
+      status: 'built',
+      summary: 'Long-running background processes for a site.',
+      description: [
+        'A queue consumer, a websocket process, a scheduler daemon — running alongside the site’s own service as the same tenant, with the same directory, .env, sandbox and ceiling.',
+        'It is bound to the site: stopping the site stops its workers, and deleting the site removes them. A worker left running against a half-removed site is how a queue gets consumed by a process nobody remembers starting.',
+      ],
+      flags: [
+        { name: '--command', arg: '<path…>', type: 'string', required: true,
+          description: 'What to run, as a path and arguments.' },
+        { name: '--memory-max', arg: '<size>', type: 'string', description: 'Memory ceiling for this worker (default: the site’s).' },
+        { name: '--disabled', type: 'bool', default: 'false', description: 'Create it without starting it.' },
+      ],
+      examples: [
+        { lang: 'shell', code: `ratline site worker add app.example.com queue \\
+    --command /home/acme/app.example.com/app/bin/worker` },
+      ],
+      seeAlso: [
+        { label: 'Scheduled jobs and workers', to: '/topics/jobs' },
+        { label: 'ratline site cron', to: '/reference/site/cron' },
+      ],
+    },
+    {
       id: 'site-alias',
       name: 'ratline site alias add|remove',
       args: '<domain> <alias>',

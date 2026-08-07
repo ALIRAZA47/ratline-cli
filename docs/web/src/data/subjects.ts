@@ -59,7 +59,7 @@ export const subjects: Subject[] = [
       'One domain, one owner, one systemd unit. What each runtime generates, how it is supervised, and what a deploy does when a step fails.',
     commands: ['new', 'site', 'runtime'],
     concepts: ['/concepts/model', '/concepts/supervision'],
-    topics: ['layout', 'sockets', 'static', 'node', 'python', 'deploys', 'limits'],
+    topics: ['layout', 'sockets', 'static', 'node', 'python', 'deploys', 'jobs', 'limits'],
     guides: [
       '/guides/deploy-node',
       '/guides/deploy-python',

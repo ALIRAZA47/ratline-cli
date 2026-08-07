@@ -153,6 +153,15 @@ func closestTopic(want string, names []string) string {
 		"gunicorn":    "python",
 		"django":      "python",
 		"spa":         "static",
+		"cron":        "jobs",
+		"crontab":     "jobs",
+		"job":         "jobs",
+		"schedule":    "jobs",
+		"scheduled":   "jobs",
+		"timer":       "jobs",
+		"worker":      "jobs",
+		"workers":     "jobs",
+		"queue":       "jobs",
 	} {
 		if want == alias {
 			return topic
