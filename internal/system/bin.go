@@ -58,6 +58,12 @@ var defaultCandidates = map[string][]string{
 	// databases. ratline provisions inside a MongoDB server; it does not install one,
 	// so an absent mongosh is a precondition to report rather than a bug.
 	"mongosh": {"/usr/bin/mongosh", "/usr/local/bin/mongosh", "/snap/bin/mongosh", "/opt/mongodb/bin/mongosh"},
+	// The database tools ship separately from mongosh — mongodb-database-tools, which is
+	// not a dependency of the shell — so these are absent on plenty of servers where
+	// mongosh works fine. `db dump` says which package to install rather than reporting a
+	// missing binary.
+	"mongodump":    {"/usr/bin/mongodump", "/usr/local/bin/mongodump", "/opt/mongodb/bin/mongodump"},
+	"mongorestore": {"/usr/bin/mongorestore", "/usr/local/bin/mongorestore", "/opt/mongodb/bin/mongorestore"},
 
 	// tls
 	"certbot": {"/usr/bin/certbot", "/snap/bin/certbot", "/usr/local/bin/certbot"},

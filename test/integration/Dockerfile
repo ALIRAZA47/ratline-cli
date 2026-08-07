@@ -41,9 +41,11 @@ RUN set -eu; \
     echo "deb [ arch=$arch signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] \
 https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" \
       > /etc/apt/sources.list.d/mongodb-org-8.0.list; \
-    apt-get update && apt-get install -y --no-install-recommends mongodb-mongosh; \
+    apt-get update && apt-get install -y --no-install-recommends \
+        mongodb-mongosh mongodb-database-tools; \
     rm -rf /var/lib/apt/lists/*; \
-    mongosh --version
+    mongosh --version; \
+    mongodump --version
 
 # The units systemd would otherwise spend the container's life failing on.
 RUN find /etc/systemd/system /lib/systemd/system \

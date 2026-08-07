@@ -1118,6 +1118,64 @@ else
             bad "the rotated credential in the .env does not work" "the site is now broken"
         fi
 
+        # Dump and restore, against real data.
+        #
+        # The round trip is the only assertion that means anything here: an archive that
+        # writes without erroring but restores nothing is exactly the failure somebody
+        # discovers at the worst possible moment.
+        mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval 'db.getSiblingDB("shop").things.insertMany([{n:1},{n:2},{n:3}])' >/dev/null 2>&1
+        count_before=$(mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval 'print(db.getSiblingDB("shop").things.countDocuments({}))' 2>/dev/null | tail -1)
+
+        dumpout=$("$RATLINE" --json db dump shop 2>&1)
+        rc=$?
+        [ "$rc" = 0 ] && ok "db dump" || bad "db dump" "exit $rc: $(printf '%s' "$dumpout" | tail -3)"
+        archive=$(printf '%s' "$dumpout" | jq -r '..|objects|.path? // empty' | head -1)
+        check "the archive exists" test -s "$archive"
+        # It holds every document in the database, so it is root-only like the .env.
+        check "the archive is 0600" bash -c "[ \"\$(stat -c %a '$archive')\" = 600 ]"
+
+        # The admin URI must not be in the argument list of the process that wrote it.
+        # /proc is world-readable; this is the invariant the --config file exists for.
+        refute "the dump did not put the admin URI in argv" \
+            bash -c "grep -c -- '--uri' /var/log/ratline/audit.log 2>/dev/null | grep -qv '^0$'"
+
+        # Now destroy the data and put it back.
+        mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval 'db.getSiblingDB("shop").things.deleteMany({})' >/dev/null 2>&1
+        gone=$(mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval 'print(db.getSiblingDB("shop").things.countDocuments({}))' 2>/dev/null | tail -1)
+        [ "$gone" = "0" ] && ok "the data is really gone before the restore" \
+            || bad "the restore test is vacuous" "there are still $gone documents"
+
+        check "db restore" "$RATLINE" db restore "$archive" --yes
+        count_after=$(mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval 'print(db.getSiblingDB("shop").things.countDocuments({}))' 2>/dev/null | tail -1)
+        [ "$count_after" = "$count_before" ] && ok "every document came back ($count_after)" \
+            || bad "the restore lost data" "had $count_before, got $count_after"
+
+        # --into is how a production dump lands in staging without editing the archive.
+        check "db create for the restore target" "$RATLINE" db create shop_staging --owner alice
+        check "db restore --into" "$RATLINE" db restore "$archive" --into shop_staging --yes
+        staged=$(mongosh "$RATLINE_TEST_MONGO_URI" --quiet \
+            --eval 'print(db.getSiblingDB("shop_staging").things.countDocuments({}))' 2>/dev/null | tail -1)
+        [ "$staged" = "$count_before" ] && ok "and into another database as well" \
+            || bad "--into restored nothing" "expected $count_before, got $staged"
+
+        check "cleaning up the staging copy" "$RATLINE" db drop shop_staging --force
+
+        # An archive ratline did not write has no database in its name, so restoring it
+        # without --into would mean picking a database to overwrite by guessing.
+        cp "$archive" /tmp/someone-elses.archive.gz
+        exits_with 2 "an archive with no database in its name needs --into" \
+            "$RATLINE" db restore /tmp/someone-elses.archive.gz --yes
+        # Not-found is a precondition, exit 3, the same as `site show` and `restore`.
+        exits_with 3 "a dump of a database ratline does not know is refused" \
+            "$RATLINE" db dump nosuchdatabase
+        exits_with 3 "restoring an archive that is not there is refused" \
+            "$RATLINE" db restore /tmp/absent.archive.gz --into shop --yes
+
         # Refusals.
         refute "a cluster-wide role is refused" \
             "$RATLINE" db user add evil --database shop --role readWriteAnyDatabase
@@ -1854,7 +1912,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=420
+EXPECTED_MINIMUM=440
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

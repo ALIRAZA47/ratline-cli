@@ -586,6 +586,8 @@ Available Commands:
   list        List databases ratline provisioned, or everything on the server
   show        Show a database, its users and what it holds
   drop        Drop a database and its users
+  dump        Write a compressed archive of one database
+  restore     Load an archive back into a database
   user        Add, inspect, re-role and remove MongoDB users
   roles       List the roles ratline will grant, and what each allows
 
@@ -3028,6 +3030,77 @@ Global Flags:
   -q, --quiet           Errors only
   -v, --verbose         Debug logging
   -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db dump`
+
+```
+One gzipped archive file, scoped to the named database, written 0600.
+
+It holds every document in the database, so where it goes afterwards is your
+responsibility — the same warning `ratline backup` carries about the .env.
+
+The connection string never appears in the argument list. /proc is world-readable,
+and an admin URI on a command line is the password for every database on the
+server, visible to every account on it for as long as the dump runs.
+
+Usage:
+  ratline db dump <database> [flags]
+
+Flags:
+  -h, --help         help for dump
+      --out string   Directory to write into (default <backup_dir>/databases)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db dump app_example_com
+  ratline db dump app_example_com --out /mnt/backups
+```
+
+#### `ratline db restore`
+
+```
+Restores what `ratline db dump` wrote.
+
+By default it goes back into the database it came from, which the filename
+records. --into loads it somewhere else, which is how a production dump gets
+loaded into staging without editing the archive.
+
+Documents already there are left alone unless --drop says otherwise, so a
+restore over a live database merges rather than replaces. That is the safer
+default and rarely the one you want: --drop is what makes it a restore.
+
+Usage:
+  ratline db restore <archive> [flags]
+
+Flags:
+      --drop          Replace what is there rather than merging into it
+  -h, --help          help for restore
+      --into string   Restore into this database instead of the one it came from
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db restore /var/backups/ratline/databases/app_example_com-20260807T120000Z.archive.gz
+  ratline db restore app.archive.gz --into app_staging
+  ratline db restore app.archive.gz --drop     # replace what is there
 ```
 
 #### `ratline db user`
