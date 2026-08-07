@@ -50,14 +50,14 @@ func TestEveryDerivedNameSurvivesTheRealValidator(t *testing.T) {
 // back over the fields, so --dry-run on the composite would become a real run part-way
 // through if these were not passed explicitly.
 func TestTheGlobalFlagsArePassedToEveryStep(t *testing.T) {
-	s := &stack{g: &Globals{DryRun: true, Yes: true, NoInput: true}}
-	got := strings.Join(s.inherited(), " ")
+	c := &composer{g: &Globals{DryRun: true, Yes: true, NoInput: true}}
+	got := strings.Join(c.inherited(), " ")
 	for _, want := range []string{"--dry-run", "--yes", "--no-input"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("inherited() = %q, missing %s — the step would not honour it", got, want)
 		}
 	}
-	if plain := (&stack{g: &Globals{}}).inherited(); len(plain) != 0 {
+	if plain := (&composer{g: &Globals{}}).inherited(); len(plain) != 0 {
 		t.Errorf("inherited() with nothing set = %v, want nothing", plain)
 	}
 }
@@ -73,7 +73,7 @@ func TestADryRunPrintsThePlanRatherThanFailingOnIt(t *testing.T) {
 	out := &strings.Builder{}
 	g := &Globals{DryRun: true, Stdout: out, Stderr: out}
 	g.Log = log.Discard()
-	s := &stack{g: g, Domain: "app.example.com", Owner: "acme"}
+	s := &stack{g: g, c: &composer{g: g}, Domain: "app.example.com", Owner: "acme"}
 
 	p := plan{steps: []step{
 		{what: "tenant", argv: []string{"user", "add", "acme"}, undo: []string{"user", "delete", "acme"}},
@@ -82,7 +82,7 @@ func TestADryRunPrintsThePlanRatherThanFailingOnIt(t *testing.T) {
 		{what: "cert", argv: []string{"cert", "issue", "app.example.com"},
 			kept: "A certificate is the exception: it is not revoked."},
 	}}
-	s.rehearse(p)
+	s.c.rehearse(p, "The domain and the tenant name were checked.")
 
 	got := out.String()
 	for _, want := range []string{
@@ -144,11 +144,11 @@ func TestADryRunRecordsNothingToUndo(t *testing.T) {
 		out := &strings.Builder{}
 		g := &Globals{DryRun: dry, Stdout: out, Stderr: out, Stdin: strings.NewReader("")}
 		g.Log = log.Discard()
-		s := &stack{g: g}
+		s := &stack{g: g, c: &composer{g: g}}
 
 		// `explain` needs no root, no configuration and no state, so this exercises run()
 		// itself rather than the command it happens to be given.
-		if err := s.run(t.Context(), step{
+		if err := s.c.run(t.Context(), step{
 			what: "a step",
 			argv: []string{"explain", "layout"},
 			undo: []string{"user", "delete", "nobody"},
@@ -157,12 +157,12 @@ func TestADryRunRecordsNothingToUndo(t *testing.T) {
 		}
 
 		switch {
-		case dry && len(s.done) != 0:
+		case dry && len(s.c.done) != 0:
 			t.Errorf("a dry run recorded %d undo step(s); a later failure would run a "+
-				"delete against something it never created", len(s.done))
-		case !dry && len(s.done) != 1:
+				"delete against something it never created", len(s.c.done))
+		case !dry && len(s.c.done) != 1:
 			t.Errorf("a real step recorded %d undo steps, want 1 — a failure would leave "+
-				"it behind", len(s.done))
+				"it behind", len(s.c.done))
 		}
 	}
 }

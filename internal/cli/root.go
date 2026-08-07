@@ -189,6 +189,7 @@ func NewRootCommand(g *Globals) *cobra.Command {
 		newExplainCommand(g),
 		newReconcileCommand(g),
 		newExportCommand(g),
+		newImportCommand(g),
 		newUpdateCommand(g),
 		newVersionCommand(g),
 		newManCommand(g),

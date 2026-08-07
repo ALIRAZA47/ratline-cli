@@ -29,6 +29,7 @@ import (
 // stack is one provisioning run.
 type stack struct {
 	g *Globals
+	c *composer
 
 	Domain string
 	Owner  string
@@ -43,82 +44,6 @@ type stack struct {
 
 	// siteArgs are the runtime-specific flags, built by each recipe.
 	siteArgs []string
-
-	// done records what to undo, innermost last.
-	done []step
-}
-
-// step is one command to run, and how to take it back.
-type step struct {
-	what string
-	argv []string
-	// undo is nil for a step that must not be undone: one that built something we did not
-	// create, or one whose cost has already been paid. kept says why, in a sentence the
-	// preview can print — a step that is not taken back is exactly what somebody reading a
-	// preview needs told, and leaving it implicit is how it gets missed.
-	undo []string
-	kept string
-}
-
-// plan is everything this run has decided, before any of it happens.
-//
-// Deciding first and executing second is what makes --dry-run answerable and keeps the
-// closing summary honest: both read the same list, so the commands printed at the end are
-// the commands that ran rather than a second derivation that can drift from them.
-type plan struct {
-	steps []step
-	notes []string
-}
-
-// inherited carries the global flags into each step.
-//
-// Each step builds a fresh root command, and binding the flags writes their defaults back
-// over the fields — so --dry-run on the composite would silently become a real run three
-// steps in. They have to be passed explicitly rather than assumed to survive.
-func (s *stack) inherited() []string {
-	var out []string
-	if s.g.DryRun {
-		out = append(out, "--dry-run")
-	}
-	if s.g.Yes {
-		out = append(out, "--yes")
-	}
-	if s.g.Quiet {
-		out = append(out, "--quiet")
-	}
-	if s.g.NoInput {
-		out = append(out, "--no-input")
-	}
-	return out
-}
-
-// run executes one step and records how to undo it.
-func (s *stack) run(ctx context.Context, st step) error {
-	full := append(append([]string{}, st.argv...), s.inherited()...)
-	s.g.Printf("\n→ %s\n", st.what)
-	if err := s.g.runArgv(ctx, full); err != nil {
-		return err
-	}
-	if st.undo != nil && !s.g.DryRun {
-		s.done = append(s.done, st)
-	}
-	return nil
-}
-
-// unwind undoes what was built, most recent first.
-//
-// Best effort, and loud about it: a compensation that fails leaves something behind, and
-// the operator needs to know which thing rather than being told the whole command failed.
-func (s *stack) unwind(ctx context.Context) {
-	for i := len(s.done) - 1; i >= 0; i-- {
-		st := s.done[i]
-		s.g.Log.Warn("undoing", "step", st.what)
-		argv := append(append([]string{}, st.undo...), "--yes")
-		if err := s.g.runArgv(ctx, argv); err != nil {
-			s.g.Log.Error("could not undo a step; it is still there",
-				"step", st.what, "fix", strings.Join(st.undo, " "), "err", err)
-		}
-	}
 }
 
 // plan decides every step and runs none of them.
@@ -211,55 +136,6 @@ func (s *stack) plan(ctx context.Context) (plan, error) {
 	return p, nil
 }
 
-// provision runs the plan, unwinding everything it created on the first failure.
-func (s *stack) provision(ctx context.Context, p plan) (err error) {
-	defer func() {
-		if err != nil && len(s.done) > 0 {
-			s.g.Log.Warn("a step failed, so everything this command created is being removed",
-				"created", len(s.done))
-			s.unwind(ctx)
-		}
-	}()
-	for _, st := range p.steps {
-		if err = s.run(ctx, st); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// rehearse prints the plan for --dry-run.
-//
-// The steps are not run, not even with --dry-run passed down. Each one preconditions on the
-// one before it having really happened, so rehearsing them in order means the site step is
-// told there is no such user — an error that is not real, reported for a stack that is
-// perfectly buildable. Printing the resolved plan says the true thing instead.
-func (s *stack) rehearse(p plan) {
-	if s.g.Quiet {
-		return
-	}
-	s.g.Printf("\nThis would run %s:\n\n", plural(len(p.steps), "command"))
-	for _, st := range p.steps {
-		s.g.Printf("    %s\n", commandLine(st.argv))
-	}
-	// Deliberately not a count. How many things come back depends on which step fails, so
-	// any number printed here is wrong for every case but one — and the first version said
-	// "the 3 things before it would be removed" about a three-step plan, where the most that
-	// can ever be removed is two.
-	if undoable(p) > 0 {
-		s.g.Printf("\nIf any of them failed, everything created before it would be removed.\n")
-	}
-	for _, st := range p.steps {
-		if st.kept != "" {
-			s.g.Printf("%s\n", st.kept)
-		}
-	}
-	s.g.Printf("\nNothing was written. The domain, the tenant name and the database name were\n" +
-		"checked; the steps themselves were not run, so anything only the server knows —\n" +
-		"whether that runtime is installed, whether the domain is already taken — is not\n" +
-		"decided yet. Rehearse a single step with its own --dry-run.\n")
-}
-
 // summarise prints what exists now and the commands that built it.
 //
 // The equivalent commands are the point: this is a shortcut for the common case, not a
@@ -279,33 +155,6 @@ func (s *stack) summarise(p plan) {
 	if !s.TLS {
 		s.g.Printf("    ratline cert issue %s        # once DNS points here\n", s.Domain)
 	}
-}
-
-// commandLine renders a step for a human to copy.
-//
-// Only for display: nothing here is ever parsed back into a command. Quoting is applied to
-// arguments containing a space so that copying the line into a shell runs what it appears to
-// run, which matters for a value like --install-command 'npm ci --omit=dev'.
-func commandLine(argv []string) string {
-	out := make([]string, 0, len(argv)+1)
-	out = append(out, "ratline")
-	for _, a := range argv {
-		if strings.ContainsAny(a, " \t'\"") {
-			a = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
-		}
-		out = append(out, a)
-	}
-	return strings.Join(out, " ")
-}
-
-func undoable(p plan) int {
-	n := 0
-	for _, st := range p.steps {
-		if st.undo != nil {
-			n++
-		}
-	}
-	return n
 }
 
 func newNewCommand(g *Globals) *cobra.Command {
@@ -369,7 +218,10 @@ func (s *stack) finish(cmd *cobra.Command, args []string) error {
 	}
 
 	if s.g.DryRun {
-		s.rehearse(p)
+		s.c.rehearse(p, "The domain, the tenant name and the database name were checked;\n"+
+			"the steps themselves were not run, so anything only the server knows — whether\n"+
+			"that runtime is installed, whether the domain is already taken — is not decided\n"+
+			"yet. Rehearse a single step with its own --dry-run.")
 		if s.g.JSON {
 			return s.g.EmitJSON(map[string]any{
 				"domain": s.Domain, "owner": s.Owner,
@@ -380,7 +232,7 @@ func (s *stack) finish(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if err := s.provision(cmd.Context(), p); err != nil {
+	if err := s.c.execute(cmd.Context(), p); err != nil {
 		return err
 	}
 	if s.g.JSON {
@@ -395,7 +247,7 @@ func (s *stack) finish(cmd *cobra.Command, args []string) error {
 }
 
 func newNewNodeCommand(g *Globals) *cobra.Command {
-	s := &stack{g: g}
+	s := &stack{g: g, c: &composer{g: g}}
 	var (
 		nodeVersion, entry, pm, install, build, public, listen string
 		instances                                              int
@@ -441,7 +293,7 @@ func newNewNodeCommand(g *Globals) *cobra.Command {
 }
 
 func newNewPythonCommand(g *Globals) *cobra.Command {
-	s := &stack{g: g}
+	s := &stack{g: g, c: &composer{g: g}}
 	var (
 		pyVersion, appModule, server, requirements, managePy, staticDir, staticURL string
 		asgi                                                                       bool
@@ -496,7 +348,7 @@ func newNewPythonCommand(g *Globals) *cobra.Command {
 }
 
 func newNewStaticCommand(g *Globals) *cobra.Command {
-	s := &stack{g: g}
+	s := &stack{g: g, c: &composer{g: g}}
 	var (
 		root, index, build, output string
 		spa                        bool

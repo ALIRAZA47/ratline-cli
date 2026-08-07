@@ -1627,6 +1627,90 @@ refute "and its group went too" getent group stackuser
 check "so the name is free again" "$RATLINE" user add stackuser
 check "cleaning up" "$RATLINE" user delete stackuser --purge --yes
 
+# ---------------------------------------------------------------- migration
+
+info "export and import round-trip"
+
+# The point of this section is the round trip, not either half. `export` has claimed to be
+# "for migration" since it was written and nothing consumed it, so the only way to know the
+# pair works is to take a server apart and put it back.
+
+check "a tenant to migrate" "$RATLINE" user add importuser
+check "with a site" "$RATLINE" site add moved.test --user importuser \
+    --runtime static --spa --ssl none --client-max-body-size 20m
+check "and an alias" "$RATLINE" site alias add moved.test www.moved.test
+
+"$RATLINE" export > /tmp/export.json 2>/dev/null
+check "export writes JSON" test -s /tmp/export.json
+check "it is valid JSON" python3 -c 'import json,sys; json.load(open("/tmp/export.json"))'
+contains "the tenant is in it" "importuser" "$(cat /tmp/export.json)"
+contains "the site is in it" "moved.test" "$(cat /tmp/export.json)"
+
+# The envelope is what export actually prints; a bare .data must work too, because
+# somebody moving one of these between servers will reasonably tidy it first.
+python3 -c 'import json;d=json.load(open("/tmp/export.json"));json.dump(d["data"],open("/tmp/export.bare.json","w"))'
+check "a bare .data parses too" "$RATLINE" import /tmp/export.bare.json --dry-run
+
+# Take it apart.
+check "delete the site" "$RATLINE" site delete moved.test --purge --yes
+check "delete the tenant" "$RATLINE" user delete importuser --purge --yes
+refute "the tenant is gone" id importuser
+
+# The preview writes nothing — the same property `ratline new` had to be fixed for.
+out=$("$RATLINE" import /tmp/export.json --only importuser --dry-run 2>&1)
+rc=$?
+[ "$rc" = 0 ] && ok "a dry-run import exits 0" \
+    || bad "a dry-run import exits 0" "exit $rc: $(printf '%s' "$out" | tail -3)"
+contains "it plans the tenant" "ratline user add importuser" "$out"
+contains "it plans the site" "ratline site add moved.test" "$out"
+contains "it says nothing was written" "Nothing was written" "$out"
+contains "it names what it cannot bring" "application code" "$out"
+refute "and nothing was" id importuser
+
+# Put it back.
+check "import rebuilds it" "$RATLINE" import /tmp/export.json --only importuser --yes
+check "the tenant is back" id importuser
+check "the site is back" "$RATLINE" site show moved.test
+check "the document root is back" test -d /home/importuser/moved.test/public
+check "the vhost is back" test -L /etc/nginx/sites-enabled/moved.test.conf
+check "nginx accepts it" nginx -t
+
+# The settings have to survive, or this restores a site in name only.
+shown=$("$RATLINE" site show moved.test 2>&1)
+contains "the runtime survived" "static" "$shown"
+contains "the alias survived" "www.moved.test" "$shown"
+# Checked in the generated vhost rather than in `site show`, for two reasons: it is where
+# the setting actually has an effect, and the value is normalised on the way in — asserting
+# on the literal "20m" failed against a restored "20M", which is the test being wrong about
+# the tool rather than the tool being wrong.
+check "a body-size setting survived into the vhost" \
+    grep -qi "client_max_body_size 20m;" /etc/nginx/sites-available/moved.test.conf
+
+# Safe to run twice, like everything else.
+again=$("$RATLINE" import /tmp/export.json --only importuser --yes 2>&1)
+rc=$?
+[ "$rc" = 0 ] && ok "importing twice is safe" || bad "importing twice is safe" "exit $rc"
+contains "and it says so rather than duplicating" "already exists" "$again"
+
+# --only really scopes it. Naming a tenant that is not in the export must plan nothing
+# at all — the first version of this check looked for a directory that never existed
+# either way, which is a check that cannot fail and therefore says nothing.
+scoped=$("$RATLINE" import /tmp/export.json --only nosuchtenant --dry-run 2>&1)
+contains "--only with an absent tenant plans nothing" "nothing to do" "$scoped"
+refute "and it did not plan alice's sites" bash -c "printf '%s' \"\$1\" | grep -q 'site add static.test'" _ "$scoped"
+
+# A certificate cannot be migrated, and the import must not pretend otherwise.
+refute "no certificate was invented" test -d /etc/letsencrypt/live/moved.test
+
+# Garbage is refused rather than half-applied.
+echo 'not an export' > /tmp/bad.json
+exits_with 2 "a file that is not an export is refused" "$RATLINE" import /tmp/bad.json --yes
+printf '{"schema_version":1,"users":[],"sites":[]}' > /tmp/empty.json
+exits_with 2 "an export with nothing in it is refused" "$RATLINE" import /tmp/empty.json --yes
+
+check "cleaning up the migration test" "$RATLINE" site delete moved.test --purge --yes
+check "and its tenant" "$RATLINE" user delete importuser --purge --yes
+
 # ---------------------------------------------------------------- teardown
 
 info "delete leaves no residue"
@@ -1661,7 +1745,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=348
+EXPECTED_MINIMUM=383
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

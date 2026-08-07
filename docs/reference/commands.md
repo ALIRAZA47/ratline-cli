@@ -156,6 +156,7 @@ OPERATIONS
   explain      Explain how part of ratline works
   reconcile    Report or repair drift between state and the system
   export       Dump the full state as JSON, for migration
+  import       Rebuild tenants and sites on this server from an export
   update       Update ratline itself, in place, on a live server
   version      Print the version, the host and the available runtimes
   man          Write man pages for every command
@@ -855,6 +856,47 @@ Global Flags:
   -q, --quiet           Errors only
   -v, --verbose         Debug logging
   -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+### `ratline import`
+
+```
+Reads what 'ratline export' wrote on another server and rebuilds the shape here:
+tenants, their SSH keys, their sites with every setting, the aliases, and which
+sites were disabled.
+
+It does not bring the application code, the environment values, the certificates
+or the database contents — the export holds none of those, by design. What was
+left out is listed at the end.
+
+Safe to run twice: a tenant or site that already exists is reported and left
+alone. If a step fails, everything this command created is removed.
+
+Usage:
+  ratline import <file> [flags]
+
+Flags:
+  -h, --help           help for import
+      --only strings   Import just these tenants, and their sites
+      --skip-keys      Do not restore SSH keys
+      --skip-sites     Restore the tenants but not their sites
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline export > server.json          # on the old server
+  ratline import server.json            # on the new one
+
+  ratline import server.json --dry-run  # the plan, writing nothing
+  ratline import server.json --only acme
 ```
 
 ### `ratline update`
