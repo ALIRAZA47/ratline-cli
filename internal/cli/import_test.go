@@ -87,6 +87,20 @@ func TestEveryFlagImportGeneratesExistsOnTheRealCommand(t *testing.T) {
 	kargv = appendIf(kargv, "--user", k.Owner)
 	kargv = appendIf(kargv, "--label", k.Label)
 	check(kargv)
+
+	// A site's jobs and workers go through the same generator, and dropping one of these
+	// silently is the worst migration bug available: the site serves, everything looks
+	// right, and the nightly job nobody is watching simply never runs again.
+	check(siteUnitArgvFor(&state.SiteUnit{
+		Domain: "app.example.com", Name: "nightly", Kind: state.UnitJob,
+		Command: "/srv/bin/nightly", Schedule: "*-*-* 03:00:00",
+		Description: "the nightly roll-up", Timeout: "30m", MemoryMax: "1G",
+		Persistent: true, Enabled: false,
+	}))
+	check(siteUnitArgvFor(&state.SiteUnit{
+		Domain: "app.example.com", Name: "queue", Kind: state.UnitWorker,
+		Command: "/srv/bin/worker", MemoryMax: "512M", Enabled: true,
+	}))
 }
 
 // The export command wraps its output in the JSON envelope. Somebody moving one between
@@ -230,5 +244,47 @@ func TestARestoredKeyIsAWholeLineAndNotJustTheBlob(t *testing.T) {
 	bare := authorizedLine(&state.Key{Algorithm: "ssh-rsa", Blob: "AAAAB3Nz"})
 	if bare != "ssh-rsa AAAAB3Nz" {
 		t.Errorf("a comment-less key rendered as %q", bare)
+	}
+}
+
+// A job that was deliberately off must not come back armed.
+//
+// Restoring a disabled job as enabled means it fires tonight, on a server that was set up
+// an hour ago, doing whatever the job does — which for the jobs people disable is usually
+// something with side effects they were trying to stop.
+func TestADisabledJobIsRestoredStillDisabled(t *testing.T) {
+	off := siteUnitArgvFor(&state.SiteUnit{
+		Domain: "a.test", Name: "nightly", Kind: state.UnitJob,
+		Command: "/srv/bin/x", Schedule: "daily", Enabled: false,
+	})
+	if !strings.Contains(commandLine(off), "--disabled") {
+		t.Errorf("a disabled job comes back armed:\n%s", commandLine(off))
+	}
+	on := siteUnitArgvFor(&state.SiteUnit{
+		Domain: "a.test", Name: "nightly", Kind: state.UnitJob,
+		Command: "/srv/bin/x", Schedule: "daily", Enabled: true,
+	})
+	if strings.Contains(commandLine(on), "--disabled") {
+		t.Errorf("an enabled job comes back disabled:\n%s", commandLine(on))
+	}
+}
+
+// A worker has no schedule and a job must not lose one.
+func TestTheRightSubcommandIsUsedForEachKind(t *testing.T) {
+	job := commandLine(siteUnitArgvFor(&state.SiteUnit{
+		Domain: "a.test", Name: "n", Kind: state.UnitJob,
+		Command: "/x", Schedule: "daily",
+	}))
+	if !strings.Contains(job, "site cron add") || !strings.Contains(job, "--schedule daily") {
+		t.Errorf("a job did not come back as a cron job with its schedule:\n%s", job)
+	}
+	worker := commandLine(siteUnitArgvFor(&state.SiteUnit{
+		Domain: "a.test", Name: "w", Kind: state.UnitWorker, Command: "/x",
+	}))
+	if !strings.Contains(worker, "site worker add") {
+		t.Errorf("a worker did not come back as a worker:\n%s", worker)
+	}
+	if strings.Contains(worker, "--schedule") {
+		t.Errorf("a worker was given a schedule, which its command has no flag for:\n%s", worker)
 	}
 }

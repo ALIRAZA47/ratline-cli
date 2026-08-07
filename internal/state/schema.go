@@ -281,4 +281,37 @@ var migrations = [][]string{
 		)`,
 		`CREATE INDEX idx_database_attachments_user ON database_attachments(username, auth_db)`,
 	},
+
+	// Extra units belonging to a site: scheduled jobs and long-running workers.
+	//
+	// One table with a kind rather than two, because everything about them is shared —
+	// the tenant, the working directory, the environment, the sandbox, the resource
+	// ceiling — and the only real difference is what starts them. A job is started by a
+	// timer and expected to exit; a worker is started with the site and expected not to.
+	//
+	// Recorded in state rather than left in /etc/systemd, so that `status`, `doctor`,
+	// `reconcile` and `export` can all see them. A tenant's crontab is invisible to every
+	// one of those, which is the reason this is not a crontab.
+	{
+		`CREATE TABLE site_units (
+			domain      TEXT NOT NULL,
+			name        TEXT NOT NULL,
+			kind        TEXT NOT NULL,
+			command     TEXT NOT NULL,
+			schedule    TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			enabled     INTEGER NOT NULL DEFAULT 1,
+			persistent  INTEGER NOT NULL DEFAULT 0,
+			timeout     TEXT NOT NULL DEFAULT '',
+			instances   INTEGER NOT NULL DEFAULT 1,
+			memory_max  TEXT NOT NULL DEFAULT '',
+			created_at  TEXT NOT NULL,
+			updated_at  TEXT NOT NULL,
+			created_by  TEXT NOT NULL DEFAULT '',
+			last_run_at TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (domain, name),
+			FOREIGN KEY (domain) REFERENCES sites(domain) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX idx_site_units_domain ON site_units(domain, kind)`,
+	},
 }

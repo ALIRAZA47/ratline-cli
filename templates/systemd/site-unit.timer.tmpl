@@ -1,0 +1,32 @@
+{{- /*
+The timer that drives a site's scheduled job.
+
+OnCalendar rather than a crontab line, so the expression is validated by
+`systemd-analyze calendar` before it is written and the operator is shown the next few
+times it will actually fire. A cron expression is accepted at the CLI and translated, but
+what lands here is always the systemd form — translated, then verified by the real tool.
+*/ -}}
+# managed-by: ratline
+# site: {{ .Domain }}
+# job: {{ .UnitName }}
+# generated: {{ .GeneratedAt }}
+[Unit]
+Description=ratline job {{ .UnitName }} for {{ .Domain }} ({{ .Schedule }})
+Documentation=man:ratline(8)
+
+[Timer]
+OnCalendar={{ .Schedule }}
+{{- if .Persistent }}
+# Runs a firing that was missed while the server was off, as soon as it comes back. cron
+# has no equivalent: a nightly job on a machine that was down at 3am simply does not run,
+# and nothing says so.
+Persistent=true
+{{- end }}
+# Without this every job on the server fires on the same second, which for a fleet of
+# sites all running a nightly task is a thundering herd against the same database.
+RandomizedDelaySec={{ .JitterSec }}
+AccuracySec=1s
+Unit={{ .ServiceUnitName }}
+
+[Install]
+WantedBy=timers.target

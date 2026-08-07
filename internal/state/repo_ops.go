@@ -232,6 +232,7 @@ type Export struct {
 	Keys          []*Key         `json:"ssh_keys"`
 	Certificates  []*Certificate `json:"certificates"`
 	Ports         []*Port        `json:"ports"`
+	SiteUnits     []*SiteUnit    `json:"site_units,omitempty"`
 }
 
 // Export dumps the state.
@@ -254,6 +255,9 @@ func (s *Store) Export(ctx context.Context) (*Export, error) {
 		return nil, err
 	}
 	if e.Ports, err = s.ListPorts(ctx); err != nil {
+		return nil, err
+	}
+	if e.SiteUnits, err = s.ListSiteUnits(ctx, "", ""); err != nil {
 		return nil, err
 	}
 	return e, nil

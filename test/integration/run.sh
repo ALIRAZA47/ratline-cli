@@ -1627,6 +1627,115 @@ refute "and its group went too" getent group stackuser
 check "so the name is free again" "$RATLINE" user add stackuser
 check "cleaning up" "$RATLINE" user delete stackuser --purge --yes
 
+# ---------------------------------------------------------------- jobs and workers
+
+info "scheduled jobs and workers"
+
+check "a site to hang them off" "$RATLINE" site add jobs.test --user alice \
+    --runtime static --ssl none
+mkdir -p /home/alice/jobs.test/app/bin
+cat > /home/alice/jobs.test/app/bin/tick <<'SH'
+#!/bin/sh
+echo "tick ran at $(date -Is)"
+SH
+chmod +x /home/alice/jobs.test/app/bin/tick
+chown -R alice:alice /home/alice/jobs.test/app
+
+# The schedule is translated and then handed to systemd before anything is written. This
+# is the assertion that the translator agrees with the real tool: if `0 3 * * *` became
+# something systemd rejects, or something that means a different time, this is where it
+# shows up rather than at 3am in six weeks.
+out=$("$RATLINE" site cron add jobs.test nightly --schedule '0 3 * * *' \
+    --command /home/alice/jobs.test/app/bin/tick 2>&1)
+rc=$?
+[ "$rc" = 0 ] && ok "cron add with a cron expression" \
+    || bad "cron add with a cron expression" "exit $rc: $(printf '%s' "$out" | tail -3)"
+contains "it shows what the cron expression became" "0 3 * * * becomes" "$out"
+contains "and when it will next run" "next runs:" "$out"
+
+check "the service unit was written" test -f /etc/systemd/system/ratline-alice-jobs_test-job-nightly.service
+check "the timer was written" test -f /etc/systemd/system/ratline-alice-jobs_test-job-nightly.timer
+check "the timer is armed" systemctl is-active --quiet ratline-alice-jobs_test-job-nightly.timer
+check "systemd accepts the timer" systemd-analyze verify /etc/systemd/system/ratline-alice-jobs_test-job-nightly.timer
+
+# The translated schedule has to survive into the unit as systemd's own syntax.
+contains "the calendar expression landed in the timer" "OnCalendar=*-*-* 03:00:00" \
+    "$(cat /etc/systemd/system/ratline-alice-jobs_test-job-nightly.timer)"
+
+# A job carries the site's sandbox. This is the entire reason it is not a crontab line.
+job_unit=$(cat /etc/systemd/system/ratline-alice-jobs_test-job-nightly.service)
+contains "the job runs as the tenant" "User=alice" "$job_unit"
+contains "the job has a memory ceiling" "MemoryMax=" "$job_unit"
+contains "the job is sandboxed" "ProtectSystem=strict" "$job_unit"
+contains "the job reads the site's env" "EnvironmentFile=-/home/alice/jobs.test/.env" "$job_unit"
+contains "the job is oneshot, so runs cannot overlap" "Type=oneshot" "$job_unit"
+
+# Running it now is how you find out a job works without waiting until 3am.
+check "cron run triggers it" "$RATLINE" site cron run jobs.test nightly
+sleep 2
+logs=$("$RATLINE" site cron logs jobs.test nightly 2>&1)
+contains "and it actually ran" "tick ran at" "$logs"
+
+check "cron list shows it" "$RATLINE" site cron list jobs.test
+contains "with its schedule" "03:00:00" "$("$RATLINE" site cron list jobs.test 2>&1)"
+
+# systemd's own syntax works too, and --persistent is the thing cron cannot do.
+check "a job in systemd syntax" "$RATLINE" site cron add jobs.test weekly \
+    --schedule 'Mon *-*-* 09:00' --command /home/alice/jobs.test/app/bin/tick --persistent
+contains "persistent is set" "Persistent=true" \
+    "$(cat /etc/systemd/system/ratline-alice-jobs_test-job-weekly.timer)"
+
+# Refusals.
+exits_with 2 "a schedule systemd cannot parse is refused" \
+    "$RATLINE" site cron add jobs.test bad --schedule 'not a schedule at all' \
+    --command /home/alice/jobs.test/app/bin/tick
+exits_with 2 "the untranslatable cron rule is refused" \
+    "$RATLINE" site cron add jobs.test bad --schedule '0 3 1 * mon' \
+    --command /home/alice/jobs.test/app/bin/tick
+exits_with 2 "a shell pipeline in --command is refused" \
+    "$RATLINE" site cron add jobs.test bad --schedule daily \
+    --command '/bin/echo hi | /usr/bin/tee /tmp/x'
+exits_with 2 "a name that would escape the unit filename is refused" \
+    "$RATLINE" site cron add jobs.test ../../sshd --schedule daily \
+    --command /home/alice/jobs.test/app/bin/tick
+refute "and none of those were created" test -f /etc/systemd/system/ratline-alice-jobs_test-job-bad.service
+
+# Workers.
+cat > /home/alice/jobs.test/app/bin/worker <<'SH'
+#!/bin/sh
+while true; do echo "worker alive"; sleep 5; done
+SH
+chmod +x /home/alice/jobs.test/app/bin/worker
+chown alice:alice /home/alice/jobs.test/app/bin/worker
+
+check "worker add" "$RATLINE" site worker add jobs.test queue \
+    --command /home/alice/jobs.test/app/bin/worker
+check "the worker unit was written" test -f /etc/systemd/system/ratline-alice-jobs_test-worker-queue.service
+sleep 2
+check "the worker is running" systemctl is-active --quiet ratline-alice-jobs_test-worker-queue
+worker_unit=$(cat /etc/systemd/system/ratline-alice-jobs_test-worker-queue.service)
+contains "the worker is bound to the site" "PartOf=ratline-alice-jobs_test.service" "$worker_unit"
+contains "the worker restarts" "Restart=always" "$worker_unit"
+refute "a worker has no timer" test -f /etc/systemd/system/ratline-alice-jobs_test-worker-queue.timer
+
+check "worker list shows it" "$RATLINE" site worker list jobs.test
+# The two are separate namespaces, so a job must not appear in the worker list.
+refute "and not the job" bash -c '"$1" site worker list jobs.test | grep -q nightly' _ "$RATLINE"
+
+check "worker remove" "$RATLINE" site worker remove jobs.test queue --yes
+refute "the worker unit is gone" test -f /etc/systemd/system/ratline-alice-jobs_test-worker-queue.service
+refute "and it is stopped" systemctl is-active --quiet ratline-alice-jobs_test-worker-queue
+
+# Deleting the site takes its jobs with it. A timer left firing every night for a site
+# that no longer exists is the residue that matters most here: it runs a command in a
+# directory that has been removed, and doctor reports a unit nobody can place.
+check "delete the site" "$RATLINE" site delete jobs.test --purge --yes
+refute "the job's service went too" test -f /etc/systemd/system/ratline-alice-jobs_test-job-nightly.service
+refute "the job's timer went too" test -f /etc/systemd/system/ratline-alice-jobs_test-job-nightly.timer
+refute "the second job went too" test -f /etc/systemd/system/ratline-alice-jobs_test-job-weekly.timer
+refute "and no timer is left firing" systemctl is-active --quiet ratline-alice-jobs_test-job-nightly.timer
+check "systemd is still happy" systemctl daemon-reload
+
 # ---------------------------------------------------------------- migration
 
 info "export and import round-trip"
@@ -1745,7 +1854,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=383
+EXPECTED_MINIMUM=420
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

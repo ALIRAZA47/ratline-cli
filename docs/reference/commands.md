@@ -301,6 +301,8 @@ Available Commands:
   scale        Change workers, instances or resource ceilings
   delete       Delete a site, its vhost, its service and its logs
   alias        Add or remove a site's additional server names
+  cron         Scheduled jobs for a site
+  worker       Long-running background processes for a site
   logs         Show a site's application, access or error log
   env          Manage a site's environment variables
   deploy       Pull, install, build, migrate and restart, rolling back if it fails
@@ -1914,6 +1916,83 @@ Global Flags:
 Use "ratline site alias [command] --help" for more information about a command.
 ```
 
+#### `ratline site cron`
+
+```
+A job runs on a schedule as the site's tenant, in the site's directory, with the
+site's .env and the site's sandbox and memory ceiling.
+
+These are systemd timers rather than crontab lines. A crontab line runs outside
+every limit the site is held to — no memory ceiling, no filesystem protection, no
+cgroup — and nothing in status, doctor or reconcile knows it is there.
+
+Schedules may be written as cron or in systemd's own syntax. A cron expression is
+translated, and either way systemd is asked to confirm it before anything is
+written; the next few run times are printed so you can check it means what you
+intended.
+
+Usage:
+  ratline site cron [command]
+
+Available Commands:
+  add         Add a scheduled job
+  list        List a site's jobs
+  remove      Remove a job
+  run         Run a scheduled job now, without waiting for its timer
+  logs        Show what a job last printed
+
+Flags:
+  -h, --help   help for cron
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Use "ratline site cron [command] --help" for more information about a command.
+```
+
+#### `ratline site worker`
+
+```
+A worker runs alongside the site's own service, as the same tenant, with the same
+directory, .env, sandbox and ceiling — a queue consumer, a websocket process, a
+scheduler daemon.
+
+It is bound to the site: stopping the site stops its workers, and deleting the
+site removes them. A worker left running against a half-removed site is how a
+queue gets consumed by a process nobody remembers starting.
+
+Usage:
+  ratline site worker [command]
+
+Available Commands:
+  add         Add a long-running worker
+  list        List a site's workers
+  remove      Remove a worker
+  logs        Show what a worker last printed
+
+Flags:
+  -h, --help   help for worker
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Use "ratline site worker [command] --help" for more information about a command.
+```
+
 #### `ratline site logs`
 
 ```
@@ -3357,6 +3436,239 @@ Usage:
 
 Flags:
   -h, --help   help for remove
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site cron add`
+
+```
+Add a scheduled job
+
+Usage:
+  ratline site cron add <domain> <name> [flags]
+
+Flags:
+      --command string       What to run, as a path and arguments (required)
+      --description string   What this job is for
+      --disabled             Create it without arming the timer
+  -h, --help                 help for add
+      --memory-max string    Memory ceiling for this job (default: the site's)
+      --persistent           Run a firing missed while the server was off
+      --schedule string      When to run: cron ('0 3 * * *') or systemd ('daily') (required)
+      --timeout string       Give up after this long, e.g. 30m
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site cron add app.example.com nightly \
+      --schedule '0 3 * * *' --command '/home/acme/app.example.com/app/bin/nightly'
+
+  # systemd's own syntax works too
+  ratline site cron add app.example.com digest \
+      --schedule 'Mon *-*-* 09:00' --command '…/bin/digest' --persistent
+```
+
+##### `ratline site cron list`
+
+```
+List a site's jobs
+
+Usage:
+  ratline site cron list <domain> [flags]
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site cron remove`
+
+```
+Remove a job
+
+Usage:
+  ratline site cron remove <domain> <name> [flags]
+
+Aliases:
+  remove, rm, delete
+
+Flags:
+  -h, --help   help for remove
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site cron run`
+
+```
+Starts the job's service directly. The timer is untouched, so this does not
+affect when it next runs on its own.
+
+This is the command for finding out whether a job works, rather than waiting
+until 3am to discover it does not.
+
+Usage:
+  ratline site cron run <domain> <name> [flags]
+
+Flags:
+  -h, --help   help for run
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site cron logs`
+
+```
+Show what a job last printed
+
+Usage:
+  ratline site cron logs <domain> <name> [flags]
+
+Flags:
+  -h, --help        help for logs
+  -n, --lines int   How many lines (default 50)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site worker add`
+
+```
+Add a long-running worker
+
+Usage:
+  ratline site worker add <domain> <name> [flags]
+
+Flags:
+      --command string       What to run, as a path and arguments (required)
+      --description string   What this worker is for
+      --disabled             Create it without starting it
+  -h, --help                 help for add
+      --memory-max string    Memory ceiling for this worker (default: the site's)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site worker add app.example.com queue \
+      --command '/home/acme/app.example.com/app/bin/worker'
+```
+
+##### `ratline site worker list`
+
+```
+List a site's workers
+
+Usage:
+  ratline site worker list <domain> [flags]
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site worker remove`
+
+```
+Remove a worker
+
+Usage:
+  ratline site worker remove <domain> <name> [flags]
+
+Aliases:
+  remove, rm, delete
+
+Flags:
+  -h, --help   help for remove
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site worker logs`
+
+```
+Show what a worker last printed
+
+Usage:
+  ratline site worker logs <domain> <name> [flags]
+
+Flags:
+  -h, --help        help for logs
+  -n, --lines int   How many lines (default 50)
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)

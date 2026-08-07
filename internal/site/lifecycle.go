@@ -400,6 +400,24 @@ func (m *Manager) Delete(ctx context.Context, name string, purge bool, backupDir
 		}
 	}
 
+	// The site's jobs and workers, before its own unit.
+	//
+	// The state rows cascade, but the unit files on disk do not: leaving them behind
+	// means a timer still firing every night for a site that no longer exists, running a
+	// command in a directory that has been removed, and a `doctor` that reports a failing
+	// unit nobody can find the site for. A worker is worse — it would keep consuming a
+	// queue as a tenant who may also be gone.
+	units, err := m.State.ListSiteUnits(ctx, site.Domain, "")
+	if err != nil {
+		return err
+	}
+	for _, u := range units {
+		if err := m.Unit.RemoveSiteUnit(ctx, site, u); err != nil {
+			return err
+		}
+		m.Log.Info("removed a "+u.Kind+" along with the site", "name", u.Name)
+	}
+
 	if site.Dynamic() {
 		if err := m.Unit.Remove(ctx, site); err != nil {
 			return err

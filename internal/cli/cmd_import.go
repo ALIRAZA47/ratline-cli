@@ -216,6 +216,20 @@ func (im *importer) plan(ctx context.Context, e *state.Export) (plan, error) {
 					argv: []string{"site", "alias", "add", s.Domain, a},
 				})
 			}
+			// The site's scheduled jobs and workers. Dropping these silently would be the
+			// worst kind of migration bug: the site serves, everything looks right, and
+			// the nightly job that was the whole reason somebody set up a cron simply
+			// never runs again.
+			for _, su := range e.SiteUnits {
+				if su.Domain != s.Domain {
+					continue
+				}
+				p.add(step{
+					what: "restoring the " + su.Kind + " " + su.Name,
+					argv: siteUnitArgvFor(su),
+				})
+			}
+
 			// A site that was deliberately offline should come back offline. Coming back
 			// serving is how a site somebody took down for a reason starts answering again.
 			if !s.Enabled {
@@ -454,4 +468,27 @@ func schemaVersionHere(ctx context.Context, g *Globals) (int, error) {
 func authorizedLine(k *state.Key) string {
 	pk := &sshkey.PublicKey{Algorithm: k.Algorithm, Blob: k.Blob, Comment: k.Comment}
 	return pk.Line()
+}
+
+// siteUnitArgvFor reconstructs the `site cron add` or `site worker add` for one.
+func siteUnitArgvFor(u *state.SiteUnit) []string {
+	noun := "worker"
+	if u.Kind == state.UnitJob {
+		noun = "cron"
+	}
+	argv := []string{"site", noun, "add", u.Domain, u.Name, "--command", u.Command}
+	argv = appendIf(argv, "--schedule", u.Schedule)
+	argv = appendIf(argv, "--description", u.Description)
+	argv = appendIf(argv, "--memory-max", u.MemoryMax)
+	if u.Kind == state.UnitJob {
+		argv = appendIf(argv, "--timeout", u.Timeout)
+		if u.Persistent {
+			argv = append(argv, "--persistent")
+		}
+	}
+	// A job that was deliberately off must not come back armed and fire tonight.
+	if !u.Enabled {
+		argv = append(argv, "--disabled")
+	}
+	return argv
 }

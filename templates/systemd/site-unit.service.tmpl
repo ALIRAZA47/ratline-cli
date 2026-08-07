@@ -1,0 +1,81 @@
+{{- /*
+One unit for a site's scheduled job or worker. Regenerated whenever it changes.
+
+The same tenant, working directory, environment and sandbox as the site's own service —
+which is the whole reason these are not entries in a tenant's crontab. A crontab line runs
+outside every limit the site is held to: no MemoryMax, no ProtectSystem, no cgroup, and
+nothing in `status`, `doctor` or `reconcile` that knows it exists.
+*/ -}}
+# managed-by: ratline
+# site: {{ .Domain }}
+# {{ .Kind }}: {{ .UnitName }}
+# generated: {{ .GeneratedAt }}
+[Unit]
+Description=ratline {{ .Kind }} {{ .UnitName }} for {{ .Domain }}
+Documentation=man:ratline(8)
+{{- if .IsWorker }}
+After=network-online.target
+Wants=network-online.target
+# Bound to the site: a worker for a site that is stopped has nothing to work on, and one
+# left running against a half-removed site is how a queue gets consumed by a process
+# nobody remembers starting.
+PartOf={{ .SiteUnitName }}
+After={{ .SiteUnitName }}
+StartLimitBurst=5
+StartLimitIntervalSec=60
+{{- else }}
+After=network-online.target
+{{- end }}
+
+[Service]
+{{- if .IsWorker }}
+Type=exec
+Restart=always
+RestartSec={{ .RestartSec }}
+{{- else }}
+# oneshot, so the timer's next elapse cannot overlap a run that is still going. A job that
+# takes longer than its interval backs up rather than piling up.
+Type=oneshot
+{{- end }}
+User={{ .Owner }}
+Group={{ .Group }}
+WorkingDirectory={{ .WorkingDir }}
+{{- if .EnvironmentFile }}
+# The site's own .env, so a job reads the same DATABASE_URL the application does. Read by
+# PID 1 as root before privileges are dropped, which is how a 0600 file owned by the tenant
+# can hold secrets this still receives.
+EnvironmentFile=-{{ .EnvironmentFile }}
+{{- end }}
+{{- range .Environment }}
+Environment={{ . }}
+{{- end }}
+UMask=0027
+ExecStart={{ .ExecStart }}
+{{- if .TimeoutSec }}
+# A job with no timeout that hangs holds its slot for ever and the next elapse never runs.
+TimeoutStartSec={{ .TimeoutSec }}
+{{- end }}
+KillSignal=SIGTERM
+KillMode=mixed
+StandardOutput=append:{{ .LogFile }}
+StandardError=append:{{ .LogFile }}
+SyslogIdentifier=ratline-{{ .Slug }}-{{ .Kind }}-{{ .UnitName }}
+
+# Resource limits, so a runaway job cannot take the site down with it.
+{{- range .Limits }}
+{{ . }}
+{{- end }}
+
+# The same sandbox the site's own service carries.
+{{- range .Hardening }}
+{{ . }}
+{{- end }}
+{{- if .Relaxed }}
+#
+# Relaxed for this site: {{ .RelaxedList }}
+{{- end }}
+{{- if .IsWorker }}
+
+[Install]
+WantedBy=multi-user.target
+{{- end }}
