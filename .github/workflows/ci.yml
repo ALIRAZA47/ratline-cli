@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets a run be started by hand: `gh workflow run ci`.
+  #
+  # Added after a GitHub Actions outage left a run queued for eighteen hours with no jobs
+  # ever created, in a state the API would not cancel — and with nothing but push and
+  # pull_request as triggers, the only way to ask for a fresh run was to invent a commit.
+  workflow_dispatch:
 
 permissions:
   contents: read
