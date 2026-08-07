@@ -39,6 +39,77 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.10.0',
+    date: '2026-08-07',
+    summary:
+      'The four things the tool promised or implied and did not have: a far end for export, somewhere to put a nightly job, somewhere to put a worker, and a backup that includes the data.',
+    assertions: 441,
+    changes: [
+      {
+        kind: 'feature',
+        title: '`ratline import` gives `export` a far end',
+        body:
+          '`export` has said "for migration" since it was written and nothing consumed it. A dump nothing reads is a promise, not a feature: you get a file that looks like a migration and find out on the new server that there is no other half. It rebuilds the shape — tenants, keys, sites with every setting, aliases, which sites were disabled, and now the scheduled jobs — as one transaction, and is safe to run twice.',
+        code: `ssh old-server ratline export | ratline import -
+ratline import server.json --dry-run
+ratline import server.json --only acme`,
+      },
+      {
+        title: 'It says what it could not bring',
+        body:
+          'Application code, environment values, certificates and database contents are not in an export, by design. All four are listed when it finishes, because a migration that exits 0 in silence reads as done and the operator finds out at the first 502. A revoked key is not restored either: re-adding one hands back access somebody took away on purpose, mid-migration, for a key nobody is thinking about.',
+      },
+      {
+        kind: 'feature',
+        title: '`ratline site cron` and `ratline site worker`',
+        body:
+          'Every real application has a nightly job, and there was nowhere to put one. A crontab line runs outside every limit the site is held to — no memory ceiling, no filesystem protection, no cgroup — and nothing in status, doctor, reconcile, export or backup knows it is there. These are systemd units carrying the site’s tenant, directory, .env, sandbox and ceiling.',
+        code: `ratline site cron add app.example.com nightly \\
+    --schedule '0 3 * * *' --command …/bin/nightly
+
+ratline site worker add app.example.com queue --command …/bin/worker`,
+      },
+      {
+        title: 'Schedules are translated, then checked by systemd',
+        body:
+          'Cron or systemd’s own syntax; a cron expression is translated and handed to `systemd-analyze calendar` before anything is written, and the next few run times are printed — a translation you cannot see is one you cannot check. Two cases are refused rather than approximated: cron’s "day-of-month or day-of-week" rule, which no OnCalendar can express, and @reboot, which is not a schedule at all.',
+        code: `0 3 * * * becomes *-*-* 03:00:00
+next runs:
+    Sat 2026-08-08 03:00:00 UTC`,
+      },
+      {
+        title: 'What the unit does that a crontab line cannot',
+        body:
+          'A job is Type=oneshot, so a slow run backs up rather than overlapping itself. Timers carry a randomised delay, so a fleet of sites does not stampede the same database at 3am. --persistent runs a firing missed while the server was off, which cron has no equivalent for. A worker is PartOf the site, so stopping the site stops it. `site delete` removes them all.',
+      },
+      {
+        kind: 'feature',
+        title: '`ratline db dump` and `ratline db restore`',
+        body:
+          '`backup` archives a site’s files and nothing else, so a site with a database was backed up by two mechanisms, one of which did not exist. The connection string never reaches argv — /proc is world-readable, and an admin URI on a command line is the password for every database on the server. It goes in a 0600 config file instead, which a test now enforces against the argv the command actually builds.',
+        code: `ratline db dump app_example_com
+ratline db restore app_example_com-20260807T120000Z.archive.gz --drop
+ratline db restore app.archive.gz --into app_staging`,
+      },
+      {
+        kind: 'fix',
+        title: 'A restored SSH key was not a key',
+        body:
+          'The state keeps a key split into algorithm, base64 body and comment. Passing the bare body to `key add` hands it something that is not a key, so it treated it as a path — "no such file: /AAAAC3Nz…" — and the whole import unwound. Correct behaviour from the transaction, wrong from the generator. Found by the integration round trip, not by a unit test.',
+      },
+      {
+        kind: 'fix',
+        title: 'Re-running an import failed on the keys, and --only did not scope them',
+        body:
+          '`key add` refuses a duplicate, rightly, so a second import failed rather than reporting. And --only scoped users and sites but not keys, so it dragged in every global key on the server and `--only nosuchtenant` planned work. A global key belongs to no tenant.',
+      },
+    ],
+    known: [
+      'A job’s --command is an argv, not a shell line: a pipe or redirection is refused, and belongs in a script.',
+      'db dump and restore need mongodb-database-tools, which ships separately from mongosh.',
+    ],
+  },
+  {
     version: 'v0.9.2',
     date: '2026-08-06',
     summary:
