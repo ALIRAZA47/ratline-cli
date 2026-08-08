@@ -14,6 +14,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/diag"
 	"github.com/ALIRAZA47/ratline-cli/internal/mongo"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
+	"github.com/ALIRAZA47/ratline-cli/internal/sshkey"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/tls"
@@ -273,6 +274,24 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 				add("warning", "orphan", e.Name(),
 					"a ratline-generated vhost with no matching site",
 					"ratline reconcile --fix, or remove "+path)
+			}
+		}
+	}
+
+	// A revocation list sshd is told to read and cannot.
+	//
+	// sshd_config(5) on RevokedKeys: "if this file is not readable, then public key
+	// authentication will be refused for all users." Every key, for every account — so this
+	// is not a tidiness warning, it is a server nobody can log into, and the operator
+	// reading it is quite possibly inside the last session that works.
+	//
+	// It belongs on the sweep and not only in `doctor ssh`. Adding it to the walk alone was
+	// the first attempt, and the walk is not what a cron job runs.
+	if dropIn := g.Cfg.Paths.SSHDDropIn; dropIn != "" && system.Exists(dropIn) {
+		if named := revokedKeysNamedIn(dropIn); named != "" {
+			if err := sshkey.RevokedListReadable(named); err != nil {
+				add("problem", "ssh", named, firstLine(err.Error()),
+					"ratline key sync")
 			}
 		}
 	}
@@ -804,4 +823,26 @@ func jobNoun(kind string) string {
 		return "cron"
 	}
 	return "worker"
+}
+
+// revokedKeysNamedIn reads the RevokedKeys path out of the sshd drop-in.
+//
+// From the file rather than from configuration, because what sshd obeys is the file — and on
+// a server whose drop-in was written by an older release the two can differ.
+func revokedKeysNamedIn(dropIn string) string {
+	body, err := system.ReadFileLimit(dropIn, 1<<20)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if fields := strings.Fields(line); len(fields) >= 2 &&
+			strings.EqualFold(fields[0], "RevokedKeys") {
+			return fields[1]
+		}
+	}
+	return ""
 }

@@ -187,9 +187,20 @@ func KeyChecks(env *Env, k *state.Key) []Check {
 				path := env.Cfg.SSH.RevokedKeys
 				body, err := os.ReadFile(path)
 				if err != nil {
-					// No list is the normal state on a server that has never revoked
-					// anything, and sshd tolerates a missing RevokedKeys file.
-					return Pass("no revocation list on this server")
+					// This used to read "sshd tolerates a missing RevokedKeys file", which
+					// is the opposite of true and is why a server got locked out.
+					// sshd_config(5): "if this file is not readable, then public key
+					// authentication will be refused for all users."
+					//
+					// So an absent list is only harmless while nothing tells sshd to read
+					// it. If the drop-in names it, this key does not work — and neither
+					// does any other.
+					if dropInNamesRevokedList(env.Cfg.Paths.SSHDDropIn, path) {
+						return Fail("sshd is told to read %s and it is not there, so it "+
+							"refuses every public key on this server, not just revoked ones", path).
+							WithFix("ratline key sync").WithTopic("ssh")
+					}
+					return Pass("no revocation list, and nothing tells sshd to read one")
 				}
 				if strings.Contains(string(body), strings.TrimSpace(k.Blob)) {
 					// State says live, the list says revoked. sshd believes the list, so

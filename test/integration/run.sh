@@ -460,6 +460,44 @@ contains "hand-written entries survive key sync" "my own note" "$(cat /home/alic
 
 check "key audit runs" "$RATLINE" key audit
 check "sshd still accepts its configuration" sshd -t
+
+# The invariant that a live server was lost to.
+#
+# sshd_config(5) on RevokedKeys: "if this file is not readable, then public key
+# authentication will be refused for all users." Not the keys on the list — every key, for
+# every account. So the drop-in must never name a file that is not there, and nothing above
+# can catch it: `sshd -t` accepts the directive because the syntax is valid, and the
+# post-change verification asked sshd for its effective configuration, which reports the
+# path without ever opening it.
+DROPIN=/etc/ssh/sshd_config.d/60-ratline.conf
+if [ -f "$DROPIN" ]; then
+    named=$(awk '$1 == "RevokedKeys" { print $2; exit }' "$DROPIN")
+    if [ -n "$named" ]; then
+        check "the revocation list the drop-in names exists" test -f "$named"
+        check "and sshd can read it" bash -c "head -c1 '$named' >/dev/null 2>&1 || test ! -s '$named'"
+    else
+        ok "the drop-in names no revocation list, which is also safe"
+    fi
+
+    # And doctor has to see the dangerous state rather than reassure about it. Its comments
+    # used to say sshd tolerates a missing list, which is the opposite of true.
+    if [ -n "$named" ]; then
+        mv "$named" "$named.moved"
+        contains "doctor reports a named list that is missing" "refuses every public key" \
+            "$("$RATLINE" doctor 2>&1)"
+        exits_with 7 "and calls it a problem" "$RATLINE" doctor
+        check "key sync puts it back" "$RATLINE" key sync
+        check "the list is there again" test -f "$named"
+        rm -f "$named.moved"
+        after=$("$RATLINE" doctor 2>&1)
+        case "$after" in
+            *"refuses every public key"*) bad "doctor still reports it after the repair" "" ;;
+            *) ok "and doctor stops reporting it" ;;
+        esac
+    fi
+else
+    ok "no ratline drop-in on this host, so nothing can name a missing list"
+fi
 refute "the last global key cannot be removed without --force" \
         "$RATLINE" key remove "$(ssh-keygen -lf /tmp/global.key.pub | awk '{print $2}')" --scope global
 

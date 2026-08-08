@@ -291,14 +291,27 @@ func SSHChecks(env *Env) []Check {
 						n++
 					}
 				}
+				// Checked before the count, because this is the dangerous case and it does
+				// not depend on anything being revoked.
+				//
+				// The comment here used to say sshd tolerates a missing RevokedKeys file and
+				// that the consequence was a revoked key working again. Both halves were
+				// wrong. sshd_config(5): "if this file is not readable, then public key
+				// authentication will be refused for all users." A server in this state
+				// accepts nobody, which is how the author locked himself out of one.
+				if dropInNamesRevokedList(env.Cfg.Paths.SSHDDropIn, path) && !system.Exists(path) {
+					return Fail("sshd is told to read %s and it is not there, so it refuses "+
+						"every public key for every account — this server accepts no key "+
+						"logins at all", path).
+						WithFix("ratline key sync, or remove the RevokedKeys line from %s "+
+							"and reload sshd", env.Cfg.Paths.SSHDDropIn).
+						WithTopic("ssh")
+				}
 				if n == 0 {
 					return Pass("nothing revoked on this server")
 				}
 				if !system.Exists(path) {
-					// sshd tolerates a missing RevokedKeys file, which is precisely the
-					// problem: a revoked key silently works again.
-					return Fail("%s are revoked in state but %s does not exist, so sshd "+
-						"still accepts them", plural(n, "key"), path).
+					return Fail("%s are revoked in state but %s does not exist", plural(n, "key"), path).
 						WithFix("ratline key sync").WithTopic("ssh")
 				}
 				return Pass("%s listed", plural(n, "revoked key"))
@@ -372,4 +385,32 @@ func SSHChecks(env *Env) []Check {
 			},
 		},
 	}
+}
+
+// dropInNamesRevokedList reports whether sshd is actually told to read the revocation list.
+//
+// The distinction matters because a missing list is harmless right up until something
+// references it, and catastrophic the moment something does: sshd refuses every public key
+// when it cannot read the file named by RevokedKeys. Read from the drop-in on disk rather
+// than from configuration, because what sshd obeys is the file, and the two can differ on a
+// server where the drop-in was written by an older release.
+func dropInNamesRevokedList(dropInPath, listPath string) bool {
+	if dropInPath == "" || listPath == "" {
+		return false
+	}
+	body, err := os.ReadFile(dropInPath)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.EqualFold(fields[0], "RevokedKeys") && fields[1] == listPath {
+			return true
+		}
+	}
+	return false
 }

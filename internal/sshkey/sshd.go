@@ -117,7 +117,22 @@ func (m *Manager) ApplyDropIn(ctx context.Context) (err error) {
 		return err
 	}
 	path := m.Cfg.Paths.SSHDDropIn
-	desired := RenderDropIn(users, m.Cfg.SSH.RevokedKeys)
+
+	// The revocation list has to exist before the drop-in names it.
+	//
+	// From sshd_config(5), on RevokedKeys: "if this file is not readable, then public key
+	// authentication will be refused for all users." Not the key on the list — every key,
+	// for everyone. So a drop-in referring to a file that is not there does not weaken the
+	// backstop, it closes the server.
+	//
+	// This is not hypothetical. Writing the drop-in on a host where the list had never been
+	// created locked the author out of a live server, and none of the three guards below
+	// caught it: `sshd -t` accepts the directive because the syntax is fine, and VerifyLogin
+	// asked sshd for its effective configuration, which reports the path without reading it.
+	//
+	// The comments in internal/diag said the opposite — "sshd tolerates a missing
+	// RevokedKeys file" — and that inverted belief is why this shipped.
+	desired := RenderDropIn(users, m.revokedPathForDropIn())
 
 	if system.Exists(path) {
 		managed, err := system.HasManagedHeader(path)
@@ -287,6 +302,15 @@ func (m *Manager) VerifyLogin(ctx context.Context, users []*state.User) error {
 		if forced := effective["forcecommand"]; foreignForceCommand(forced) {
 			return rlerr.Preconditionf("a ForceCommand of %q applies to %s", forced, account)
 		}
+		// A RevokedKeys file sshd cannot read refuses every key, for every user — not just
+		// the keys on it. This check exists because the three guards around it all pass in
+		// that state: the syntax is valid, the daemon is listening, and `sshd -T` reports
+		// the path happily without ever opening it. It is the only one of these assertions
+		// that looks at the filesystem rather than at what sshd says it intends.
+		if err := revokedListIsReadable(effective["revokedkeys"]); err != nil {
+			return rlerr.Wrap(err, rlerr.CodePrecondition,
+				"sshd would refuse every public key for %s", account)
+		}
 	}
 
 	// And the daemon is really listening. A configuration that parses but a
@@ -403,4 +427,96 @@ func firstLines(res *system.Result) string {
 		lines = lines[:3]
 	}
 	return strings.Join(lines, "; ")
+}
+
+// revokedPathForDropIn decides whether the drop-in may name the revocation list.
+//
+// Returns the path only once the file is known to exist and be readable, and "" otherwise —
+// so the directive is simply absent rather than pointing at something sshd cannot open.
+//
+// The choice, when the list cannot be created, is between a server missing its revocation
+// backstop and a server nobody can log into. The first is weaker; the second is gone. This
+// exists as its own function so that choice is testable without driving ApplyDropIn, which
+// would have a test reading and rewriting the host's real /etc/ssh/sshd_config.
+func (m *Manager) revokedPathForDropIn() string {
+	path := m.Cfg.SSH.RevokedKeys
+	if path == "" {
+		return ""
+	}
+	if m.DryRun {
+		// Nothing is written under --dry-run, so nothing can be ensured; report what a real
+		// run would produce rather than pretending the directive would be dropped.
+		return path
+	}
+	if err := m.ensureRevokedList(); err != nil {
+		m.Log.Error("could not create the revocation list, so sshd will not be told about "+
+			"it — a revoked key would keep working until this is fixed",
+			"path", path, "err", err)
+		return ""
+	}
+	return path
+}
+
+// ensureRevokedList creates the revocation list if it is not there.
+//
+// An empty list is the correct content for a server that has revoked nothing: sshd reads it,
+// finds no keys, and refuses none. What it must not be is absent, because sshd refuses every
+// key when it cannot read the file it was told to consult.
+//
+// Mode 0644 rather than 0600: it holds public keys, which are not secret, and sshd reads it
+// as root either way. Matching what syncRevoked writes, so the two cannot disagree about it.
+func (m *Manager) ensureRevokedList() error {
+	path := m.Cfg.SSH.RevokedKeys
+	if path == "" {
+		return nil
+	}
+	if _, err := system.EnsureDir(filepath.Dir(path), 0o755,
+		system.KeepUnchanged, system.KeepUnchanged); err != nil {
+		return err
+	}
+	if system.Exists(path) {
+		// There, but unreadable is the same problem as absent — and more surprising,
+		// because everything looks in place.
+		f, err := os.Open(path)
+		if err != nil {
+			return rlerr.Wrap(err, rlerr.CodePrecondition,
+				"%s exists but cannot be read, and sshd refuses every key when that is true", path)
+		}
+		_ = f.Close()
+		return nil
+	}
+	return system.WriteFileAtomic(path, RenderRevoked(nil), 0o644,
+		system.KeepUnchanged, system.KeepUnchanged)
+}
+
+// RevokedListReadable is revokedListIsReadable, exported so `doctor`'s sweep uses the same
+// implementation rather than a second copy that could disagree about the rule.
+//
+// revokedListIsReadable checks a RevokedKeys path from sshd's effective configuration.
+//
+// sshd_config(5): "if this file is not readable, then public key authentication will be
+// refused for all users." So this is the difference between a server with a revocation
+// backstop and a server nobody can log into.
+//
+// "none" is sshd's own way of saying there is no list, and an empty value means the
+// directive is not set. Both are fine; a path that cannot be opened is not.
+func RevokedListReadable(value string) error { return revokedListIsReadable(value) }
+
+func revokedListIsReadable(value string) error {
+	path := strings.TrimSpace(value)
+	if path == "" || strings.EqualFold(path, "none") {
+		return nil
+	}
+	// Only the first field: sshd prints one path, but be defensive about trailing content
+	// rather than trying to open a string with a comment on the end.
+	path = strings.Fields(path)[0]
+	f, err := os.Open(path)
+	if err != nil {
+		return rlerr.Preconditionf("sshd is configured with RevokedKeys %s, which it cannot "+
+			"read (%v) — in that state it refuses every public key, for every account", path, err).
+			WithHint("create an empty list with 'ratline key sync', or remove the RevokedKeys " +
+				"line from " + SSHDConfigPath + ".d/ and reload sshd")
+	}
+	_ = f.Close()
+	return nil
 }

@@ -61,11 +61,30 @@ prunes expired keys whether it does or not — so an expiry is real on an older 
 too. Revocation adds the key to a revocation list as well as removing it, so
 re-adding the same key later is refused rather than quietly accepted.
 
+The list is `RevokedKeys` in ratline's sshd drop-in, and it has one property worth
+knowing about because it is the opposite of the obvious guess:
+
+> `sshd_config(5)`: if this file is not readable, then public key authentication will
+> be refused for all users.
+
+Not the keys on the list — **every** key, for every account. So a missing revocation
+list does not let revoked keys back in; it closes the server. ratline creates the list
+before the drop-in refers to it, keeps an empty one on a server that has revoked
+nothing, and refuses to name a file it could not create. `ratline doctor` reports the
+state as a problem if it ever arises, and `ratline key sync` repairs it.
+
+This is worth spelling out because none of the usual checks see it: `sshd -t` accepts
+the directive, since the syntax is valid, and `sshd -T` prints the path without opening
+it. It cost the author a live server before the verification below learned to read the
+file rather than trust the configuration.
+
 ## Changes to sshd are verified
 
 After anything under `/etc/ssh` changes, ratline runs `sshd -T` to read the
-*effective* configuration and confirms login still works, rolling back if it does
-not. `PermitRootLogin`, `PasswordAuthentication`, `AllowUsers` and `Port` are never
+*effective* configuration and confirms login still works, rolling back if it does not.
+That includes opening any file the configuration tells sshd to read — a path that
+parses is not the same as a path that exists, and the difference is a server nobody
+can log into. `PermitRootLogin`, `PasswordAuthentication`, `AllowUsers` and `Port` are never
 touched without an explicit flag and a typed confirmation. Locking yourself out of a
 remote server is the one mistake with no recovery path from the CLI.
 

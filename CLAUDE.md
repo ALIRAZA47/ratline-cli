@@ -131,6 +131,22 @@ environment. No script is built from user input and the admin URI never appears 
   runtime tarball downloaded, so pinning the code made an unwind test pass or fail on the
   network while saying nothing about unwinding. What must hold in every case — nothing left
   behind — is the thing to check.
+- **`RevokedKeys` pointing at a file sshd cannot read refuses *every* public key**, for
+  every account — `sshd_config(5)` says so explicitly, and it is the opposite of the
+  intuition that a missing revocation list would let revoked keys back in. `sshd -t` accepts
+  the directive, and `sshd -T` reports the path without opening it, so neither the syntax
+  check nor the effective-config verification catches it. This locked a live server out. The
+  list is created before the drop-in names it, and the post-change verification now opens it.
+- **A fix to the walk is not a fix to the sweep.** `diag`'s checks run for `doctor <subject>`
+  and `troubleshoot`; the bare `doctor` sweep is a separate implementation in
+  `cmd_doctor.go`. Two features shipped visible to one and not the other.
+- **`ratline update` must install newly-added managed units.** `EnsureTimers` ran only from
+  `init`, which happens once in a server's life, so a release that added a timer shipped the
+  feature without the thing that runs it. And a self-updater can only fix updates it performs
+  itself, so `doctor` also reports a managed unit that is missing.
+- **systemd remembers that a unit failed after its file is gone.** Removing a unit without
+  `systemctl reset-failed` leaves a "not-found failed" entry in `systemctl --failed` for
+  ever, which is what monitoring watches.
 - **A command that composes other commands cannot rehearse itself by running them with
   `--dry-run`.** Each step preconditions on the previous one having really happened, so the
   second is told "no such user" and the preview reports a failure for something perfectly
