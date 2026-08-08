@@ -39,6 +39,48 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.10.1',
+    date: '2026-08-07',
+    summary:
+      'v0.10.0 argued jobs should be units because a crontab line is invisible to doctor, then shipped them invisible to doctor — and reported as orphans you were told to delete.',
+    assertions: 450,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`doctor` reported every job and worker as an orphan',
+        body:
+          'The orphan scan walks /etc/systemd/system for ratline-*.service and reports anything that is not a site’s own unit. Job and worker units matched, so a healthy server came back with each of them flagged as "a ratline unit with no matching site" — and a suggested fix that deletes a working scheduled job. This is the same mistake the code comment beside it already documents: it once told people to delete their certificate-renewal timer. A job unit belongs to a site; it is simply not that site’s own service.',
+        code: `warning  orphan  ratline-acme-app_example_com-job-nightly.service
+  orphan: systemctl disable --now … && rm /etc/systemd/system/…`,
+      },
+      {
+        title: 'And it now reports what actually goes wrong with them',
+        body:
+          'A job whose last run failed. A worker that keeps exiting and being restarted. A worker enabled but not running. A job whose timer is not armed — which is a job that looks configured and never runs. A worker that is merely starting is told apart from one that is crash-looping by the sub-state rather than the active state: both read as "activating", and reporting the healthy one would make the page cry wolf every time somebody adds a worker.',
+      },
+      {
+        kind: 'fix',
+        title: 'The orphan scan now covers timers',
+        body:
+          'It only ever looked at .service files, so a leftover .timer was invisible — and that is the residue that matters most, because it keeps firing every night to start a job for a site that no longer exists.',
+      },
+      {
+        title: 'status, site show and MCP',
+        body:
+          '`status` counts scheduled jobs and workers alongside sites and certificates. `site show` lists them with their schedules, so the page that claims to show a site shows the part most likely to be quietly broken. Agents get `ratline_site_jobs`. And `restore` says plainly that an archive holds a site’s files and not its scheduled jobs, rather than leaving a restored site looking finished.',
+      },
+      {
+        kind: 'fix',
+        title: 'The test hole that let it ship',
+        body:
+          'The integration suite’s jobs section deleted its site before teardown, so `doctor` never once ran with a job present. It does now — and reverting the fix makes that assertion fail with exactly the output above.',
+      },
+    ],
+    known: [
+      'A site’s manifest still does not carry its jobs, so `restore` cannot rebuild them — it says so. `export` and `import` do carry them.',
+    ],
+  },
+  {
     version: 'v0.10.0',
     date: '2026-08-07',
     summary:
