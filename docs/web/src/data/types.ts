@@ -37,6 +37,32 @@ export interface Example {
   title?: string;
   lang: 'shell' | 'json' | 'yaml' | 'nginx' | 'systemd' | 'text';
   code: string;
+
+  /**
+   * What the command prints, shown below it in the same panel.
+   *
+   * A command reference that shows the invocation and not the answer makes the reader run
+   * it to find out — which for a tool that mutates a live server as root is a bad way to
+   * learn what a flag does. Optional because plenty of examples have nothing interesting
+   * to show.
+   */
+  output?: string;
+
+  /**
+   * The same example in several forms, behind a tab bar.
+   *
+   * For a command whose shape genuinely differs by case rather than by one flag — `site
+   * add` for static, node and python — where showing three separate examples buries the
+   * one the reader wants.
+   */
+  variants?: ExampleVariant[];
+}
+
+/** One labelled form of an example. */
+export interface ExampleVariant {
+  label: string;
+  code: string;
+  output?: string;
 }
 
 /** An exit code this command can produce, with the reason specific to it. */
