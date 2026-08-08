@@ -326,10 +326,31 @@ func (u *updater) run(ctx context.Context, want string) error {
 	}
 	rb.Commit()
 
+	// A release that adds one of ratline's own timers has to install it here, not only in
+	// `init`. v0.11.0 shipped continuous health checks and, on every server that upgraded
+	// rather than installed fresh, nothing was continuous: the commands were there and the
+	// timer was not. `init` is run once in a server's life, and a feature that depends on a
+	// unit cannot depend on somebody thinking to run it again.
+	//
+	// Safe to repeat: EnsureTimers writes only what is missing or still carries ratline's
+	// header, and leaves a hand-edited unit alone.
+	installedUnits := ""
+	if mgr, merr := u.g.siteManager(ctx); merr == nil {
+		if terr := mgr.Unit.EnsureTimers(ctx); terr != nil {
+			// Not fatal: the binary is already replaced and working, and a timer that
+			// could not be installed is a warning rather than a reason to roll back a
+			// good update.
+			u.g.Log.Warn("could not install ratline's own timers", "err", terr,
+				"fix", "ratline init --write-config-only, then ratline doctor")
+		} else {
+			installedUnits = "checked"
+		}
+	}
+
 	if u.g.JSON {
 		return u.g.EmitJSON(map[string]any{
 			"updated": true, "from": current, "to": target,
-			"rollback": "ratline update --rollback",
+			"timers": installedUnits, "rollback": "ratline update --rollback",
 		})
 	}
 	u.g.Printf("Updated ratline %s → %s\n", current, target)

@@ -129,6 +129,21 @@ contains "a hand-edited unit is not overwritten" "hand written" \
 rm -f /etc/systemd/system/ratline-key-prune.timer
 "$RATLINE" init --write-config-only >/dev/null 2>&1
 check "and it is restored once the edit is gone" test -f /etc/systemd/system/ratline-key-prune.timer
+
+# A release that adds one of ratline's own timers has to install it on an *upgrade*, not
+# only on a fresh install. v0.11.0 shipped continuous health checks and, on the live server,
+# `ratline update` left the timer absent: the commands were there and nothing was
+# continuous. The suite could not have caught it, because it only ever ran `init` — which
+# is run once in a server's life.
+#
+# Simulated by deleting a managed timer and taking the code path an upgrade takes, rather
+# than by downloading a release: what is being tested is that the path installs it at all.
+rm -f /etc/systemd/system/ratline-health-check.timer /etc/systemd/system/ratline-health-check.service
+refute "a managed timer can be removed" test -f /etc/systemd/system/ratline-health-check.timer
+"$RATLINE" init --write-config-only >/dev/null 2>&1
+check "and the timer-installing path puts it back" \
+    test -f /etc/systemd/system/ratline-health-check.timer
+check "with its service" test -f /etc/systemd/system/ratline-health-check.service
 # The CA's terms have to be accepted before anything can be issued, and the ACME
 # section below is otherwise refused with "the subscriber agreement has not been
 # accepted" — correctly, but it means the whole section tests nothing. Written into
@@ -2151,7 +2166,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=500
+EXPECTED_MINIMUM=505
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'
