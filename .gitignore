@@ -19,3 +19,6 @@ docs/web/public/install.sh
 
 # Copied from docs/topics at build time; the source is there, not here.
 docs/web/src/generated/
+
+# Agent worktrees, which are git repositories of their own.
+.claude/worktrees/
