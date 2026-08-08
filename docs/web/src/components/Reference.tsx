@@ -61,6 +61,11 @@ export function RefList({
 /**
  * The heading above a list — a flag group's title, and the note that explains what the
  * group is for.
+ *
+ * A level two, not a level three: on a command page these are the page's own sections, and
+ * the page's only other heading is its h1. Styling it as a small tracked label does not
+ * change what it is, and skipping a level to get the look would break the outline for
+ * anyone navigating by heading.
  */
 export function RefGroupHeading({
   title,
@@ -72,10 +77,10 @@ export function RefGroupHeading({
   id?: string;
 }) {
   return (
-    <div className="not-prose mt-8 mb-1">
-      <h3 id={id} className="label text-muted">
+    <div className="not-prose mt-9 mb-1">
+      <h2 id={id} className="label text-muted">
         {title}
-      </h3>
+      </h2>
       {children && (
         <p className="mt-1.5 max-w-[var(--content-w)] text-sm leading-relaxed text-muted">
           {children}
@@ -97,6 +102,8 @@ export function RefRow({
   pills,
   /** Rendered instead of `name` when the identifier needs its own markup. */
   lead,
+  /** A field nested under the row above it: `error.hint` under `error`. */
+  indent,
   children,
 }: {
   anchor: string;
@@ -106,12 +113,16 @@ export function RefRow({
   meta?: [string, ReactNode][];
   pills?: ReactNode;
   lead?: ReactNode;
+  indent?: boolean;
   children: ReactNode;
 }) {
   return (
     <div
       id={anchor}
-      className="group scroll-mt-[calc(var(--header-h)+1.75rem)] px-4 py-3.5 target:bg-accent-soft"
+      className={[
+        'group scroll-mt-[calc(var(--header-h)+1.75rem)] py-3.5 pr-4 target:bg-accent-soft',
+        indent ? 'ml-4 border-l border-line pl-4' : 'pl-4',
+      ].join(' ')}
     >
       <dt className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
         {lead ?? (

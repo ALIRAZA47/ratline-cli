@@ -428,9 +428,15 @@
 
   /* A heading that is its own anchor. It must not inherit the link treatment —
      an underlined, accent-coloured, medium-weight h2 reads as a link in a
-     sentence rather than as a section title. */
+     sentence rather than as a section title.
+
+     The descendant selectors are load-bearing: `.prose a` is one class and one
+     element, so a bare `.heading-anchor` loses to it and every section heading
+     on every topic page came out blue and underlined. */
   .heading-anchor,
-  .heading-anchor:hover {
+  .heading-anchor:hover,
+  .prose :is(h1, h2, h3, h4) > .heading-anchor,
+  .prose :is(h1, h2, h3, h4) > .heading-anchor:hover {
     color: inherit;
     font-weight: inherit;
     text-decoration: none;
@@ -508,6 +514,14 @@
    filesystem tree, a request-path diagram. Rare and deliberate: the default is
    that everything shares the column's width. */
 .canvas-wide {
+  max-width: min(var(--canvas-wide), 100%);
+}
+
+/* One page opts into the wider canvas for its whole article: the front door,
+   whose job is a hero, a diagram and a grid of cards rather than sustained
+   reading. Its prose still sets to the measure — `.prose p` caps itself — so
+   the difference shows up only in the elements that wanted the room. */
+main:has([data-width='wide']) {
   max-width: min(var(--canvas-wide), 100%);
 }
 

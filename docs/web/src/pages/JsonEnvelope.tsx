@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { CodeBlock } from '../components/CodeBlock';
 import { PageHeader } from '../components/PageHeader';
-import { Callout, Facts, H2, TableScroll } from '../components/ui';
+import { Callout, Facts, H2 } from '../components/ui';
+import { RefGroupHeading, RefList, RefRow } from '../components/Reference';
 
 const fields: { name: string; type: string; when: string; meaning: string }[] = [
   { name: 'ok', type: 'bool', when: 'always', meaning: 'Whether the command succeeded. Branch on this.' },
@@ -56,39 +57,25 @@ export function JsonEnvelope() {
         </p>
       </Callout>
 
-      <TableScroll>
-        <table className="w-full min-w-[42rem] border-collapse text-left text-sm">
-          <caption className="sr-only">Fields of the JSON envelope</caption>
-          <thead>
-            <tr className="bg-sunken text-2xs uppercase tracking-wider text-muted">
-              <th scope="col" className="w-[11rem] px-3 py-2 font-medium">
-                Field
-              </th>
-              <th scope="col" className="w-[7rem] px-3 py-2 font-medium">
-                Type
-              </th>
-              <th scope="col" className="w-[10rem] px-3 py-2 font-medium">
-                Present
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Meaning
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {fields.map((f) => (
-              <tr key={f.name} className="border-t border-line align-top">
-                <th scope="row" className="px-3 py-2 text-left font-normal">
-                  <code className="font-mono text-xs text-accent">{f.name}</code>
-                </th>
-                <td className="px-3 py-2 font-mono text-xs text-muted">{f.type}</td>
-                <td className="px-3 py-2 text-xs text-muted">{f.when}</td>
-                <td className="px-3 py-2 leading-relaxed">{f.meaning}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </TableScroll>
+      {/* The envelope's fields as reference rows, each with its own anchor, so a caller
+          arguing about `error.hint` can link to `error.hint` rather than to this page.
+          The nested ones are indented under their parent the way an API reference nests
+          an expandable object. */}
+      <RefGroupHeading title="Fields" id="fields" />
+      <RefList label="Fields of the JSON envelope">
+        {fields.map((f) => (
+          <RefRow
+            key={f.name}
+            anchor={`field-${f.name.replace(/\./g, '-')}`}
+            name={f.name}
+            type={f.type}
+            indent={f.name.includes('.')}
+            meta={[['present', f.when]]}
+          >
+            {f.meaning}
+          </RefRow>
+        ))}
+      </RefList>
 
       <div className="prose">
         <H2 id="rules">Rules that hold for every command</H2>

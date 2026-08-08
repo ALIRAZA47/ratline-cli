@@ -182,8 +182,10 @@ export function TocInline() {
   if (items.length < 3) return null;
 
   return (
-    <details className="not-prose mb-8 rounded-[var(--radius-card)] border border-line bg-sunken xl:hidden">
-      <summary className="label cursor-pointer list-none px-4 py-2.5 text-muted marker:content-none [&::-webkit-details-marker]:hidden">
+    /* Page chrome, not content: a hairline bar above the title rather than a filled card,
+       so it does not compete with the h1 for the top of the page. */
+    <details className="not-prose -mt-3 mb-9 border-b border-line pb-1 xl:hidden">
+      <summary className="label cursor-pointer list-none py-2 text-muted marker:content-none hover:text-strong [&::-webkit-details-marker]:hidden">
         <span className="inline-flex items-center gap-2">
           <svg
             width="9"
@@ -197,7 +199,7 @@ export function TocInline() {
           On this page — {items.length} sections
         </span>
       </summary>
-      <ul className="border-t border-line px-4 py-3 text-sm">
+      <ul className="pb-3 pl-4 text-sm">
         {items.map((item) => (
           <li key={item.id} className={item.level === 3 ? 'pl-4' : ''}>
             <a

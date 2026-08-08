@@ -159,14 +159,18 @@ export function Markdown({ source, skipTitle = false }: MarkdownProps) {
   }
 
   return (
-    <div className="space-y-4">
+    /* The vertical rhythm lives here rather than in `.prose`, because each block is its own
+       `.prose` island — an artefact of rendering a flat list of blocks — so the sibling
+       margins inside `.prose` never see each other. Headings carry their own space above,
+       which is what separates a section from the paragraph that ended the last one. */
+    <div className="space-y-[1.15rem]">
       {blocks.map((b, n) => {
         switch (b.kind) {
           case 'heading': {
             if (b.level === 1) {
               return (
                 <div key={n} className="prose">
-                  <h1 className="text-2xl font-semibold text-strong">
+                  <h1 className="text-2xl font-bold tracking-tight text-strong">
                     <Inline text={b.text} />
                   </h1>
                 </div>
@@ -174,7 +178,10 @@ export function Markdown({ source, skipTitle = false }: MarkdownProps) {
             }
             const Tag = b.level === 2 ? H2 : H3;
             return (
-              <div key={n} className="prose pt-4">
+              <div
+                key={n}
+                className={b.level === 2 ? 'prose pt-8 first:pt-0' : 'prose pt-4 first:pt-0'}
+              >
                 <Tag id={slug(b.text)}>
                   <Inline text={b.text} />
                 </Tag>

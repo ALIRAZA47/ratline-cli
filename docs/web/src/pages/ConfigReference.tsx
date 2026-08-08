@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { CodeBlock } from '../components/CodeBlock';
 import { PageHeader } from '../components/PageHeader';
 import { Callout, H2 } from '../components/ui';
+import { RefList, RefNote, RefRow } from '../components/Reference';
 import { Inline } from '../components/Inline';
 import { configPreamble, configSections } from '../data/config';
 
@@ -59,11 +60,19 @@ export function ConfigReference() {
         </p>
       </Callout>
 
-      <div className="not-prose sticky top-14 z-20 -mx-1 mb-6 bg-[color-mix(in_oklab,var(--bg)_92%,transparent)] px-1 py-3 backdrop-blur">
-        <label className="flex items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2">
-          <span aria-hidden="true" className="font-mono text-xs text-faint">
-            /
-          </span>
+      <div className="not-prose sticky top-[var(--header-h)] z-20 -mx-1 mb-8 bg-[color-mix(in_oklab,var(--bg)_92%,transparent)] px-1 py-3 backdrop-blur">
+        <label className="flex items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2 shadow-[var(--shadow-card)] focus-within:border-accent">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            aria-hidden="true"
+            fill="none"
+            className="shrink-0 text-faint"
+          >
+            <circle cx="6" cy="6" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
           <input
             type="search"
             value={filter}
@@ -73,7 +82,7 @@ export function ConfigReference() {
           />
           <span className="sr-only">Filter configuration settings</span>
           {filter && (
-            <span className="font-mono text-2xs text-faint">
+            <span className="font-mono text-2xs text-muted">
               {sections.reduce((n, s) => n + s.settings.length, 0)} of {count}
             </span>
           )}
@@ -95,40 +104,31 @@ export function ConfigReference() {
             </p>
           </div>
 
-          <dl className="not-prose mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-line">
+          <RefList label={`${section.title} settings`}>
             {section.settings.map((s) => (
-              <div
+              <RefRow
                 key={s.key}
-                id={`setting-${s.key.replace(/\./g, '-')}`}
-                className="scroll-mt-32 px-4 py-3 target:bg-accent-soft"
+                anchor={`setting-${s.key.replace(/\./g, '-')}`}
+                name={s.key}
+                type={s.type}
               >
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <dt className="font-mono text-sm font-medium text-strong">
-                    <a href={`#setting-${s.key.replace(/\./g, '-')}`} className="no-underline">
-                      {s.key}
-                    </a>
-                  </dt>
-                  <span className="font-mono text-2xs text-faint">{s.type}</span>
-                </div>
-                <dd className="mt-1.5">
-                  {s.value.includes('\n') ? (
-                    <pre className="scroll-thin overflow-x-auto rounded border border-line bg-code px-2.5 py-2 font-mono text-xs text-fg">
-                      {s.value}
-                    </pre>
-                  ) : (
-                    <code className="inline-block rounded border border-line bg-code px-1.5 py-0.5 font-mono text-xs text-fg">
-                      {s.value}
-                    </code>
-                  )}
-                  {s.note && (
-                    <p className="mt-2 max-w-[var(--container-measure)] border-l-2 border-line-strong pl-3 text-sm leading-relaxed text-muted">
-                      <Inline text={s.note} />
-                    </p>
-                  )}
-                </dd>
-              </div>
+                {s.value.includes('\n') ? (
+                  <pre className="scroll-thin -mx-0.5 mt-0.5 overflow-x-auto rounded border border-line bg-sunken px-2.5 py-2 font-mono text-xs text-fg">
+                    {s.value}
+                  </pre>
+                ) : (
+                  <code className="inline-block rounded border border-line bg-code px-1.5 py-0.5 font-mono text-xs text-strong">
+                    {s.value}
+                  </code>
+                )}
+                {s.note && (
+                  <RefNote>
+                    <Inline text={s.note} />
+                  </RefNote>
+                )}
+              </RefRow>
             ))}
-          </dl>
+          </RefList>
         </section>
       ))}
 

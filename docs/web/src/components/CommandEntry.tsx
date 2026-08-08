@@ -6,6 +6,7 @@ import { ExitChip, StatusBadge } from './ui';
 import { Inline } from './Inline';
 import { exitCodes } from '../data/globals';
 import { anchoredFlags } from '../lib/flags';
+import { slugify } from '../lib/slug';
 import { RefGroupHeading } from './Reference';
 
 const codeName = new Map(exitCodes.map((e) => [e.code, e.name]));
@@ -71,7 +72,13 @@ export function CommandEntry({ command }: { command: Command }) {
       )}
 
       {groups.map((g) => (
-        <FlagTable key={g.title} flags={g.flags} caption={g.title} note={g.note} />
+        <FlagTable
+          key={g.title}
+          flags={g.flags}
+          caption={g.title}
+          note={g.note}
+          groupAnchor={`flags-${slugify(g.title ?? 'flags')}`}
+        />
       ))}
 
       {flagCount === 0 && (

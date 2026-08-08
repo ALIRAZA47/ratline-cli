@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { CodeBlock } from '../../components/CodeBlock';
+import { CodeBlock, CodeTabs } from '../../components/CodeBlock';
 import { PageHeader } from '../../components/PageHeader';
 import { Terminal } from '../../components/Terminal';
 import { Callout, H2, H3, TableScroll } from '../../components/ui';
@@ -209,6 +209,35 @@ any failure  → restore the previous vhost and reload`}
           that fails because the app is down is a renewal that fails exactly when you least want it to.
         </p>
       </div>
+
+      {/* The same issuance in its two forms. Two stacked blocks invited reading the wrong
+          one; the choice was made two sections above this, and the tab bar is where it
+          belongs. */}
+      <CodeTabs
+        label="Challenge type"
+        variants={[
+          {
+            id: 'http',
+            label: 'HTTP-01 (default)',
+            lang: 'shell',
+            prompt: true,
+            code: `ratline cert issue example.com --alias www.example.com --dry-run
+ratline cert issue example.com --alias www.example.com`,
+          },
+          {
+            id: 'dns',
+            label: 'DNS-01',
+            lang: 'shell',
+            prompt: true,
+            code: `ratline cert issue '*.example.com' \\
+  --challenge dns \\
+  --dns-provider cloudflare \\
+  --dns-credentials /etc/ratline/dns/cloudflare.ini \\
+  --dns-propagation 60 \\
+  --dry-run`,
+          },
+        ]}
+      />
 
       <CodeBlock
         lang="nginx"

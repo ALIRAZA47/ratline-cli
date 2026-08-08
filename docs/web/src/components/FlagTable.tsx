@@ -20,16 +20,23 @@ export function FlagTable({
   flags,
   caption,
   note,
+  /**
+   * Anchors the group's heading, which also puts it in the on-this-page index. `site add`
+   * has four flag groups — common, static, node, python — and which one you want is the
+   * first decision you make on that page, so it belongs in the contents.
+   */
+  groupAnchor,
 }: {
   flags: AnchoredFlag[];
   caption?: string;
   note?: string;
+  groupAnchor?: string;
 }) {
   if (flags.length === 0) return null;
 
   return (
     <>
-      <RefGroupHeading title={caption ?? 'Flags'}>
+      <RefGroupHeading title={caption ?? 'Flags'} id={groupAnchor}>
         {note ? <Inline text={note} /> : undefined}
       </RefGroupHeading>
       <RefList label={caption ? `${caption} flags` : 'Flags'}>
