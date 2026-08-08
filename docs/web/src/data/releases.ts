@@ -39,6 +39,34 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.11.1',
+    date: '2026-08-08',
+    summary:
+      'v0.11.0 shipped continuous health checks, and on any server that upgraded rather than installed fresh, nothing was continuous.',
+    assertions: 508,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`ratline update` did not install newly-added timers',
+        body:
+          'EnsureTimers was only ever called by `init`, which is run once in a server’s life. That was fine while the set of ratline’s own units never changed, and wrong the moment a release added one: the health-check commands arrived and the timer did not, so the feature whose whole point is being continuous was not running. A feature that depends on a unit cannot depend on somebody thinking to run `init` again.',
+        code: `$ systemctl is-active ratline-health-check.timer
+inactive`,
+      },
+      {
+        title: 'A timer that cannot be written is a warning, not a rollback',
+        body:
+          'The binary is already replaced and working at that point. Failing the whole update — and unwinding a good one — because a unit file could not be written would be the wrong trade. It warns and names the fix. Safe to repeat, because EnsureTimers writes only what is missing or still carries ratline’s header and leaves a hand-edited unit alone.',
+      },
+      {
+        kind: 'fix',
+        title: 'The suite only ever exercised the fresh-install path',
+        body:
+          'Which is why it could not have caught this. It now removes a managed timer and checks that the installing path puts it back — the property that has to hold on an upgrade as much as on an install.',
+      },
+    ],
+  },
+  {
     version: 'v0.11.0',
     date: '2026-08-08',
     summary:
