@@ -39,6 +39,65 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.11.0',
+    date: '2026-08-08',
+    summary:
+      'Continuous health checks, deploy hooks, and a one-command staging copy. Nothing on this server could previously tell you a site was returning 500 to every request.',
+    assertions: 505,
+    changes: [
+      {
+        kind: 'feature',
+        title: '`ratline site health` — is it answering, not is it configured',
+        body:
+          'doctor could already say a service had failed or a socket was missing; that is the configuration being wrong. None of it noticed a site returning 500 to every request — the unit is active, nginx is happy, the socket connects, and every visitor gets an error page. A timer now asks each site through its own socket every five minutes and records the answer.',
+        code: `$ ratline status
+!  app.example.com  acme  node  running  http  FAILING — HTTP 500
+
+$ ratline doctor
+problem  health  app.example.com  not answering: HTTP 500, since 2026-08-08 12:25`,
+      },
+      {
+        title: 'What counts as failing, and what does not',
+        body:
+          'A 5xx fails: that is the application saying it is broken. A 4xx does not — a site whose root legitimately answers 401 is answering correctly, and counting that as down would make this useless for anything behind authentication. Static sites are skipped, having nothing to ask; disabled sites are skipped, being meant to return 503. Reporting either every five minutes would train you to ignore the page.',
+      },
+      {
+        title: '“Since when”, and not believing a stale answer',
+        body:
+          'The failure streak and its start are recorded, so a site down since Tuesday says Tuesday rather than “since the last check”. One row per site, because a row per site per interval is a disk-space problem on a box where nothing rotates it. A check older than a day is reported as stale rather than believed: a recorded “healthy” from four days ago, on a server whose timer stopped, is worse than no answer because it reads as current. `site health` exits 7 so it works directly as a monitor check — and the timer treats 7 as success, because its job is to record and doctor’s is to report.',
+      },
+      {
+        kind: 'feature',
+        title: '`ratline site hook` — two points where a deploy runs your own thing',
+        body:
+          'A deploy was a fixed chain, so anything site-specific had nowhere to go. The pre-deploy hook runs after the pull and before install and build — after the pull deliberately, because a hook lives in the repository and running it earlier would run the previous deploy’s version of it. A failing pre-deploy hook stops the deploy before anything restarts.',
+        code: `ratline site hook set app.example.com \\
+    --before …/bin/maintenance-on --after …/bin/smoke-test`,
+      },
+      {
+        title: 'A failing post-deploy hook does not roll back',
+        body:
+          'It reports and exits non-zero, and leaves what is running alone. The site is already serving the new code correctly; reverting a healthy site because a notification could not reach a chat room would be a worse outcome than the failure it is reacting to. Hooks are stored on the site like its build command, so `export` carries them and `import` restores them without that being wired separately.',
+      },
+      {
+        kind: 'feature',
+        title: '`ratline site clone` — staging that is actually the same',
+        body:
+          'Every setting the source has, on a new domain. Standing up staging by hand means reading `site show` and retyping fifteen flags, and the whole value of staging is being the same as production — a hand-made copy differs in the one setting somebody forgot. It composes the same commands `new` and `import` do, so it cannot develop its own idea of what a site is, and `--dry-run` prints the plan.',
+        code: `ratline site clone app.example.com staging.example.com --with-files --start`,
+      },
+      {
+        title: 'Three things a clone is deliberately not faithful about',
+        body:
+          'Aliases are not copied: a hostname belongs to one site, and nginx resolves a clash by whichever vhost it read first — a bug that takes a day to find. Jobs and workers come across switched off, because a staging copy of a nightly job that emails customers should not fire tonight from a server nobody is watching. TLS is off, because the new domain has no certificate and DNS may not point here yet. `--with-db` creates an empty database and prints the two commands that move the data, rather than pretending to copy it.',
+      },
+    ],
+    known: [
+      'A hook and a job command are argv, not shell lines: a pipe or redirection is refused, and belongs in a script.',
+      'A site’s manifest still does not carry its jobs or hooks, so `restore` cannot rebuild them — it says so. `export` and `import` do.',
+    ],
+  },
+  {
     version: 'v0.10.1',
     date: '2026-08-07',
     summary:
