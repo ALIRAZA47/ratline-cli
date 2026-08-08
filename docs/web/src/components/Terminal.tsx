@@ -76,7 +76,7 @@ export function Terminal({ children, title }: Props) {
   }, [commands]);
 
   return (
-    <div className="not-prose my-5 overflow-hidden rounded-[var(--radius-panel)] border border-panel-line bg-panel shadow-[var(--shadow-panel)]">
+    <div className="not-prose my-5 overflow-hidden rounded-[var(--radius-panel)] border border-panel-line bg-panel shadow-[var(--shadow-panel)] first:mt-0 last:mb-0">
       <div className="flex min-h-[2.25rem] items-center gap-2.5 border-b border-panel-line bg-panel-chrome px-3">
         <span aria-hidden="true" className="flex gap-1.5">
           <span className="size-2 rounded-full bg-panel-line-strong" />

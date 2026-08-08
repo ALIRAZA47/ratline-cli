@@ -90,7 +90,7 @@ export function Releases() {
             </a>
           </div>
 
-          <p className="mb-6 max-w-[var(--container-measure)] text-base leading-relaxed text-strong">
+          <p className="mb-6 max-w-[var(--content-w)] text-lg leading-relaxed text-strong">
             <Inline text={r.summary} />
           </p>
 
@@ -102,23 +102,23 @@ export function Releases() {
                 key={c.title}
                 className="rounded-[var(--radius-card)] border border-line bg-raised"
               >
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2.5">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-sunken px-4 py-2.5">
                   {c.kind && (
                     <span
                       className={[
-                        'inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wide',
+                        'inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-mono text-2xs font-medium uppercase tracking-wide',
                         KIND[c.kind].className,
                       ].join(' ')}
                     >
                       {KIND[c.kind].label}
                     </span>
                   )}
-                  <h3 className="font-medium text-strong">
+                  <h3 className="font-semibold text-strong">
                     <Inline text={c.title} />
                   </h3>
                 </div>
-                <div className="px-4 py-3">
-                  <p className="max-w-[var(--container-measure)] text-sm leading-relaxed text-muted">
+                <div className="px-4 py-3.5">
+                  <p className="max-w-[var(--content-w)] text-[0.9375rem] leading-relaxed text-muted">
                     <Inline text={c.body} />
                   </p>
                   {c.code && (

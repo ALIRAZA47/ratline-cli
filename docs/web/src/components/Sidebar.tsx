@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import type { RefObject } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { nav } from '../data/nav';
 import type { NavItem } from '../data/nav';
@@ -57,40 +56,67 @@ function NavList({ items, here }: { items: NavItem[]; here: string }) {
   );
 }
 
+/** The nearest ancestor that actually scrolls: the sticky column, or the mobile drawer. */
+function scrollParent(from: HTMLElement): HTMLElement | null {
+  for (let el = from.parentElement; el; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if ((overflow === 'auto' || overflow === 'scroll') && el.scrollHeight > el.clientHeight) {
+      return el;
+    }
+  }
+  return null;
+}
+
 /**
  * The documentation navigation, in full.
  *
- * `scrollHost` is the element that actually scrolls — the sticky column on a wide screen,
- * the drawer on a narrow one. On navigation the active entry is scrolled into view inside
- * that element by setting its `scrollTop` directly rather than by calling
- * `scrollIntoView`, which would also move the window: arriving at a deep-linked heading
+ * On navigation the active entry is brought into view inside whichever container scrolls,
+ * by setting that container's `scrollTop` directly rather than by calling
+ * `scrollIntoView` — which would also move the window. Arriving at a deep-linked heading
  * and being yanked back to the top of the article because the sidebar wanted to adjust
  * itself is a worse bug than an off-screen nav entry.
+ *
+ * The container is found by walking up from the nav rather than handed in as a ref. It was
+ * a ref, and on a phone the drawer always opened at the top of the list with the page you
+ * were on somewhere below the fold: the ref belongs to a `<div>` whose `ref` attribute
+ * switches between two objects when the drawer opens, and depending on that switch to
+ * re-run the effect turned out not to be something to rely on. Walking up needs nothing
+ * to be true about render order.
+ *
+ * `revealed` is the drawer's open state, and it is a dependency because a hidden column
+ * has no geometry: the effect that ran while `display: none` measured zeroes, and there
+ * has to be a second one after the drawer is on screen.
  */
 export function Sidebar({
   here,
   pathname,
-  scrollHost,
+  revealed,
 }: {
   here: string;
   pathname: string;
-  scrollHost: RefObject<HTMLDivElement | null>;
+  revealed: boolean;
 }) {
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const host = scrollHost.current;
-    const active = navRef.current?.querySelector<HTMLElement>('[data-nav-active]');
-    if (!host || !active) return;
-    const hostBox = host.getBoundingClientRect();
-    const box = active.getBoundingClientRect();
-    const margin = 96;
-    if (box.top < hostBox.top + margin) {
-      host.scrollTop -= hostBox.top + margin - box.top;
-    } else if (box.bottom > hostBox.bottom - margin) {
-      host.scrollTop += box.bottom - (hostBox.bottom - margin);
-    }
-  }, [pathname, scrollHost]);
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[data-nav-active]');
+    if (!nav || !active) return;
+    // A frame, so the drawer has been laid out before it is measured.
+    const raf = requestAnimationFrame(() => {
+      const host = scrollParent(nav);
+      if (!host) return;
+      const hostBox = host.getBoundingClientRect();
+      const box = active.getBoundingClientRect();
+      const margin = 96;
+      if (box.top < hostBox.top + margin) {
+        host.scrollTop -= hostBox.top + margin - box.top;
+      } else if (box.bottom > hostBox.bottom - margin) {
+        host.scrollTop += box.bottom - (hostBox.bottom - margin);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pathname, revealed]);
 
   return (
     <nav ref={navRef} aria-label="Documentation">

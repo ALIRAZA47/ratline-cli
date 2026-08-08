@@ -247,12 +247,11 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <div key={group.kind} role="group" aria-labelledby={`${base}-grp-${group.kind}`}>
                   <p
                     id={`${base}-grp-${group.kind}`}
-                    className="label sticky top-0 z-10 border-b border-line bg-sunken px-4 py-1.5 text-faint"
+                    className="label sticky top-0 z-10 flex items-center gap-2 border-b border-line bg-sunken px-4 py-1.5 text-faint"
                   >
-                    {kindLabel[group.kind]}
-                    <span className="ml-1.5 font-normal tracking-normal normal-case">
-                      {group.docs.length}
-                    </span>
+                    <span>{kindLabel[group.kind]}</span>
+                    <span className="font-normal tracking-normal">·</span>
+                    <span className="font-normal tracking-normal">{group.docs.length}</span>
                   </p>
                   <ul>
                     {group.docs.map(({ doc, index }) => (

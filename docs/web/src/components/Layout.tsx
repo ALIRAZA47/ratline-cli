@@ -36,7 +36,6 @@ export function Layout() {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const stickyNav = useRef<HTMLDivElement>(null);
   const drawerNav = useRef<HTMLDivElement>(null);
 
   // Close the mobile drawer on navigation; otherwise it covers the page you
@@ -50,7 +49,13 @@ export function Layout() {
     if (!drawer) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    drawerNav.current?.querySelector<HTMLElement>('a, summary')?.focus();
+    // The page you are on, not the top of the list — so the first Tab from here goes to a
+    // neighbour of what you are reading. `preventScroll`: the sidebar's own effect decides
+    // where the column sits, and the browser's focus scroll would fight it.
+    const entry =
+      drawerNav.current?.querySelector<HTMLElement>('[data-nav-active]') ??
+      drawerNav.current?.querySelector<HTMLElement>('a, summary');
+    entry?.focus({ preventScroll: true });
     return () => {
       document.body.style.overflow = previous;
       menuButton.current?.focus();
@@ -229,14 +234,14 @@ export function Layout() {
           ].join(' ')}
         >
           <div
-            ref={drawer ? drawerNav : stickyNav}
+            ref={drawerNav}
             className={
               drawer
                 ? 'scroll-thin h-full overflow-y-auto px-4 pb-16 pt-5'
                 : 'scroll-thin sticky top-[var(--header-h)] max-h-[calc(100vh-var(--header-h))] overflow-y-auto py-8 pr-6'
             }
           >
-            <Sidebar here={here} pathname={pathname} scrollHost={drawer ? drawerNav : stickyNav} />
+            <Sidebar here={here} pathname={pathname} revealed={drawer} />
           </div>
         </div>
 

@@ -24,8 +24,10 @@ function Panel({
   className?: string;
 }) {
   return (
+    /* `first:mt-0 last:mb-0` so a panel dropped into a card that already has padding does
+       not add a second gap to it. */
     <div
-      className={`not-prose my-5 overflow-hidden rounded-[var(--radius-panel)] border border-panel-line bg-panel shadow-[var(--shadow-panel)] ${className}`}
+      className={`not-prose my-5 overflow-hidden rounded-[var(--radius-panel)] border border-panel-line bg-panel shadow-[var(--shadow-panel)] first:mt-0 last:mb-0 ${className}`}
     >
       {(label || right) && (
         <div className="flex min-h-[2.25rem] items-center gap-3 border-b border-panel-line bg-panel-chrome px-3">
