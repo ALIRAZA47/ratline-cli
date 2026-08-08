@@ -39,6 +39,40 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.11.4',
+    date: '2026-08-09',
+    summary:
+      'A revocation list sshd was told to read and could not refused every key on the server. Update if you use ratline to manage SSH keys.',
+    assertions: 522,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'RevokedKeys naming a missing file locked the server',
+        body:
+          '`sshd_config(5)`: “if this file is not readable, then public key authentication will be refused for all users.” Not the keys on the list — every key, for every account. So a missing revocation list does not let revoked keys back in; it closes the server. ratline wrote the drop-in naming that file without ensuring it existed, so on a host where the list had never been created the first `key add` shut the door. This was found the hard way: it locked the author out of the test server, recoverable only from the provider’s console.',
+        code: `RevokedKeys /etc/ratline/ssh/revoked_keys   # and the file was not there`,
+      },
+      {
+        title: 'Three guards were in place and none of them caught it',
+        body:
+          '`sshd -t` accepts the directive, because the syntax is valid. `sshd -T` reports the path without ever opening it — so the post-change verification, which reads the *effective* configuration precisely so it cannot be fooled by Include and Match, was fooled by a filename. And the comments in the diagnostics asserted the opposite of the truth in two places: “sshd tolerates a missing RevokedKeys file, which is precisely the problem: a revoked key silently works again.” Both halves wrong, and that inverted belief is why the code was written this way.',
+      },
+      {
+        title: 'Fixed in layers, because one guard already proved insufficient',
+        body:
+          'The list is created before the drop-in names it — empty on a server that has revoked nothing, which refuses nothing and is the correct content. If it cannot be created the directive is omitted entirely: a server without its revocation backstop is weaker, a server naming a file sshd cannot read is gone. And the verification now opens the file rather than trusting the path, which is the layer that matters because it catches the state however it arises, including an operator deleting the list later. Reverting the first fix makes the suite fail with “the sshd change was reverted” — even with the bug back, the server stays reachable.',
+      },
+      {
+        title: 'doctor reports it, in the sweep and not only in `doctor ssh`',
+        body:
+          'Adding it to the walk alone was the first attempt, and the walk is not what a cron job runs — the same mistake as two releases ago, now written down as a rule.',
+      },
+    ],
+    known: [
+      'If you are already locked out by this: from a console, `rm /etc/ssh/sshd_config.d/60-ratline.conf && systemctl reload ssh`, then update and run `ratline key sync`.',
+    ],
+  },
+  {
     version: 'v0.11.3',
     date: '2026-08-08',
     summary:
