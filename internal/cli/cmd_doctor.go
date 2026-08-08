@@ -43,8 +43,10 @@ func newDoctorCommand(g *Globals) *cobra.Command {
 		Long: "With no argument, runs every check ratline knows how to run: the nginx\n" +
 			"configuration, failed services, dead sockets, certificate expiry, orphaned\n" +
 			"configuration, drift between state and the filesystem, permission anomalies,\n" +
-			"allocated but unused ports, and the SSH key audit. Exit code 0 means healthy,\n" +
-			"which makes it usable from cron.\n\n" +
+			"allocated but unused ports, and the SSH key audit.\n\n" +
+			"Exit code 0 means no problems, which is what makes it usable from cron. A problem\n" +
+			"exits 7. A warning does not: paging somebody for an orphaned unit or a certificate\n" +
+			"three weeks out is how a check gets muted, after which the problems go unread too.\n\n" +
 			"With a subject — a domain, a tenant, a key fingerprint, a certificate, or\n" +
 			"'nginx', 'ssh' or 'server' — it diagnoses that one thing instead, walking its\n" +
 			"preconditions in order and stopping at the first failure. That is the same as\n" +
@@ -273,6 +275,36 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 					"ratline reconcile --fix, or remove "+path)
 			}
 		}
+	}
+
+	// Ratline's own units, when one of them is not there.
+	//
+	// Every one of these fails the same way: silently, with the consequence arriving much
+	// later as the first sign. Nothing renews a certificate and it expires. Nothing prunes
+	// expired keys. Nothing checks whether a site is answering, so somebody believes they
+	// have monitoring and does not.
+	//
+	// v0.11.0 is exactly this case: it added the health-check timer, and `ratline update`
+	// installed the new binary without it — so on every server that upgraded rather than
+	// installed fresh, the feature was absent and nothing said so. That is fixed in the
+	// update path, but a self-updater can only fix updates it performs itself, so this is
+	// the check that catches the state regardless of how a server got into it.
+	// Only once the server has been set up. On a box where ratline has never run, none of
+	// these exist and saying so is noise: `doctor` on a bare box is being used to look at
+	// the machine *before* `init`, and reporting three problems there made it useless for
+	// exactly that.
+	for _, name := range unit.ManagedTimerNames() {
+		if !g.Cfg.Loaded {
+			break
+		}
+		if !strings.HasSuffix(name, ".timer") {
+			continue
+		}
+		if system.Exists(filepath.Join(g.Cfg.Paths.SystemdDir, name)) {
+			continue
+		}
+		add("problem", "timer", name, "one of ratline's own timers is not installed",
+			"ratline init --write-config-only")
 	}
 
 	// Whether each site is actually answering.

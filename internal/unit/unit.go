@@ -823,3 +823,13 @@ func (m *Manager) EnsureRuntimeDir(ctx context.Context) error {
 	}
 	return nil
 }
+
+// ManagedTimerNames is the set of units ratline installs for itself.
+//
+// Exported so `doctor` can report one that is missing. A managed unit that should be there
+// and is not is the same class of problem for every one of them: nothing renews the
+// certificates, nothing prunes the keys, nothing checks whether a site is answering — and
+// in each case the first sign is the consequence rather than the cause.
+func ManagedTimerNames() []string {
+	return append([]string(nil), managedTimers...)
+}

@@ -140,6 +140,10 @@ check "and it is restored once the edit is gone" test -f /etc/systemd/system/rat
 # than by downloading a release: what is being tested is that the path installs it at all.
 rm -f /etc/systemd/system/ratline-health-check.timer /etc/systemd/system/ratline-health-check.service
 refute "a managed timer can be removed" test -f /etc/systemd/system/ratline-health-check.timer
+# And doctor says so, which is the check that catches this state however a server got into
+# it — a self-updater can only fix updates it performs itself.
+contains "doctor reports a missing managed timer" "not installed" "$("$RATLINE" doctor 2>&1)"
+exits_with 7 "and doctor exits non-zero for a problem" "$RATLINE" doctor
 "$RATLINE" init --write-config-only >/dev/null 2>&1
 check "and the timer-installing path puts it back" \
     test -f /etc/systemd/system/ratline-health-check.timer
@@ -1345,8 +1349,15 @@ else
 fi
 
 # And a socket site started afterwards must still be able to bind.
-"$RATLINE" site restart api.test >/dev/null 2>&1
-sleep 3
+#
+# Every dynamic site, not just one. Deleting /run/ratline leaves a running service "active"
+# with no socket, and restarting only api.test left direct.test broken for the rest of the
+# run — invisible until `doctor` started exiting non-zero, at which point the last check in
+# the suite failed on a site nobody had touched in a thousand lines.
+for d in api.test app.test direct.test; do
+    "$RATLINE" site restart "$d" >/dev/null 2>&1 || true
+done
+sleep 4
 check "a socket site starts after a db command" \
     test -S /run/ratline/alice-api_test/app.sock
 contains "and nginx can reach it" "200" \
@@ -2150,7 +2161,28 @@ check "user delete --purge" "$RATLINE" user delete alice --purge --yes
 refute "the account is gone" id alice
 refute "the home is gone" test -d /home/alice
 check "nginx still valid at the end" nginx -t
-check "doctor is clean at the end" "$RATLINE" doctor
+# Meaningful only because doctor now exits non-zero on a problem. It returned nil
+# unconditionally for a long time, which made every one of these checks pass whatever it
+# printed — and made the command useless in the cron job its help recommends.
+if out=$("$RATLINE" doctor 2>&1); then
+    ok "doctor is clean at the end"
+else
+    bad "doctor is clean at the end" "$(printf '%s' "$out" | grep -E '^(problem|warning)' | head -5)"
+fi
+# Zero *problems*, not zero findings: this container legitimately ends with warnings — its
+# own service unit looks like an orphan, and the selfsigned certificate is deliberate.
+# "Everything checks out" is printed only when there is nothing at all to say.
+end=$("$RATLINE" doctor 2>&1)
+case "$end" in
+    *"problem "*) bad "doctor ends with a problem" "$(printf '%s' "$end" | grep '^problem' | head -3)" ;;
+    *) ok "and nothing it reports is a problem" ;;
+esac
+# A warning must not fail: paging somebody for an orphaned unit is how a check gets muted,
+# after which the problems go unread too. This container has one (its own service unit).
+printf '# managed-by: ratline\n[Unit]\nDescription=x\n' > /etc/systemd/system/ratline-ghost-warn.service
+check "a warning alone still exits 0" "$RATLINE" doctor
+contains "while still reporting it" "orphan" "$("$RATLINE" doctor 2>&1)"
+rm -f /etc/systemd/system/ratline-ghost-warn.service
 
 # ---------------------------------------------------------------- result
 
@@ -2166,7 +2198,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=505
+EXPECTED_MINIMUM=512
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 )
 
@@ -89,14 +90,47 @@ type doctorOptions struct {
 	Fix bool
 }
 
-// runDoctor performs the health checks.
+// runDoctor runs the sweep and exits non-zero when it found a problem.
+//
+// The exit code is the whole reason this command claims to be usable from cron, and for a
+// long time it returned nil unconditionally: every server, however broken, exited 0. Anyone
+// who had wired `ratline doctor` into a monitor was being told everything was fine, and the
+// suite's own "doctor is clean" assertions passed whatever it printed, because exit 0 was
+// all they could ever see.
+//
+// Problems fail; warnings do not. A warning is something worth reading — an orphaned unit,
+// a certificate 20 days out, a database server that blipped — and paging somebody for one
+// is how a check gets muted, after which the problems go unread too.
 func runDoctor(ctx context.Context, g *Globals, opts doctorOptions) error {
 	findings, err := g.diagnose(ctx, opts)
 	if err != nil {
 		return err
 	}
+	problems := 0
+	for _, f := range findings {
+		if f.Severity == "problem" {
+			problems++
+		}
+	}
+	failed := func() error {
+		if problems == 0 {
+			return nil
+		}
+		// The same code `site health` uses, and for the same reason: the server is not
+		// well. Automation branching on 7 gets one meaning from both.
+		return rlerr.New(rlerr.CodeUnhealthy, "%s on this server", plural(problems, "problem")).
+			WithHint("each one is listed above with the command that addresses it")
+	}
 	if g.JSON {
-		return g.EmitJSON(map[string]any{"findings": findings, "healthy": len(findings) == 0})
+		// Deliberately the same shape as before. The exit code is the fix; adding a field
+		// here broke a caller that walks this object, and the count is derivable from the
+		// findings it already carries.
+		if err := g.EmitJSON(map[string]any{
+			"findings": findings, "healthy": len(findings) == 0,
+		}); err != nil {
+			return err
+		}
+		return failed()
 	}
 	if len(findings) == 0 {
 		g.Println("Everything checks out.")
@@ -124,7 +158,7 @@ func runDoctor(ctx context.Context, g *Globals, opts doctorOptions) error {
 		g.Printf("\nMost of that is about %s. For the cause rather than the symptoms:\n"+
 			"  ratline troubleshoot %s\n", subject, subject)
 	}
-	return nil
+	return failed()
 }
 
 // dominantSubject finds the one resource most of the findings concern.

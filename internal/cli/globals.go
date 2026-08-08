@@ -26,7 +26,10 @@ import (
 // for package state and the future HTTP layer can construct its own.
 type Globals struct {
 	// Global flags.
-	JSON        bool
+	JSON bool
+	// jsonEmitted records that the single --json envelope has been written, so a
+	// command that reports its result and then fails does not write a second one.
+	jsonEmitted bool
 	Quiet       bool
 	Verbose     bool
 	DryRun      bool

@@ -674,8 +674,11 @@ Use "ratline config [command] --help" for more information about a command.
 With no argument, runs every check ratline knows how to run: the nginx
 configuration, failed services, dead sockets, certificate expiry, orphaned
 configuration, drift between state and the filesystem, permission anomalies,
-allocated but unused ports, and the SSH key audit. Exit code 0 means healthy,
-which makes it usable from cron.
+allocated but unused ports, and the SSH key audit.
+
+Exit code 0 means no problems, which is what makes it usable from cron. A problem
+exits 7. A warning does not: paging somebody for an orphaned unit or a certificate
+three weeks out is how a check gets muted, after which the problems go unread too.
 
 With a subject — a domain, a tenant, a key fingerprint, a certificate, or
 'nginx', 'ssh' or 'server' — it diagnoses that one thing instead, walking its

@@ -31,6 +31,12 @@ type ErrorPayload struct {
 
 // EmitJSON writes the success envelope to stdout.
 func (g *Globals) EmitJSON(data any) error {
+	// Recorded so a command that emits its result and *then* fails does not produce a
+	// second envelope. The contract is exactly one object on stdout per invocation, and
+	// `doctor --json` broke it the moment it started exiting non-zero: callers piping it
+	// into jq got two documents, and a filter that had worked for a year began returning
+	// two answers.
+	g.jsonEmitted = true
 	return g.writeEnvelope(Envelope{
 		OK:      true,
 		Command: g.CmdPath,
@@ -160,6 +166,13 @@ func (g *Globals) Fields(pairs ...[2]string) error {
 // what to do next, each on its own line.
 func (g *Globals) reportError(err error) {
 	if g.JSON {
+		// A command that already wrote its envelope has said what it has to say; the
+		// error still sets the exit code, which is how a caller learns of it. Writing a
+		// second object here would break the one-object contract for the sake of
+		// repeating something the exit code already carries.
+		if g.jsonEmitted {
+			return
+		}
 		if jerr := g.EmitJSONError(err); jerr != nil {
 			fmt.Fprintf(g.Stderr, "error: %v\n", err)
 		}
