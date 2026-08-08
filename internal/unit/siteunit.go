@@ -345,11 +345,32 @@ func (m *Manager) RemoveSiteUnit(ctx context.Context, site *state.Site, u *state
 	if m.DryRun {
 		return nil
 	}
-	_, err := m.Runner.Run(ctx, system.Cmd{
+	if _, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "systemctl", Args: []string{"daemon-reload"},
 		Mutates: true, Label: "reload systemd",
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+
+	// Forget the failed state, or the removal leaves residue nothing on disk explains.
+	//
+	// systemd remembers that a unit failed after its file is gone: the entry becomes
+	// "not-found failed" and stays in `systemctl list-units --all` and, worse, in
+	// `systemctl --failed` — which is exactly what an operator and a monitoring check look
+	// at. A job that failed once and was then deleted would alarm about itself for ever,
+	// for a unit that no longer exists and no file mentions.
+	//
+	// Found by removing a deliberately-failing job on a real server and then comparing the
+	// server against a snapshot taken before the run. Nothing on disk had changed; this had.
+	for _, n := range names {
+		if _, err := m.Runner.Run(ctx, system.Cmd{
+			Name: "systemctl", Args: []string{"reset-failed", n},
+			Mutates: true, Label: "forget " + n, OKExit: []int{1, 4, 5},
+		}); err != nil {
+			m.Log.Debug("nothing to reset", "unit", n, "err", err)
+		}
+	}
+	return nil
 }
 
 // SiteUnitStatus is what systemd currently thinks of one.

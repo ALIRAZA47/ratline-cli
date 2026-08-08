@@ -297,3 +297,44 @@ func TestADisabledJobIsNotArmed(t *testing.T) {
 		t.Errorf("the service was enabled, so the job runs at every boot:\n%s", keys)
 	}
 }
+
+// Removing a unit has to make systemd forget that it failed.
+//
+// systemd keeps the failed state after the unit file is gone: the entry becomes "not-found
+// failed" and stays in `systemctl --failed`, which is what an operator and a monitoring
+// check look at. A job that failed once and was then deleted would alarm about itself for
+// ever, for a unit no file mentions. Found by comparing a real server against a snapshot
+// after removing a deliberately-failing job — nothing on disk had changed, and this had.
+func TestRemovingAUnitMakesSystemdForgetItFailed(t *testing.T) {
+	m := testManager()
+	fake := systest.NewFakeRunner()
+	m.Runner = fake
+
+	if err := m.RemoveSiteUnit(t.Context(), pythonSite(), aJob()); err != nil {
+		t.Fatalf("RemoveSiteUnit = %v", err)
+	}
+	keys := strings.Join(fake.Keys(), "\n")
+	if !strings.Contains(keys, "reset-failed") {
+		t.Errorf("nothing reset the failed state, so `systemctl --failed` keeps reporting a "+
+			"unit that no longer exists:\n%s", keys)
+	}
+	// Both halves of a job, or the timer keeps its own failed entry.
+	for _, want := range []string{"job-nightly.service", "job-nightly.timer"} {
+		found := false
+		for _, k := range fake.Keys() {
+			if strings.Contains(k, "reset-failed") && strings.Contains(k, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("the failed state of %s was not reset:\n%s", want, keys)
+		}
+	}
+	// And after the reload, not before: resetting a unit systemd still has loaded from a
+	// file that is already gone is the wrong order.
+	reload := strings.Index(keys, "daemon-reload")
+	reset := strings.Index(keys, "reset-failed")
+	if reload < 0 || reset < reload {
+		t.Errorf("reset-failed ran before daemon-reload:\n%s", keys)
+	}
+}

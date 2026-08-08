@@ -2015,6 +2015,14 @@ sleep 2
 contains "doctor reports a job whose last run failed" "its last run failed" \
     "$("$RATLINE" doctor 2>&1)"
 check "removing the broken job" "$RATLINE" site cron remove jobs.test failing --yes
+# systemd keeps a unit's failed state after the file is gone: the entry becomes "not-found
+# failed" and stays in `systemctl --failed`, which is what a monitoring check watches. A job
+# that failed once and was then deleted would alarm about itself for ever. Found by comparing
+# a real server against a snapshot after a run — nothing on disk had changed, and this had.
+refute "systemd does not keep reporting the removed job as failed" \
+    bash -c 'systemctl --failed --no-legend --no-pager | grep -q "jobs_test-job-failing"'
+refute "and it is gone from the full unit list too" \
+    bash -c 'systemctl list-units "ratline*" --all --no-legend --no-pager | grep -q "jobs_test-job-failing"' 
 after=$("$RATLINE" doctor 2>&1)
 case "$after" in
     *"its last run failed"*) bad "doctor still reports the removed job" "it is gone from state" ;;
