@@ -21,9 +21,19 @@ A line in a tenant's crontab runs outside every limit the site is held to. No `M
 so a runaway import takes the host down instead of one service. No `ProtectSystem`, so it
 can write anywhere the tenant can. No cgroup, so nothing accounts for what it used.
 
-And nothing in `ratline status`, `doctor`, `reconcile`, `export` or `backup` knows it
-exists — which means the thing on a server most likely to be quietly broken is also the
-thing nothing watches.
+And nothing in `ratline status`, `doctor` or `export` knows it exists — which means the
+thing on a server most likely to be quietly broken is also the thing nothing watches.
+
+A job or worker, by contrast, is on every one of those pages:
+
+    ratline status                         # counted alongside sites and certificates
+    ratline site show app.example.com      # listed with its schedule
+    ratline doctor                         # reports one whose last run failed
+
+`doctor` is the one that matters. A job's characteristic failure is silently stopping, so
+it reports a job whose last run failed, a worker that keeps exiting and being restarted,
+a worker that is enabled but not running, and a job whose timer somehow is not armed —
+which is a job that looks configured and never runs.
 
 Both kinds of unit carry the site's tenant, working directory, `.env`, sandbox and memory
 ceiling. A job reads the same `MONGODB_URI` the application does.

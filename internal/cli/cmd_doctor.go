@@ -275,15 +275,79 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		}
 	}
 
+	// The site's scheduled jobs and workers.
+	//
+	// These were shipped invisible to this page, which was the whole argument for their
+	// being units rather than crontab lines — and worse than invisible: the orphan scan
+	// below reported every one of them as a unit with no matching site and offered a fix
+	// that deletes it. A job's characteristic failure is silently stopping, so the page
+	// that exists to catch that has to look at them.
+	siteUnitNames := map[string]bool{}
+	for _, s := range sites {
+		units, err := st.ListSiteUnits(ctx, s.Domain, "")
+		if err != nil {
+			continue
+		}
+		for _, u := range units {
+			name := unit.SiteUnitName(s.Slug, u.Kind, u.Name)
+			siteUnitNames[name] = true
+			if u.Kind == state.UnitJob {
+				siteUnitNames[unit.SiteTimerName(s.Slug, u.Name)] = true
+			}
+			if !u.Enabled {
+				continue
+			}
+			us := mgr.Unit.SiteUnitStatusOf(ctx, s, u)
+			switch {
+			case us.Active == "failed":
+				add("problem", u.Kind, s.Domain+" "+u.Name, "its last run failed",
+					"ratline site "+jobNoun(u.Kind)+" logs "+s.Domain+" "+u.Name)
+
+			// A worker in auto-restart is crash-looping: it exits, systemd starts it
+			// again, and it exits. Distinguished from a worker that is merely starting by
+			// the sub-state rather than by the active state, because both of those read
+			// as "activating" and reporting the healthy one would make this page cry wolf
+			// every time somebody adds a worker.
+			case u.Kind == state.UnitWorker && us.Sub == "auto-restart":
+				add("problem", "worker", s.Domain+" "+u.Name,
+					"it keeps exiting and being restarted",
+					"ratline site worker logs "+s.Domain+" "+u.Name)
+			case u.Kind == state.UnitWorker && us.Active == "inactive":
+				// Enabled but not running. It has stopped consuming whatever it consumes,
+				// and nothing else on this page would say so.
+				add("problem", "worker", s.Domain+" "+u.Name, "enabled but not running",
+					"ratline site worker logs "+s.Domain+" "+u.Name)
+
+			case u.Kind == state.UnitJob && us.Enabled != "" && us.Enabled != "enabled":
+				// The timer is what makes a job happen. A job whose timer is not armed is
+				// a job that looks configured and never runs.
+				add("problem", "job", s.Domain+" "+u.Name,
+					"its timer is "+us.Enabled+", so it will never run",
+					"ratline site cron remove "+s.Domain+" "+u.Name+" and add it again")
+			}
+		}
+	}
+
 	// Units on disk with no site.
 	if entries, err := os.ReadDir(g.Cfg.Paths.SystemdDir); err == nil {
 		known := map[string]bool{}
 		for _, s := range sites {
 			known[validate.UnitName(s.Owner, s.Domain)] = true
 		}
+		// A job or worker unit belongs to a site; it is simply not that site's own
+		// service. Without this every one of them is reported as an orphan, with a fix
+		// that deletes a working scheduled job — the same mistake this scan already made
+		// once with the certificate-renewal timer.
+		for name := range siteUnitNames {
+			known[name] = true
+		}
 		for _, e := range entries {
 			name := e.Name()
-			if !strings.HasPrefix(name, "ratline-") || !strings.HasSuffix(name, ".service") || known[name] {
+			// Timers as well as services. A leftover timer is the residue that matters
+			// most: it keeps firing every night, starting a job for a site that is gone,
+			// and the scan that only looked at .service files could never see it.
+			isUnit := strings.HasSuffix(name, ".service") || strings.HasSuffix(name, ".timer")
+			if !strings.HasPrefix(name, "ratline-") || !isUnit || known[name] {
 				continue
 			}
 			// ratline's own units are not site units, and there is no site they could
@@ -658,4 +722,13 @@ func (g *Globals) diagnoseMongo(ctx context.Context, st *state.Store, add func(s
 			}
 		}
 	}
+}
+
+// jobNoun maps a unit kind to the command that manages it, so a fix line says the command
+// somebody can actually type.
+func jobNoun(kind string) string {
+	if kind == state.UnitJob {
+		return "cron"
+	}
+	return "worker"
 }

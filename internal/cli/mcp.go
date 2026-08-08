@@ -158,6 +158,17 @@ func mcpTools() []mcpTool {
 			argv:        func(map[string]any) ([]string, error) { return []string{"doctor"}, nil },
 		},
 		{
+			Name: "ratline_site_jobs",
+			Description: "A site's scheduled jobs and long-running workers, with their " +
+				"schedules and whether each is enabled. Read-only. These are the part of a " +
+				"site least likely to be noticed when they stop.",
+			InputSchema: object(map[string]any{"domain": domain}, "domain"),
+			argv: func(a map[string]any) ([]string, error) {
+				d, err := need(a, "domain")
+				return []string{"site", "cron", "list", d}, err
+			},
+		},
+		{
 			Name:        "ratline_db_list",
 			Description: "Databases ratline provisioned. Read-only. No password is ever stored or returned.",
 			InputSchema: object(map[string]any{}),

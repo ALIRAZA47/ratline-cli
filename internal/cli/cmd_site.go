@@ -340,6 +340,25 @@ func newSiteShowCommand(g *Globals) *cobra.Command {
 			if !info.VhostOK {
 				pairs = append(pairs, [2]string{"warning", "no nginx configuration on disk — run 'ratline reconcile --fix'"})
 			}
+
+			// A site's scheduled jobs and workers. Without these, the only way to find out
+			// a site had a nightly job was to know to ask `site cron list` — so the page
+			// that claims to show a site did not show the part most likely to be quietly
+			// broken.
+			if st, serr := g.Store(cmd.Context()); serr == nil {
+				if units, uerr := st.ListSiteUnits(cmd.Context(), info.Domain, ""); uerr == nil {
+					for _, u := range units {
+						detail := u.Command
+						if u.Schedule != "" {
+							detail = u.Schedule + " — " + u.Command
+						}
+						if !u.Enabled {
+							detail += "  (disabled)"
+						}
+						pairs = append(pairs, [2]string{u.Kind + " " + u.Name, detail})
+					}
+				}
+			}
 			return g.Fields(pairs...)
 		},
 	}

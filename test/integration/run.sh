@@ -1776,6 +1776,51 @@ contains "the worker is bound to the site" "PartOf=ratline-alice-jobs_test.servi
 contains "the worker restarts" "Restart=always" "$worker_unit"
 refute "a worker has no timer" test -f /etc/systemd/system/ratline-alice-jobs_test-worker-queue.timer
 
+# doctor must be clean while a job and a worker exist.
+#
+# This is the assertion whose absence let a real bug ship: the jobs section used to delete
+# its site before teardown, so doctor never ran with a job present. It reported every job
+# and worker as "a ratline unit with no matching site" and offered a fix that deletes a
+# working scheduled job — the same mistake the orphan scan had already made once with the
+# certificate-renewal timer.
+# Scoped to job and worker units rather than to the word "orphan" anywhere in the output:
+# this container installs its own ratline-integration.service, which doctor reports and
+# which is a property of the harness rather than of the tool.
+doc=$("$RATLINE" doctor 2>&1 | grep orphan || true)
+case "$doc" in
+    *"-job-"*|*"-worker-"*)
+        bad "doctor does not call a job or worker an orphan" "$(printf '%s' "$doc" | head -2)" ;;
+    *)  ok "doctor does not call a job or worker an orphan" ;;
+esac
+# The other half: doctor has to notice when one of them is actually broken. A job's
+# characteristic failure is silently stopping, so a page that stays quiet either way
+# would be worse than no page.
+cat > /home/alice/jobs.test/app/bin/broken <<'SH'
+#!/bin/sh
+exit 1
+SH
+chmod +x /home/alice/jobs.test/app/bin/broken
+chown alice:alice /home/alice/jobs.test/app/bin/broken
+"$RATLINE" site cron add jobs.test failing --schedule daily \
+    --command /home/alice/jobs.test/app/bin/broken >/dev/null 2>&1
+"$RATLINE" site cron run jobs.test failing >/dev/null 2>&1
+sleep 2
+contains "doctor reports a job whose last run failed" "its last run failed" \
+    "$("$RATLINE" doctor 2>&1)"
+check "removing the broken job" "$RATLINE" site cron remove jobs.test failing --yes
+after=$("$RATLINE" doctor 2>&1)
+case "$after" in
+    *"its last run failed"*) bad "doctor still reports the removed job" "it is gone from state" ;;
+    *) ok "and doctor stops reporting it" ;;
+esac
+
+# status counts them, and site show lists them — the two places somebody looks first.
+contains "status counts the scheduled job" "scheduled job" "$("$RATLINE" status 2>&1)"
+contains "status counts the worker" "worker" "$("$RATLINE" status 2>&1)"
+shown=$("$RATLINE" site show jobs.test 2>&1)
+contains "site show lists the job" "job nightly" "$shown"
+contains "site show lists the worker" "worker queue" "$shown"
+
 check "worker list shows it" "$RATLINE" site worker list jobs.test
 # The two are separate namespaces, so a job must not appear in the worker list.
 refute "and not the job" bash -c '"$1" site worker list jobs.test | grep -q nightly' _ "$RATLINE"
@@ -1793,6 +1838,19 @@ refute "the job's timer went too" test -f /etc/systemd/system/ratline-alice-jobs
 refute "the second job went too" test -f /etc/systemd/system/ratline-alice-jobs_test-job-weekly.timer
 refute "and no timer is left firing" systemctl is-active --quiet ratline-alice-jobs_test-job-nightly.timer
 check "systemd is still happy" systemctl daemon-reload
+
+# A unit left on disk with no state row behind it is still an orphan, and must still be
+# reported — the fix for the false positives must not have blinded the check entirely.
+# A stale *timer* is the case that matters most and the one the scan could never see
+# before, because it only ever looked at .service files: it keeps firing every night for
+# a site that no longer exists.
+cp /dev/null /etc/systemd/system/ratline-ghost-site-job-stale.timer
+printf '# managed-by: ratline\n[Unit]\nDescription=stale\n[Timer]\nOnCalendar=daily\n' \
+    > /etc/systemd/system/ratline-ghost-site-job-stale.timer
+contains "a leftover timer is still reported as an orphan" \
+    "ratline-ghost-site-job-stale.timer" "$("$RATLINE" doctor 2>&1)"
+rm -f /etc/systemd/system/ratline-ghost-site-job-stale.timer
+systemctl daemon-reload
 
 # ---------------------------------------------------------------- migration
 
@@ -1912,7 +1970,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=440
+EXPECTED_MINIMUM=448
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

@@ -565,6 +565,26 @@ func newRestoreCommand(g *Globals) *cobra.Command {
 			if err := g.Fields(fields...); err != nil {
 				return err
 			}
+			// The archive holds the site's directory, and a site's scheduled jobs live in
+			// systemd and in the state database — neither of which travels with it. Saying
+			// so matters more here than almost anywhere: a restored site that serves
+			// correctly looks finished, and the nightly job that quietly stopped is the
+			// thing nobody checks until the work it does turns out not to have happened.
+			if res.Site != nil {
+				if st, serr := g.Store(cmd.Context()); serr == nil {
+					if units, uerr := st.ListSiteUnits(cmd.Context(), res.Name, ""); uerr == nil && len(units) > 0 {
+						g.Printf("\nIts %s came back from state and %s running:\n",
+							plural(len(units), "job or worker"), areOrIs(len(units)))
+						for _, u := range units {
+							g.Printf("    %s %s\n", u.Kind, u.Name)
+						}
+					} else {
+						g.Printf("\nAn archive holds a site's files, not its scheduled jobs. If this\n"+
+							"site had any, add them again:\n    ratline site cron add %s …\n", res.Name)
+					}
+				}
+			}
+
 			g.Printf("\nWorth confirming:\n  ratline troubleshoot %s\n", res.Name)
 			if res.Site != nil && res.Site.HSTS {
 				g.Printf("\nThis site had HSTS. It needs a certificate before a browser will reach it:\n"+
@@ -577,4 +597,11 @@ func newRestoreCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&opts.Force, "force", false, "Replace the directory if it already exists")
 	f.BoolVar(&opts.SkipStart, "no-start", false, "Restore without starting the service")
 	return Mutating(cmd)
+}
+
+func areOrIs(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
 }

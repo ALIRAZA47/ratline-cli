@@ -656,7 +656,7 @@ ratline site env list api.example.com --reveal`,
       summary: 'Scheduled jobs for a site, as systemd timers.',
       description: [
         'A job runs on a schedule as the site’s tenant, in the site’s directory, with the site’s .env, sandbox and memory ceiling.',
-        'These are systemd timers rather than crontab lines. A crontab line runs outside every limit the site is held to — no memory ceiling, no filesystem protection, no cgroup — and nothing in status, doctor, reconcile, export or backup knows it is there. The thing on a server most likely to be quietly broken should not also be the thing nothing watches.',
+        'These are systemd timers rather than crontab lines. A crontab line runs outside every limit the site is held to — no memory ceiling, no filesystem protection, no cgroup — and nothing in status, doctor or export knows it is there. A job is on all three: counted by `status`, listed by `site show`, and reported by `doctor` when its last run failed.',
         'Schedules may be written as cron or in systemd’s own syntax. Either way systemd is asked to confirm the result before anything is written, and the next few run times are printed so a translation can be checked.',
       ],
       flags: [

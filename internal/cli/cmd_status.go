@@ -37,6 +37,8 @@ type ServerStatus struct {
 	Keys         int `json:"keys"`
 	Sites        int `json:"sites"`
 	Certificates int `json:"certificates"`
+	Jobs         int `json:"jobs"`
+	Workers      int `json:"workers"`
 	Problems     int `json:"problems"`
 
 	SiteRows []SiteStatusRow `json:"sites_detail"`
@@ -125,6 +127,18 @@ func (g *Globals) collectStatus(ctx context.Context) (*ServerStatus, error) {
 	}
 	if out.Hostname == "" {
 		out.Hostname, _ = store.GetServerValue(ctx, "hostname")
+	}
+
+	// Scheduled jobs and workers. One query for the whole server rather than one per
+	// site, because this screen is meant to be cheap enough to run from a prompt.
+	if units, err := store.ListSiteUnits(ctx, "", ""); err == nil {
+		for _, u := range units {
+			if u.Kind == state.UnitWorker {
+				out.Workers++
+				continue
+			}
+			out.Jobs++
+		}
 	}
 
 	// Which domains have a certificate attached, so the table can say so without
@@ -246,9 +260,18 @@ func (g *Globals) printStatus(st *ServerStatus, quiet bool) error {
 	if len(context) > 0 {
 		g.Printf("%s\n", strings.Join(context, ", "))
 	}
-	g.Printf("\n%s, %s, %s, %s\n",
+	line := fmt.Sprintf("%s, %s, %s, %s",
 		plural(st.Users, "tenant"), plural(st.Sites, "site"),
 		plural(st.Keys, "SSH key"), plural(st.Certificates, "certificate"))
+	// Only when there are any. A server with no scheduled jobs does not need a line
+	// telling it so, and this screen is meant to fit on one.
+	if st.Jobs > 0 {
+		line += ", " + plural(st.Jobs, "scheduled job")
+	}
+	if st.Workers > 0 {
+		line += ", " + plural(st.Workers, "worker")
+	}
+	g.Printf("\n%s\n", line)
 
 	if len(st.SiteRows) == 0 {
 		g.Printf("\nNo sites yet. Create one:\n" +
