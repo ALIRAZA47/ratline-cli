@@ -60,18 +60,29 @@ export function ReferenceIndex() {
             </H2>
             <p className="!mt-1 text-muted">{group.blurb}</p>
           </div>
-          <ul className="not-prose mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-line">
+          {/* Name above summary rather than beside it. A fixed name column wide enough for
+              `ratline site deploy-key create` left the summary a third of the measure, and
+              the summary is the part being scanned. */}
+          <ul className="not-prose mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-card)] border border-line bg-raised">
             {group.commands.map((cmd) => (
               <li key={cmd.id}>
                 <Link
                   to={commandPath(group, cmd)}
-                  className="group flex flex-col gap-1 px-4 py-3 no-underline transition-colors hover:bg-hover sm:flex-row sm:items-baseline sm:gap-4"
+                  className="group block px-4 py-3 no-underline transition-colors hover:bg-hover"
                 >
-                  <span className="flex min-w-0 items-center gap-2 sm:w-[21rem] sm:shrink-0">
-                    <code className="truncate font-mono text-sm text-accent">{cmd.name}</code>
+                  <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <code className="font-mono text-[0.8125rem] font-semibold text-strong group-hover:text-accent">
+                      {cmd.name}
+                    </code>
                     <StatusBadge status={cmd.status} size="xs" />
+                    <span
+                      aria-hidden="true"
+                      className="ml-auto text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-accent"
+                    >
+                      →
+                    </span>
                   </span>
-                  <span className="min-w-0 flex-1 text-sm leading-relaxed text-muted">
+                  <span className="mt-1 block text-sm leading-relaxed text-muted">
                     <Inline text={cmd.summary} />
                   </span>
                 </Link>

@@ -45,7 +45,7 @@ const EMPH: Record<NonNullable<Row['emphasis']>, string> = {
 
 function Tree({ rows, label }: { rows: Row[]; label: string }) {
   return (
-    <div className="scroll-thin overflow-x-auto rounded-[var(--radius-card)] border border-line bg-code">
+    <div className="scroll-thin overflow-x-auto rounded-[var(--radius-card)] border border-line bg-raised">
       <table className="w-full min-w-[42rem] border-collapse text-left font-mono text-xs">
         <caption className="sr-only">{label}</caption>
         <thead>
@@ -86,17 +86,13 @@ function Tree({ rows, label }: { rows: Row[]; label: string }) {
 
 export function FilesystemTree() {
   return (
-    <div className="not-prose my-6 space-y-5">
+    <div className="not-prose canvas-wide my-6 space-y-5">
       <div>
-        <h3 className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted">
-          Per user
-        </h3>
+        <h3 className="label mb-2 text-muted">Per user</h3>
         <Tree rows={perUser} label="Per-user filesystem layout with modes and owners" />
       </div>
       <div>
-        <h3 className="mb-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted">
-          System paths
-        </h3>
+        <h3 className="label mb-2 text-muted">System paths</h3>
         <Tree rows={system} label="System paths ratline owns" />
       </div>
       <p className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">

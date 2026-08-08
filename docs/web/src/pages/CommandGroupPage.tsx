@@ -81,14 +81,22 @@ export function CommandGroupPage() {
           <li key={command.id}>
             <Link
               to={path}
-              className="group flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1 py-3 no-underline transition-colors hover:bg-hover"
+              className="group block px-1 py-3 no-underline transition-colors hover:bg-hover"
             >
-              <code className="font-mono text-sm font-medium text-strong group-hover:text-accent">
-                {command.name}
-                {command.args && <span className="font-normal text-muted"> {command.args}</span>}
-              </code>
-              {command.status !== 'built' && <StatusBadge status={command.status} size="xs" />}
-              <span className="w-full text-sm leading-relaxed text-muted sm:w-auto sm:flex-1 sm:text-right">
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <code className="font-mono text-[0.8125rem] font-semibold text-strong group-hover:text-accent">
+                  {command.name}
+                  {command.args && <span className="font-normal text-muted"> {command.args}</span>}
+                </code>
+                {command.status !== 'built' && <StatusBadge status={command.status} size="xs" />}
+                <span
+                  aria-hidden="true"
+                  className="ml-auto text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-accent"
+                >
+                  →
+                </span>
+              </span>
+              <span className="mt-1 block text-sm leading-relaxed text-muted">
                 <Inline text={command.summary} />
               </span>
             </Link>
@@ -176,12 +184,10 @@ function Related({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mt-7">
-      <h3 className="not-prose mb-1 font-mono text-xs font-semibold uppercase tracking-wider text-muted">
-        {title}
-      </h3>
+    <div className="mt-8">
+      <h3 className="not-prose label mb-1 text-muted">{title}</h3>
       {note && (
-        <p className="not-prose mb-3 max-w-[var(--container-measure)] text-sm text-muted">
+        <p className="not-prose mb-3 max-w-[var(--content-w)] text-sm text-muted">
           <Inline text={note} />
         </p>
       )}

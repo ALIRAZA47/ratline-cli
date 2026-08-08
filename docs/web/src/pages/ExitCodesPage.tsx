@@ -1,6 +1,7 @@
 import { CodeBlock } from '../components/CodeBlock';
 import { PageHeader } from '../components/PageHeader';
 import { Callout, H2 } from '../components/ui';
+import { RefList, RefRow } from '../components/Reference';
 import { Inline } from '../components/Inline';
 import { exitCodes } from '../data/globals';
 
@@ -13,49 +14,49 @@ export function ExitCodesPage() {
         lede="Eleven codes, declared once in internal/rlerr/rlerr.go and never inferred from error text. Automation branches on them, so they are part of the public interface and are not renumbered."
       />
 
-      <div className="not-prose space-y-3">
+      {/* The codes as reference rows, the way the flags are: the number and its stable
+          name on one monospace line, what to do about it on the measure underneath.
+          Every row keeps its `#code-N` anchor — the exit chips all over the site link
+          straight into it, and so do the CLI's own hints. */}
+      <RefList label="Exit codes">
         {exitCodes.map((e) => (
-          <section
+          <RefRow
             key={e.code}
-            id={`code-${e.code}`}
-            aria-labelledby={`code-${e.code}-name`}
-            className="scroll-mt-24 rounded-[var(--radius-card)] border border-line bg-raised target:border-accent"
-          >
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2.5">
-              <span
-                className={[
-                  'inline-flex size-7 items-center justify-center rounded border font-mono text-sm font-semibold',
-                  e.code === 0
-                    ? 'border-[color-mix(in_oklab,var(--ok)_35%,transparent)] bg-ok-soft text-ok'
-                    : e.code === 6
-                      ? 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-danger-soft text-danger'
-                      : 'border-line-strong bg-sunken text-fg',
-                ].join(' ')}
-              >
-                {e.code}
-              </span>
-              <h2 id={`code-${e.code}-name`} className="font-mono text-base text-strong">
-                <a href={`#code-${e.code}`} className="no-underline">
+            anchor={`code-${e.code}`}
+            name={e.name}
+            lead={
+              <span className="flex items-baseline gap-2.5">
+                <span
+                  className={[
+                    'inline-flex size-6 shrink-0 translate-y-[0.15em] items-center justify-center rounded border font-mono text-xs font-semibold',
+                    e.code === 0
+                      ? 'border-[color-mix(in_oklab,var(--ok)_35%,transparent)] bg-ok-soft text-ok'
+                      : e.code === 6
+                        ? 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-danger-soft text-danger'
+                        : 'border-line-strong bg-sunken text-fg',
+                  ].join(' ')}
+                >
+                  {e.code}
+                </span>
+                <a
+                  href={`#code-${e.code}`}
+                  className="font-mono text-[0.8125rem] font-semibold whitespace-nowrap text-strong no-underline hover:text-accent"
+                >
                   {e.name}
                 </a>
-              </h2>
-              <p className="basis-full text-sm text-muted sm:basis-auto">{e.meaning}</p>
-            </div>
-            <div className="px-4 py-3">
-              <p className="max-w-[var(--container-measure)] text-sm leading-relaxed">
-                <Inline text={e.action} />
-              </p>
-              {e.raisedBy && (
-                <p className="mt-2 font-mono text-2xs text-faint">
-                  most often from: {e.raisedBy}
-                </p>
-              )}
-            </div>
-          </section>
+              </span>
+            }
+            meta={e.raisedBy ? [['from', e.raisedBy]] : undefined}
+          >
+            <span className="block font-medium text-strong">{e.meaning}</span>
+            <span className="mt-1 block">
+              <Inline text={e.action} />
+            </span>
+          </RefRow>
         ))}
-      </div>
+      </RefList>
 
-      <div className="prose mt-10">
+      <div className="prose mt-12">
         <H2 id="branching">Branching on them</H2>
         <p>
           The reason 8 and 9 are separate from 4 is that they mean different things to a script. A 4

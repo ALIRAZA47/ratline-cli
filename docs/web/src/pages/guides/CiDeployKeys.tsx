@@ -97,11 +97,14 @@ export function GuideCiDeployKeys() {
         <H3>3 · Verify, then wire it into the pipeline</H3>
       </div>
 
-      <CodeBlock lang="shell" prompt code={`ratline key test "CI runner — example.com"`} />
-
+      {/* One panel: the command, and under a hairline, what it prints. As two blocks the
+          reader had to infer that the second was the first one's output, which is the only
+          reason it is here. */}
       <CodeBlock
-        lang="text"
-        code={`Key       SHA256:cD2…   "CI runner — example.com"   ed25519
+        lang="shell"
+        prompt
+        code={`ratline key test "CI runner — example.com"`}
+        output={`Key       SHA256:cD2…   "CI runner — example.com"   ed25519
 Scope     site → example.com  (owner: acme)
 Login     acme@server — forced command only, no interactive shell
 Allowed   rsync
@@ -111,7 +114,6 @@ Source    203.0.113.0/24 only
 Expires   2027-08-04 (365 days)
 Last use  never
 Note      Runs as UID acme. Not a kernel boundary — see SECURITY.md.`}
-        noCopy
       />
 
       <CodeBlock

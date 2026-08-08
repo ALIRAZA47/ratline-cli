@@ -4,7 +4,7 @@
  */
 export function RequestPath() {
   return (
-    <figure className="not-prose my-6">
+    <figure className="not-prose canvas-wide my-6">
       <div className="scroll-thin overflow-x-auto rounded-[var(--radius-card)] border border-line bg-sunken p-4">
         <svg
           viewBox="0 0 880 330"

@@ -13,12 +13,13 @@ export function Home() {
   );
 
   return (
-    <article>
-      <header className="mb-10">
-        <p className="not-prose font-mono text-xs uppercase tracking-[0.18em] text-muted">
-          Server-side CLI · Go · Ubuntu
-        </p>
-        <h1 className="mt-3 max-w-[38rem] text-4xl font-semibold tracking-tight text-strong md:text-5xl">
+    /* The front door takes the wider canvas: a hero, a diagram and a grid of cards is not
+       sustained reading, and at the reading measure the whole page reads as a column of
+       leftovers. The prose inside it still sets to the measure. */
+    <article data-width="wide">
+      <header className="mb-11 border-b border-line pb-10">
+        <p className="not-prose label text-muted">Server-side CLI · Go · Ubuntu</p>
+        <h1 className="mt-3.5 max-w-[38rem] text-4xl font-bold tracking-tight text-strong md:text-5xl">
           One bare VPS, many isolated sites.
         </h1>
         <p className="mt-5 max-w-[36rem] text-lg leading-relaxed text-muted">
@@ -34,16 +35,16 @@ export function Home() {
           containers.
         </p>
 
-        <div className="not-prose mt-7 flex flex-wrap items-center gap-3">
+        <div className="not-prose mt-8 flex flex-wrap items-center gap-3">
           <Link
             to="/quickstart"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg no-underline transition-colors hover:bg-accent-hover"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-fg no-underline shadow-[var(--shadow-card)] transition-colors hover:bg-accent-hover"
           >
             60-second quickstart
           </Link>
           <Link
             to="/reference"
-            className="rounded-md border border-line bg-raised px-4 py-2 text-sm font-medium text-fg no-underline transition-colors hover:border-line-strong hover:bg-hover"
+            className="rounded-md border border-line bg-raised px-4 py-2 text-sm font-semibold text-fg no-underline shadow-[var(--shadow-card)] transition-colors hover:border-accent hover:bg-hover hover:text-accent"
           >
             Command reference
           </Link>

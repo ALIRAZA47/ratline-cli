@@ -38,9 +38,9 @@ export function ValidationPage() {
             aria-labelledby={`${r.id}-heading`}
             className="scroll-mt-24 overflow-hidden rounded-[var(--radius-card)] border border-line bg-raised target:border-accent"
           >
-            <div className="border-b border-line px-4 py-3">
+            <div className="border-b border-line bg-sunken px-4 py-3">
               <h2 id={`${r.id}-heading`} className="text-base font-semibold text-strong">
-                <a href={`#${r.id}`} className="no-underline">
+                <a href={`#${r.id}`} className="heading-anchor">
                   {r.subject}
                 </a>
               </h2>
@@ -49,7 +49,7 @@ export function ValidationPage() {
                   <code className="whitespace-pre font-mono text-xs text-accent">{r.rule}</code>
                 </div>
               )}
-              <p className="mt-2 font-mono text-2xs text-faint">{r.source}</p>
+              <p className="mt-2 font-mono text-2xs text-muted">{r.source}</p>
             </div>
             <div className="px-4 py-3">
               <ul className="max-w-[var(--container-measure)] space-y-2 text-sm leading-relaxed">
@@ -65,13 +65,15 @@ export function ValidationPage() {
                   </li>
                 ))}
               </ul>
+              {/* What the refusal actually prints. On the dark code surface, because it is
+                  terminal output rather than a note about terminal output. */}
               {r.message && (
-                <div className="mt-3.5 rounded border border-line bg-code px-3 py-2 font-mono text-xs">
-                  <p className="text-danger">
+                <div className="scroll-thin-dark mt-4 overflow-x-auto rounded-[var(--radius-card)] border border-panel-line bg-panel px-3.5 py-2.5 font-mono text-xs leading-relaxed">
+                  <p className="term-error">
                     <span aria-hidden="true">✗ </span>
                     error: {r.message}
                   </p>
-                  {r.hint && <p className="mt-1 text-muted">&nbsp;&nbsp;hint: {r.hint}</p>}
+                  {r.hint && <p className="mt-1 term-dim">&nbsp;&nbsp;hint: {r.hint}</p>}
                 </div>
               )}
             </div>

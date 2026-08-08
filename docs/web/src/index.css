@@ -6,6 +6,11 @@
    Two palettes, both deliberate. Light is warm paper; dark is a cool slate that
    is not pure black, because pure black next to a bright code block is fatiguing.
    Everything else in the app refers to these names, never to raw colours.
+
+   Every text colour here was picked against the surface it is used on and clears
+   WCAG AA at body size — including the small uppercase labels, which are told
+   apart from body text by size and tracking rather than by being too faint to
+   read. A label nobody can read is not a label.
    --------------------------------------------------------------------------- */
 
 @theme {
@@ -22,124 +27,157 @@
   --text-sm: 0.875rem;
   --text-sm--line-height: 1.6;
   --text-base: 1rem;
-  --text-base--line-height: 1.75;
-  --text-lg: 1.125rem;
-  --text-lg--line-height: 1.7;
-  --text-xl: 1.3125rem;
-  --text-xl--line-height: 1.45;
-  --text-2xl: 1.5625rem;
+  --text-base--line-height: 1.7;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.6;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.5rem;
   --text-2xl--line-height: 1.3;
-  --text-3xl: 1.875rem;
-  --text-3xl--line-height: 1.22;
+  --text-3xl: 1.9375rem;
+  --text-3xl--line-height: 1.2;
   --text-4xl: 2.375rem;
-  --text-4xl--line-height: 1.14;
+  --text-4xl--line-height: 1.12;
   --text-5xl: 3rem;
   --text-5xl--line-height: 1.06;
 
-  --radius-card: 0.625rem;
+  --radius-card: 0.5rem;
+  --radius-panel: 0.625rem;
 
-  /* Prose measure: ~70 characters at the base size. */
-  --container-measure: 42rem;
+  /* ---- The three-column shell -------------------------------------------
+     The content column is a fixed reading measure, not a fraction of the
+     viewport: ~80 characters at the base size. Everything in the column —
+     prose, code panels, reference rows, tables — shares that width, so the
+     column has one clean right edge instead of a ragged one. Genuinely wide
+     figures opt out with `.canvas-wide`.
+
+     The shell is the three columns centred as a group. On a 27-inch monitor
+     that leaves symmetric gutters rather than a 700px void beside the text,
+     which is what a `flex-1` content column produced. */
+  --content-w: 40rem;
+  --sidebar-w: 17rem;
+  --toc-w: 13.5rem;
+  --content-gap: 3.25rem;
+  --toc-gap: 2.25rem;
+  --shell-max: 75.5rem; /* sidebar + gap + content + gap + toc */
+  --canvas-wide: 52rem;
+  --header-h: 3.5rem;
+
+  /* Kept under its old name: 31 existing `max-w-[var(--container-measure)]`
+     usages mean the reading measure, and it is now the column itself. */
+  --container-measure: var(--content-w);
 }
 
 :root {
   color-scheme: light;
 
-  --bg: oklch(99.1% 0.003 85);
+  --bg: oklch(99.2% 0.003 85);
   --bg-raised: oklch(100% 0 0);
-  --bg-sunken: oklch(97% 0.004 85);
-  --bg-code: oklch(97.3% 0.005 250);
-  --bg-term: oklch(23% 0.015 255);
-  --bg-hover: oklch(95.4% 0.006 250);
-  --bg-active: oklch(95% 0.03 250);
+  --bg-sunken: oklch(97.2% 0.004 85);
+  --bg-code: oklch(96.8% 0.005 260); /* inline code chips only */
+  --bg-hover: oklch(95.6% 0.006 260);
+  --bg-active: oklch(94.5% 0.028 262);
 
-  --fg: oklch(24% 0.012 255);
-  --fg-strong: oklch(15% 0.014 255);
-  --fg-muted: oklch(48% 0.012 255);
-  --fg-faint: oklch(62% 0.01 255);
-  --fg-invert: oklch(97% 0.004 250);
+  --fg: oklch(32% 0.015 265);
+  --fg-strong: oklch(20% 0.02 265);
+  --fg-muted: oklch(41% 0.014 265);
+  --fg-faint: oklch(47% 0.012 265);
+  --fg-invert: oklch(97% 0.004 260);
 
-  --border: oklch(90.5% 0.006 255);
-  --border-strong: oklch(83% 0.008 255);
+  --border: oklch(91% 0.006 260);
+  --border-strong: oklch(82% 0.009 260);
 
-  --accent: oklch(48% 0.152 258);
-  --accent-hover: oklch(41% 0.16 258);
+  --accent: oklch(45% 0.18 262);
+  --accent-hover: oklch(38% 0.17 262);
   --accent-fg: oklch(100% 0 0);
-  --accent-soft: oklch(95.5% 0.026 258);
-  --accent-ring: oklch(58% 0.15 258);
+  --accent-soft: oklch(95.5% 0.028 262);
+  --accent-ring: oklch(55% 0.17 262);
 
-  --ok: oklch(48% 0.11 152);
+  --ok: oklch(44% 0.11 152);
   --ok-soft: oklch(95.5% 0.038 152);
-  --warn: oklch(52% 0.115 75);
+  --warn: oklch(43% 0.1 70);
   --warn-soft: oklch(96.5% 0.05 85);
-  --danger: oklch(51% 0.17 25);
+  --danger: oklch(44% 0.16 25);
   --danger-soft: oklch(96% 0.028 25);
-  --info: oklch(47% 0.1 235);
-  --info-soft: oklch(96% 0.028 235);
+  --info: oklch(44% 0.11 250);
+  --info-soft: oklch(96% 0.026 250);
 
-  /* Syntax. Six hues, chosen for contrast against --bg-code, not for novelty. */
-  --syn-comment: oklch(55% 0.02 150);
-  --syn-keyword: oklch(45% 0.16 300);
-  --syn-string: oklch(43% 0.115 145);
-  --syn-number: oklch(45% 0.13 45);
-  --syn-cmd: oklch(38% 0.11 258);
-  --syn-flag: oklch(44% 0.13 320);
-  --syn-var: oklch(45% 0.12 25);
-  --syn-punct: oklch(55% 0.01 255);
-  --syn-key: oklch(40% 0.1 235);
-
-  --shadow-card: 0 1px 2px oklch(20% 0.02 255 / 0.05), 0 1px 1px oklch(20% 0.02 255 / 0.04);
+  --shadow-card: 0 1px 2px oklch(20% 0.02 265 / 0.05), 0 1px 1px oklch(20% 0.02 265 / 0.04);
+  --shadow-panel: 0 1px 3px oklch(20% 0.02 265 / 0.1), 0 6px 16px -6px oklch(20% 0.02 265 / 0.12);
   --shadow-pop:
-    0 12px 32px -8px oklch(20% 0.02 255 / 0.18), 0 2px 8px -2px oklch(20% 0.02 255 / 0.1);
+    0 16px 40px -10px oklch(20% 0.02 265 / 0.22), 0 2px 8px -2px oklch(20% 0.02 265 / 0.1);
 }
 
 .dark {
   color-scheme: dark;
 
-  --bg: oklch(18.5% 0.012 258);
-  --bg-raised: oklch(22% 0.013 258);
-  --bg-sunken: oklch(15.5% 0.012 258);
-  --bg-code: oklch(21.5% 0.014 258);
-  --bg-term: oklch(14.5% 0.013 258);
-  --bg-hover: oklch(26% 0.015 258);
-  --bg-active: oklch(28% 0.035 258);
+  --bg: oklch(17.5% 0.014 265);
+  --bg-raised: oklch(21% 0.015 265);
+  --bg-sunken: oklch(15% 0.013 265);
+  --bg-code: oklch(24% 0.016 265);
+  --bg-hover: oklch(25% 0.017 265);
+  --bg-active: oklch(28% 0.04 262);
 
-  --fg: oklch(89% 0.008 255);
-  --fg-strong: oklch(97% 0.005 255);
-  --fg-muted: oklch(69% 0.012 255);
-  --fg-faint: oklch(56% 0.012 255);
-  --fg-invert: oklch(18% 0.012 258);
+  --fg: oklch(90% 0.008 265);
+  --fg-strong: oklch(97.5% 0.004 265);
+  --fg-muted: oklch(70% 0.012 265);
+  --fg-faint: oklch(61% 0.012 265);
+  --fg-invert: oklch(17% 0.014 265);
 
-  --border: oklch(29% 0.014 258);
-  --border-strong: oklch(38% 0.016 258);
+  --border: oklch(27.5% 0.015 265);
+  --border-strong: oklch(37% 0.018 265);
 
-  --accent: oklch(76% 0.13 250);
-  --accent-hover: oklch(83% 0.12 250);
-  --accent-fg: oklch(16% 0.02 258);
-  --accent-soft: oklch(27% 0.05 255);
-  --accent-ring: oklch(70% 0.14 255);
+  --accent: oklch(77% 0.13 258);
+  --accent-hover: oklch(85% 0.12 258);
+  --accent-fg: oklch(16% 0.02 265);
+  --accent-soft: oklch(27% 0.055 258);
+  --accent-ring: oklch(72% 0.14 258);
 
-  --ok: oklch(76% 0.14 155);
+  --ok: oklch(77% 0.14 155);
   --ok-soft: oklch(26% 0.05 155);
-  --warn: oklch(81% 0.13 85);
+  --warn: oklch(82% 0.13 85);
   --warn-soft: oklch(27% 0.05 80);
-  --danger: oklch(72% 0.16 25);
+  --danger: oklch(73% 0.16 25);
   --danger-soft: oklch(27% 0.06 25);
-  --info: oklch(76% 0.1 235);
-  --info-soft: oklch(26% 0.045 235);
-
-  --syn-comment: oklch(60% 0.025 150);
-  --syn-keyword: oklch(78% 0.12 300);
-  --syn-string: oklch(78% 0.13 145);
-  --syn-number: oklch(80% 0.12 60);
-  --syn-cmd: oklch(83% 0.09 250);
-  --syn-flag: oklch(80% 0.11 320);
-  --syn-var: oklch(78% 0.11 30);
-  --syn-punct: oklch(64% 0.012 255);
-  --syn-key: oklch(79% 0.1 235);
+  --info: oklch(77% 0.11 250);
+  --info-soft: oklch(26% 0.045 250);
 
   --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.3);
+  --shadow-panel: 0 1px 2px oklch(0% 0 0 / 0.4);
   --shadow-pop: 0 16px 40px -10px oklch(0% 0 0 / 0.6), 0 2px 8px -2px oklch(0% 0 0 / 0.4);
+}
+
+/* ---------------------------------------------------------------------------
+   The code surface. Deliberately outside both palettes: a code panel is dark in
+   the light theme too.
+
+   Code is the thing on this site a reader has come to copy, and a panel that
+   changes colour with the page changes what the syntax hues have to work
+   against, which means two sets of them to keep balanced and neither ever quite
+   right. One dark surface, one set of hues, tuned once — and in the light theme
+   the panel reads as an object on the page rather than a slightly grey
+   paragraph. Inline `code` stays a light chip in the light theme, because that
+   is running text, not a panel.
+   --------------------------------------------------------------------------- */
+
+:root,
+.dark {
+  --code-bg: oklch(20% 0.028 265);
+  --code-bg-chrome: oklch(16.5% 0.025 265);
+  --code-fg: oklch(90% 0.012 265);
+  --code-muted: oklch(68% 0.02 265);
+  --code-line: oklch(30% 0.025 265);
+  --code-line-strong: oklch(38% 0.03 265);
+
+  --syn-comment: oklch(68% 0.03 200);
+  --syn-keyword: oklch(79% 0.12 305);
+  --syn-string: oklch(81% 0.13 150);
+  --syn-number: oklch(84% 0.11 70);
+  --syn-cmd: oklch(90% 0.07 250);
+  --syn-flag: oklch(81% 0.12 330);
+  --syn-var: oklch(83% 0.1 40);
+  --syn-punct: oklch(69% 0.02 265);
+  --syn-key: oklch(81% 0.1 230);
 }
 
 /* Expose the tokens as Tailwind colour utilities. */
@@ -148,7 +186,6 @@
   --color-raised: var(--bg-raised);
   --color-sunken: var(--bg-sunken);
   --color-code: var(--bg-code);
-  --color-term: var(--bg-term);
   --color-hover: var(--bg-hover);
   --color-active: var(--bg-active);
 
@@ -174,6 +211,14 @@
   --color-danger-soft: var(--danger-soft);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
+
+  --color-term: var(--code-bg);
+  --color-panel: var(--code-bg);
+  --color-panel-chrome: var(--code-bg-chrome);
+  --color-panel-fg: var(--code-fg);
+  --color-panel-muted: var(--code-muted);
+  --color-panel-line: var(--code-line);
+  --color-panel-line-strong: var(--code-line-strong);
 }
 
 @layer base {
@@ -210,7 +255,7 @@
 
   /* Anchored headings must clear the sticky header. */
   [id] {
-    scroll-margin-top: 5.5rem;
+    scroll-margin-top: calc(var(--header-h) + 1.75rem);
   }
 
   h1,
@@ -218,9 +263,18 @@
   h3,
   h4 {
     color: var(--fg-strong);
-    font-weight: 600;
-    letter-spacing: -0.014em;
+    letter-spacing: -0.011em;
     text-wrap: balance;
+  }
+
+  h1 {
+    font-weight: 700;
+  }
+
+  h2,
+  h3,
+  h4 {
+    font-weight: 600;
   }
 
   code,
@@ -240,6 +294,7 @@
     *::after {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
   }
 }
@@ -252,43 +307,41 @@
 @layer components {
   .prose {
     font-size: var(--text-base);
-    line-height: 1.75;
+    line-height: 1.7;
     color: var(--fg);
   }
 
   .prose > * + * {
-    margin-top: 1.1em;
+    margin-top: 1.15em;
   }
 
   .prose p,
   .prose ul,
   .prose ol,
-  .prose blockquote {
-    max-width: var(--container-measure);
+  .prose blockquote,
+  .prose dl {
+    max-width: var(--content-w);
   }
 
   .prose h2 {
     font-size: var(--text-xl);
     line-height: 1.35;
     margin-top: 2.75rem;
-    margin-bottom: 0.85rem;
-    padding-top: 0.35rem;
-    scroll-margin-top: 5.5rem;
+    margin-bottom: 0.8rem;
   }
 
   .prose h3 {
     font-size: var(--text-lg);
     line-height: 1.45;
     margin-top: 2rem;
-    margin-bottom: 0.6rem;
-    scroll-margin-top: 5.5rem;
+    margin-bottom: 0.5rem;
   }
 
   .prose h4 {
     font-size: var(--text-base);
     font-weight: 600;
     margin-top: 1.6rem;
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.35rem;
   }
 
   .prose > h2:first-child,
@@ -296,12 +349,17 @@
     margin-top: 0;
   }
 
+  /* Links in running text: the accent, medium weight, and a hairline underline
+     that firms up on hover. Colour alone would fail "use of colour" for anyone
+     who cannot see the hue difference, so the underline stays. */
   .prose a {
     color: var(--accent);
+    font-weight: 500;
     text-decoration: underline;
     text-decoration-thickness: 1px;
-    text-underline-offset: 0.18em;
-    text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent);
+    text-underline-offset: 0.19em;
+    text-decoration-color: color-mix(in oklab, var(--accent) 32%, transparent);
+    transition: text-decoration-color 120ms ease;
   }
 
   .prose a:hover {
@@ -348,7 +406,7 @@
   }
 
   .prose :not(pre) > code {
-    font-size: 0.86em;
+    font-size: 0.855em;
     background: var(--bg-code);
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -368,7 +426,35 @@
     color: var(--fg-strong);
   }
 
-  /* Syntax token classes, shared by the highlighter and the terminal block. */
+  /* A heading that is its own anchor. It must not inherit the link treatment —
+     an underlined, accent-coloured, medium-weight h2 reads as a link in a
+     sentence rather than as a section title.
+
+     The descendant selectors are load-bearing: `.prose a` is one class and one
+     element, so a bare `.heading-anchor` loses to it and every section heading
+     on every topic page came out blue and underlined. */
+  .heading-anchor,
+  .heading-anchor:hover,
+  .prose :is(h1, h2, h3, h4) > .heading-anchor,
+  .prose :is(h1, h2, h3, h4) > .heading-anchor:hover {
+    color: inherit;
+    font-weight: inherit;
+    text-decoration: none;
+  }
+
+  /* An eyebrow, a table caption, a panel label: small, tracked, uppercase.
+     One class so the treatment is identical everywhere it appears. */
+  .label {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  /* Syntax token classes, shared by the highlighter and the terminal block.
+     Only ever used on the dark code surface. */
   .tok-comment {
     color: var(--syn-comment);
     font-style: italic;
@@ -399,29 +485,53 @@
     color: var(--syn-key);
   }
   .tok-path {
-    color: var(--fg);
+    color: var(--code-fg);
   }
 
   /* Terminal transcripts use the CLI's own palette: ANSI 31 / 33 / dim. */
   .term-info {
-    color: oklch(88% 0.01 255);
+    color: oklch(89% 0.01 265);
   }
   .term-warn {
-    color: oklch(83% 0.14 85);
+    color: oklch(84% 0.13 85);
   }
   .term-error {
-    color: oklch(70% 0.17 25);
+    color: oklch(72% 0.17 25);
   }
   .term-debug {
-    color: oklch(62% 0.012 255);
+    color: oklch(68% 0.015 265);
   }
   .term-bold {
-    color: oklch(97% 0.004 255);
+    color: oklch(98% 0.004 265);
     font-weight: 600;
   }
   .term-dim {
-    color: oklch(64% 0.012 255);
+    color: oklch(69% 0.015 265);
   }
+}
+
+/* A figure that genuinely needs more room than the reading measure — a
+   filesystem tree, a request-path diagram. Rare and deliberate: the default is
+   that everything shares the column's width. */
+.canvas-wide {
+  max-width: min(var(--canvas-wide), 100%);
+}
+
+/* One page opts into the wider canvas for its whole article: the front door,
+   whose job is a hero, a diagram and a grid of cards rather than sustained
+   reading. Its prose still sets to the measure — `.prose p` caps itself — so
+   the difference shows up only in the elements that wanted the room.
+
+   The shell has to grow with it. Widening the column alone did almost nothing:
+   the three columns are centred inside a container capped at the sum of their
+   normal widths, so the extra 12rem was simply taken back off the content
+   column, and `main` came out 672px on a page that had asked for 832. */
+main:has([data-width='wide']) {
+  max-width: min(var(--canvas-wide), 100%);
+}
+
+.shell:has([data-width='wide']) {
+  max-width: calc(var(--shell-max) + var(--canvas-wide) - var(--content-w));
 }
 
 /* Thin scrollbars on the internal scroll containers (sidebar, code, tables). */
@@ -441,5 +551,25 @@
 
 .scroll-thin::-webkit-scrollbar-thumb {
   background: var(--border-strong);
+  border-radius: 8px;
+}
+
+/* The same, inside a dark panel, where the page's border colour is invisible. */
+.scroll-thin-dark {
+  scrollbar-width: thin;
+  scrollbar-color: var(--code-line-strong) transparent;
+}
+
+.scroll-thin-dark::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scroll-thin-dark::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-thin-dark::-webkit-scrollbar-thumb {
+  background: var(--code-line-strong);
   border-radius: 8px;
 }
