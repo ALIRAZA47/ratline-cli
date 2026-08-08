@@ -649,6 +649,83 @@ ratline site env list api.example.com --reveal`,
       ],
     },
     {
+      id: 'site-health',
+      name: 'ratline site health',
+      args: '[domain...]',
+      status: 'built',
+      summary: 'Ask each site whether it is actually answering.',
+      description: [
+        'Makes an HTTP request through the site’s own socket or port and records the result, so “is it up” and “since when” both have answers that do not depend on somebody watching. A timer runs it every five minutes.',
+        'This is a different question from the rest of doctor. A unit can be perfectly active while the application inside it returns 500 to every request: systemd is happy, nginx is happy, the socket is connectable, and every visitor gets an error page. Nothing noticed that before, because nothing asked.',
+        'A 5xx counts as failing. A 4xx does not — a site whose root path legitimately answers 401 or 404 is answering correctly, and treating that as down would make this useless for anything behind authentication.',
+        'Static sites are skipped, having no application to ask; disabled sites are skipped, being meant to return 503.',
+        'Exits 7 — the same code a deploy uses for “it started but never answered” — when any site is failing, so it works directly as a monitor check.',
+      ],
+      examples: [
+        { lang: 'shell', code: `ratline site health
+ratline site health app.example.com
+ratline site health --quiet || alert` },
+      ],
+      seeAlso: [
+        { label: 'Health checks', to: '/topics/health' },
+        { label: 'ratline doctor', to: '/reference/ops/doctor' },
+      ],
+    },
+    {
+      id: 'site-hook',
+      name: 'ratline site hook',
+      args: '<set|clear>',
+      status: 'built',
+      summary: 'Run something of your own before or after a deploy.',
+      description: [
+        'A deploy was a fixed chain — pull, install, build, migrate, restart — so anything site-specific had nowhere to go and ended up in a wrapper script that reimplemented the chain badly.',
+        'The pre-deploy hook runs after the pull and before install and build. After the pull deliberately: a hook script lives in the repository, so running it earlier would run the previous deploy’s version of it. A failing pre-deploy hook stops the deploy before anything restarts, so the previous version keeps serving.',
+        'The post-deploy hook runs once the site is up and has answered a health check. A failing one reports and exits non-zero but does not roll back: the site is already serving the new code, and reverting it because a notification failed would be worse than the failure.',
+        'Both run as the tenant, in the application directory, with the site’s environment — the same conditions as the build command. RATLINE_HOOK and RATLINE_DOMAIN are set, so one script can serve both.',
+      ],
+      flags: [
+        { name: '--before', arg: '<path…>', type: 'string',
+          description: 'Run this after the pull, before install and build.' },
+        { name: '--after', arg: '<path…>', type: 'string',
+          description: 'Run this once the site is up and answering.',
+          note: 'Nothing is passed to a shell, so this is an argv: a pipe or redirection is refused rather than handed to the program as arguments.' },
+      ],
+      examples: [
+        { lang: 'shell', code: `ratline site hook set app.example.com --after …/bin/smoke-test
+ratline site hook clear app.example.com --after` },
+      ],
+      seeAlso: [{ label: 'Deploys', to: '/topics/deploys' }],
+    },
+    {
+      id: 'site-clone',
+      name: 'ratline site clone',
+      args: '<source-domain> <new-domain>',
+      status: 'built',
+      summary: 'Copy a site’s configuration to a new domain.',
+      description: [
+        'Every setting the source has, on a new domain: runtime, versions, commands, limits, deploy hooks, and its jobs and workers. Standing up staging by hand means reading `site show` and retyping fifteen flags — and the value of staging is that it is the same as production, while a copy made by hand differs in the one setting somebody forgot.',
+        'Three things are deliberately not faithful. Aliases are not copied, because a hostname can only belong to one site and nginx resolves a clash by whichever vhost it read first. Jobs and workers come across switched off, because a staging copy of a nightly job that emails customers should not fire tonight from a server nobody is watching. And TLS is off, because the new domain has no certificate and DNS may not point here yet.',
+        'It composes the same commands `ratline new` and `ratline import` do, so a clone cannot develop its own idea of what a site is — and `--dry-run` prints the plan.',
+      ],
+      flags: [
+        { name: '--user', arg: '<tenant>', type: 'string',
+          description: 'Tenant to own the copy (default: the source’s).' },
+        { name: '--with-files', type: 'bool', default: 'false',
+          description: 'Also clone the repository and install and build it.',
+          note: 'Clones the repository the source deploys from, at the source’s branch. It does not copy the source’s working tree.' },
+        { name: '--with-db', type: 'bool', default: 'false',
+          description: 'Also create an empty database and attach it.',
+          note: 'Empty, deliberately. Copying the data is `db dump` then `db restore --into <name> --drop`, which it prints.' },
+        { name: '--db-name', arg: '<name>', type: 'string', description: 'Name for that database.' },
+        { name: '--start', type: 'bool', default: 'false', description: 'Start the copy once it is built.' },
+      ],
+      examples: [
+        { lang: 'shell', code: `ratline site clone app.example.com staging.example.com
+ratline site clone app.example.com staging.example.com --with-files --start` },
+      ],
+      seeAlso: [{ label: 'ratline new', to: '/reference/new' }],
+    },
+    {
       id: 'site-cron',
       name: 'ratline site cron',
       args: '<add|list|remove|run|logs>',

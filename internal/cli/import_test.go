@@ -88,6 +88,11 @@ func TestEveryFlagImportGeneratesExistsOnTheRealCommand(t *testing.T) {
 	kargv = appendIf(kargv, "--label", k.Label)
 	check(kargv)
 
+	// Deploy hooks are set by their own command, so they have their own generator and
+	// their own way to drift.
+	check([]string{"site", "hook", "set", "app.example.com",
+		"--before", "/srv/bin/pre", "--after", "/srv/bin/post"})
+
 	// A site's jobs and workers go through the same generator, and dropping one of these
 	// silently is the worst migration bug available: the site serves, everything looks
 	// right, and the nightly job nobody is watching simply never runs again.

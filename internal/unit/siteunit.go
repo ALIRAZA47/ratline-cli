@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -397,4 +400,52 @@ func (m *Manager) SiteUnitStatusOf(ctx context.Context, site *state.Site, u *sta
 		s.LastRun = t["LastTriggerUSec"]
 	}
 	return s
+}
+
+// Probe makes one HTTP request through the site's socket or port.
+//
+// The single-shot form of WaitHealthy, which retries until a deadline because it is used
+// right after a start. A periodic check wants the opposite: ask once, record what came
+// back, and let the caller decide what a streak of failures means.
+//
+// Deliberately reports a status code rather than a verdict. Whether a 404 counts as broken
+// depends on the site — one behind authentication answers 401 to an unauthenticated
+// request and is perfectly healthy — so that judgement belongs to the caller and not here.
+func (m *Manager) Probe(ctx context.Context, site *state.Site) (int, error) {
+	if m.DryRun {
+		return 0, nil
+	}
+	target := m.Cfg.SocketPath(site.Owner, site.Domain)
+	network := "unix"
+	if site.Listen == "port" {
+		network = "tcp"
+		target = fmt.Sprintf("127.0.0.1:%d", site.Port)
+	}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, target)
+			},
+		},
+		// A redirect is the application answering, which is all this asks. Following one
+		// would mean leaving the socket for whatever Location says — quite possibly the
+		// public internet — from a probe that is supposed to stay on this machine.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://ratline-health/", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Host = site.Domain
+	req.Header.Set("User-Agent", "ratline-health/1")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	// The body is drained and discarded: not reading it leaks the connection, and keeping
+	// it would mean holding a tenant's response in ratline's memory for no reason.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode, nil
 }

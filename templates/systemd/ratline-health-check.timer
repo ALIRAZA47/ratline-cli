@@ -1,0 +1,18 @@
+# managed-by: ratline
+[Unit]
+Description=Ask each ratline site whether it is actually answering
+Documentation=man:ratline(8)
+
+[Timer]
+# Every five minutes: often enough that "since when" is a useful answer, rare enough that
+# the probe costs nothing measurable. A jitter so a fleet of servers pointed at the same
+# upstream do not all ask on the same second.
+OnCalendar=*:0/5
+RandomizedDelaySec=30
+# Deliberately not Persistent. A missed health check is not worth catching up on — the
+# only interesting sample is the current one, and a burst of stale probes on boot would
+# record failures for sites that have not finished starting.
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

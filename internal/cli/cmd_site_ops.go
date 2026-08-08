@@ -242,6 +242,13 @@ func (g *Globals) deploy(ctx context.Context, name string, opts deployOptions) e
 		fn   func() error
 	}{
 		{"pull", opts.Pull, func() error { return g.gitPull(ctx, rc, id) }},
+		// After the pull, deliberately. A hook script lives in the repository, so running
+		// it before the pull would run the previous deploy's version of it — which is the
+		// one thing somebody editing a hook would not expect. Before install and build, so
+		// it can do the work those depend on.
+		{"pre-deploy hook", site.PreDeployCommand != "", func() error {
+			return runtime.RunHook(ctx, rc, "pre-deploy", site.PreDeployCommand)
+		}},
 		{"install", opts.Install, func() error { return rt.Install(ctx, rc) }},
 		{"build", opts.Build, func() error { return rt.Build(ctx, rc) }},
 		{"migrate", opts.Migrate, func() error { return g.manage(ctx, rc, id, "migrate", "--no-input") }},
@@ -328,6 +335,29 @@ func (g *Globals) deploy(ctx context.Context, name string, opts deployOptions) e
 		}
 		record.Steps = append(record.Steps, "restart")
 		record.Health = health
+	}
+
+	// The post-deploy hook, once the site is up and answering.
+	//
+	// Deliberately after the health check, and deliberately not able to revert the deploy.
+	// The site is serving the new code at this point; a smoke test or a cache warm that
+	// fails is worth reporting loudly, but rolling back a *healthy* site because a
+	// notification could not reach Slack would be a worse outcome than the failure it is
+	// reacting to. So this reports and exits non-zero, and does not touch what is running.
+	if site.PostDeployCommand != "" {
+		if herr := runtime.RunHook(ctx, rc, "post-deploy", site.PostDeployCommand); herr != nil {
+			record.Steps = append(record.Steps, "post-deploy hook")
+			newSHA := gitSHA(ctx, g, rc.AppDir, id)
+			if newSHA != "" {
+				record.GitSHA = newSHA
+			}
+			_ = st.TouchDeploy(ctx, site.Domain)
+			return finish(rlerr.Wrap(herr, rlerr.CodeOf(herr),
+				"the deploy succeeded and %s is serving, but its post-deploy hook failed",
+				site.Domain).
+				WithHint("the new code is live; the hook is what needs attention"))
+		}
+		record.Steps = append(record.Steps, "post-deploy hook")
 	}
 
 	newSHA := gitSHA(ctx, g, rc.AppDir, id)

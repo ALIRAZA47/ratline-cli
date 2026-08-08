@@ -216,6 +216,16 @@ func (im *importer) plan(ctx context.Context, e *state.Export) (plan, error) {
 					argv: []string{"site", "alias", "add", s.Domain, a},
 				})
 			}
+			// Deploy hooks. Set by their own command rather than by `site add`, so they
+			// need a step of their own — and dropping them would mean a migrated site
+			// that deploys without running the smoke test somebody relies on.
+			if s.PreDeployCommand != "" || s.PostDeployCommand != "" {
+				argv := []string{"site", "hook", "set", s.Domain}
+				argv = appendIf(argv, "--before", s.PreDeployCommand)
+				argv = appendIf(argv, "--after", s.PostDeployCommand)
+				p.add(step{what: "restoring the deploy hooks on " + s.Domain, argv: argv})
+			}
+
 			// The site's scheduled jobs and workers. Dropping these silently would be the
 			// worst kind of migration bug: the site serves, everything looks right, and
 			// the nightly job that was the whole reason somebody set up a cron simply

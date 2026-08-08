@@ -1,0 +1,33 @@
+# managed-by: ratline
+[Unit]
+Description=Ask each ratline site whether it is actually answering
+Documentation=man:ratline(8)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# `doctor` could already say a service had failed or a socket was missing, which is the
+# configuration being wrong. It could not say a site was returning 500 to every request,
+# because nothing ever asked it — and a unit can be perfectly active while the application
+# inside it is broken. systemd is happy, nginx is happy, and every visitor gets an error
+# page. Recording the answer on a timer is what turns "is anything down" into a question
+# with an answer, rather than one that waits for somebody to look.
+#
+# Deliberately not a failure when a site is failing: this unit's job is to record, and
+# `ratline doctor` is what reports. A unit that goes into a failed state every five minutes
+# because a tenant's application is down would be noise on the one page that must stay
+# trustworthy.
+ExecStart=/usr/local/bin/ratline site health --quiet
+SuccessExitStatus=7
+Nice=10
+IOSchedulingClass=idle
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -14,6 +14,7 @@ const siteColumns = `domain, owner, runtime, slug, enabled,
 	entry, node_version, package_manager, listen, process_manager, port, instances,
 	app_module, python_version, asgi, app_server, workers, requirements, manage_py, static_url, static_dir,
 	start_command, install_command, build_command, build_output, public_dir, repo, branch,
+	pre_deploy_command, post_deploy_command,
 	memory_max, cpu_quota, client_max_body_size, www_redirect, hsts, relaxed,
 	created_at, updated_at, created_by, last_deploy_at`
 
@@ -29,6 +30,7 @@ func scanSite(row interface{ Scan(...any) error }) (*Site, error) {
 		&s.AppModule, &s.PythonVersion, &asgi, &s.AppServer, &s.Workers, &s.Requirements,
 		&s.ManagePy, &s.StaticURL, &s.StaticDir,
 		&s.StartCommand, &s.InstallCommand, &s.BuildCommand, &s.BuildOutput, &s.PublicDir, &s.Repo, &s.Branch,
+		&s.PreDeployCommand, &s.PostDeployCommand,
 		&s.MemoryMax, &s.CPUQuota, &s.ClientMaxBodySize, &s.WWWRedirect, &hsts, &relaxed,
 		&created, &updated, &s.CreatedBy, &deployed)
 	if err != nil {
@@ -50,7 +52,7 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 	return s.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO sites (`+siteColumns+`)
-			VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?)
+			VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?, ?,?,?,?)
 			ON CONFLICT(domain) DO UPDATE SET
 				owner=excluded.owner, runtime=excluded.runtime, slug=excluded.slug, enabled=excluded.enabled,
 				doc_root=excluded.doc_root, spa=excluded.spa, index_file=excluded.index_file,
@@ -65,6 +67,8 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 				start_command=excluded.start_command, install_command=excluded.install_command,
 				build_command=excluded.build_command, build_output=excluded.build_output,
 				public_dir=excluded.public_dir, repo=excluded.repo, branch=excluded.branch,
+				pre_deploy_command=excluded.pre_deploy_command,
+				post_deploy_command=excluded.post_deploy_command,
 				memory_max=excluded.memory_max, cpu_quota=excluded.cpu_quota,
 				client_max_body_size=excluded.client_max_body_size,
 				www_redirect=excluded.www_redirect, hsts=excluded.hsts, relaxed=excluded.relaxed,
@@ -76,6 +80,7 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 			site.Requirements, site.ManagePy, site.StaticURL, site.StaticDir,
 			site.StartCommand, site.InstallCommand, site.BuildCommand, site.BuildOutput,
 			site.PublicDir, site.Repo, site.Branch,
+			site.PreDeployCommand, site.PostDeployCommand,
 			site.MemoryMax, site.CPUQuota, site.ClientMaxBodySize, site.WWWRedirect,
 			boolToInt(site.HSTS), joinList(site.Relaxed),
 			orNow(formatTime(site.CreatedAt)), now(), site.CreatedBy, formatTime(site.LastDeployAt))

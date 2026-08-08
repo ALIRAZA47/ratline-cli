@@ -162,6 +162,15 @@ func closestTopic(want string, names []string) string {
 		"worker":      "jobs",
 		"workers":     "jobs",
 		"queue":       "jobs",
+		"health":      "health",
+		"healthcheck": "health",
+		"uptime":      "health",
+		"monitoring":  "health",
+		"down":        "health",
+		"hook":        "deploys",
+		"hooks":       "deploys",
+		"clone":       "deploys",
+		"staging":     "deploys",
 	} {
 		if want == alias {
 			return topic

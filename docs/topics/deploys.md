@@ -61,4 +61,30 @@ Values are redacted in logs, in errors and in `env list` unless `--reveal` is pa
 `.env` is `0600` and lives outside the document root, so nginx has no path by which it
 could serve it.
 
+## Hooks
+
+Two points where a site runs something of its own:
+
+    ratline site hook set app.example.com \
+        --before …/bin/maintenance-on --after …/bin/smoke-test
+
+The **pre-deploy** hook runs after the pull and before install and build. After the pull
+deliberately: a hook script lives in the repository, so running it earlier would run the
+previous deploy's version of it — the one thing somebody editing a hook would not expect.
+A failing pre-deploy hook stops the deploy before anything restarts, so the previous
+version keeps serving.
+
+The **post-deploy** hook runs once the site is up and has answered a health check. A
+failing post-deploy hook reports and exits non-zero but does **not** roll the deploy back.
+The site is already serving the new code correctly; reverting it because a notification
+could not reach a chat room would be a worse outcome than the failure it is reacting to.
+
+Both run as the tenant, in the application directory, with the site's environment — the
+same conditions as the build command. `RATLINE_HOOK` and `RATLINE_DOMAIN` are set, so one
+script can serve both hooks.
+
+Nothing is passed to a shell, so a hook is an argv and not a command line: a pipe or a
+redirection is refused rather than handed to the program as arguments. Anything needing one
+belongs in a script, the same as a multi-step build.
+
 See also: `ratline explain node`, `ratline explain diagnose`.

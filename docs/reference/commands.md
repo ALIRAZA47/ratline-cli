@@ -301,6 +301,9 @@ Available Commands:
   scale        Change workers, instances or resource ceilings
   delete       Delete a site, its vhost, its service and its logs
   alias        Add or remove a site's additional server names
+  health       Ask each site whether it is actually answering
+  hook         Run something of your own before or after a deploy
+  clone        Copy a site's configuration to a new domain
   cron         Scheduled jobs for a site
   worker       Long-running background processes for a site
   logs         Show a site's application, access or error log
@@ -1918,6 +1921,137 @@ Global Flags:
 Use "ratline site alias [command] --help" for more information about a command.
 ```
 
+#### `ratline site health`
+
+```
+Makes an HTTP request through the site's own socket or port and records the
+result, so 'is it up' has an answer that does not depend on somebody watching.
+
+This is a different question from the one the rest of doctor asks. A unit can be
+perfectly active while the application inside it returns 500 to every request:
+systemd is happy, nginx is happy, and every visitor gets an error page. Nothing
+noticed that before, because nothing asked.
+
+A 5xx counts as failing. A 4xx does not — a site whose root path legitimately
+401s or 404s is answering correctly, and treating that as down would make this
+useless for anything behind authentication.
+
+Static sites and disabled sites are skipped: the first has no application to
+ask, and the second is meant to be returning 503.
+
+Exits non-zero when a site is failing, so it is usable from a timer or a monitor.
+
+Usage:
+  ratline site health [domain...] [flags]
+
+Flags:
+  -h, --help   help for health
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site health                     # every site
+  ratline site health app.example.com
+  ratline site health --quiet             # exit code only, for a monitor
+```
+
+#### `ratline site hook`
+
+```
+Two hooks per site, each a command run as the tenant, in the application
+directory, with the site's environment — the same conditions as the build
+command.
+
+The pre-deploy hook runs after the pull and before install and build. After the
+pull deliberately: a hook script lives in the repository, so running it earlier
+would run the previous deploy's version of it.
+
+The post-deploy hook runs once the site is up and has answered a health check.
+A failing post-deploy hook reports and exits non-zero but does not roll the
+deploy back: the site is already serving the new code, and reverting a healthy
+site because a notification failed would be worse than the failure.
+
+A failing pre-deploy hook stops the deploy before anything restarts, so the
+previous version keeps serving.
+
+Usage:
+  ratline site hook [command]
+
+Available Commands:
+  set         Set a site's pre- or post-deploy hook
+  clear       Remove a site's hooks
+
+Flags:
+  -h, --help   help for hook
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Use "ratline site hook [command] --help" for more information about a command.
+```
+
+#### `ratline site clone`
+
+```
+Every setting the source has, on a new domain: runtime, versions, commands,
+limits, deploy hooks, and its jobs and workers.
+
+Standing up staging by hand means reading 'site show' and retyping fifteen flags,
+and the value of staging is that it is the same as production — a copy made by
+hand differs in the one setting somebody forgot.
+
+Three things are deliberately not faithful. Aliases are not copied, because a
+hostname can only belong to one site. Jobs and workers come across switched off,
+because a staging copy of a nightly job that emails customers should not fire
+tonight from a server nobody is watching. And TLS is off, because the new domain
+has no certificate and DNS may not point here yet.
+
+Nothing is copied that this cannot copy honestly: --with-files clones the
+repository, and --with-db creates an empty database and tells you the two
+commands that move the data.
+
+Usage:
+  ratline site clone <source-domain> <new-domain> [flags]
+
+Flags:
+      --db-name string   Name for that database (default: derived from the new domain)
+  -h, --help             help for clone
+      --start            Start the copy once it is built
+      --user string      Tenant to own the copy (default: the source's)
+      --with-db          Also create an empty database and attach it
+      --with-files       Also clone the repository and install and build it
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site clone app.example.com staging.example.com
+  ratline site clone app.example.com staging.example.com --with-files --start
+  ratline site clone app.example.com sandbox.example.com --user sandbox --with-db
+```
+
 #### `ratline site cron`
 
 ```
@@ -3509,6 +3643,61 @@ Usage:
 
 Flags:
   -h, --help   help for remove
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline site hook set`
+
+```
+Set a site's pre- or post-deploy hook
+
+Usage:
+  ratline site hook set <domain> [flags]
+
+Flags:
+      --after string    Run this once the site is up and answering
+      --before string   Run this after the pull, before install and build
+  -h, --help            help for set
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site hook set app.example.com \
+      --after /home/acme/app.example.com/app/bin/smoke-test
+
+  ratline site hook set app.example.com \
+      --before …/bin/maintenance-on --after …/bin/maintenance-off
+```
+
+##### `ratline site hook clear`
+
+```
+Remove a site's hooks
+
+Usage:
+  ratline site hook clear <domain> [flags]
+
+Flags:
+      --after    Clear the post-deploy hook
+      --before   Clear the pre-deploy hook
+  -h, --help     help for clear
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)

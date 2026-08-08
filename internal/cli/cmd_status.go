@@ -54,6 +54,7 @@ type SiteStatusRow struct {
 	State          string `json:"state"`
 	Detail         string `json:"detail,omitempty"`
 	TLS            string `json:"tls"`
+	Health         string `json:"health,omitempty"`
 	NeedsAttention bool   `json:"needs_attention"`
 }
 
@@ -141,6 +142,12 @@ func (g *Globals) collectStatus(ctx context.Context) (*ServerStatus, error) {
 		}
 	}
 
+	// The last recorded health check per site, in one query.
+	lastHealth, err := store.ListHealth(ctx)
+	if err != nil {
+		lastHealth = map[string]*state.Health{}
+	}
+
 	// Which domains have a certificate attached, so the table can say so without
 	// one query per site.
 	secured := map[string]tls.Status{}
@@ -173,6 +180,13 @@ func (g *Globals) collectStatus(ctx context.Context) (*ServerStatus, error) {
 			}
 		}
 		fillSiteState(ctx, mgr, s, &row)
+		// A site that is running but not answering is the case this screen used to miss
+		// entirely: the unit is active, so the state column says so, and every request
+		// gets a 500. Flagged as needing attention, because it does.
+		if h := lastHealth[s.Domain]; h != nil && !h.OK {
+			row.Health = healthSummary(h)
+			row.NeedsAttention = true
+		}
 		out.SiteRows = append(out.SiteRows, row)
 	}
 
@@ -285,7 +299,17 @@ func (g *Globals) printStatus(st *ServerStatus, quiet bool) error {
 			if r.NeedsAttention {
 				marker = "!"
 			}
-			table.Row(marker, r.Domain, r.Owner, r.Runtime, r.State, r.TLS, r.Detail)
+			// The health note goes in the detail column rather than a new one: a site
+			// that is running but not answering has nothing else to say there, and one
+			// more column would push this table past a terminal on a laptop.
+			detail := r.Detail
+			if r.Health != "" {
+				if detail != "" {
+					detail += "; "
+				}
+				detail += r.Health
+			}
+			table.Row(marker, r.Domain, r.Owner, r.Runtime, r.State, r.TLS, detail)
 		}
 		if err := table.Render(); err != nil {
 			return err

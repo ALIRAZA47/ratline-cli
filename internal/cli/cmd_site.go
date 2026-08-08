@@ -41,6 +41,9 @@ func newSiteCommand(g *Globals) *cobra.Command {
 		newSiteScaleCommand(g),
 		newSiteDeleteCommand(g),
 		newSiteAliasCommand(g),
+		newSiteHealthCommand(g),
+		newSiteHookCommand(g),
+		newSiteCloneCommand(g),
 		newSiteCronCommand(g),
 		newSiteWorkerCommand(g),
 		newSiteLogsCommand(g),
@@ -339,6 +342,15 @@ func newSiteShowCommand(g *Globals) *cobra.Command {
 			}
 			if !info.VhostOK {
 				pairs = append(pairs, [2]string{"warning", "no nginx configuration on disk — run 'ratline reconcile --fix'"})
+			}
+
+			if info.Site != nil {
+				if info.Site.PreDeployCommand != "" {
+					pairs = append(pairs, [2]string{"pre-deploy hook", info.Site.PreDeployCommand})
+				}
+				if info.Site.PostDeployCommand != "" {
+					pairs = append(pairs, [2]string{"post-deploy hook", info.Site.PostDeployCommand})
+				}
 			}
 
 			// A site's scheduled jobs and workers. Without these, the only way to find out

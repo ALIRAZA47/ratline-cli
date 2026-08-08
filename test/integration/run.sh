@@ -1685,6 +1685,187 @@ refute "and its group went too" getent group stackuser
 check "so the name is free again" "$RATLINE" user add stackuser
 check "cleaning up" "$RATLINE" user delete stackuser --purge --yes
 
+# ------------------------------------------------- health, hooks and clone
+
+info "health checks"
+
+# The runtime-directory section above deletes /run/ratline and restarts only api.test, so
+# app.test's socket is legitimately gone by here. Started explicitly rather than assumed:
+# the first version of this section asserted "healthy" against a site with no socket, and
+# the health check correctly said so — which was the feature working and the test wrong.
+"$RATLINE" site restart app.test >/dev/null 2>&1
+sleep 3
+
+# The case this exists for: a unit that is perfectly active while the application inside
+# it returns 500 to every request. systemd is happy, nginx is happy, every visitor gets an
+# error page, and nothing noticed before because nothing asked.
+check "the node site is healthy" "$RATLINE" site health app.test
+contains "and says so with a latency" "ok" "$("$RATLINE" site health app.test 2>&1)"
+
+# A static site has no application to ask, and a disabled one is meant to return 503.
+# Reporting either as unhealthy every interval would train people to ignore this.
+out=$("$RATLINE" site health static.test 2>&1)
+case "$out" in
+    *"static.test"*) bad "a static site was health-checked" "there is nothing listening to ask" ;;
+    *) ok "a static site is skipped, not failed" ;;
+esac
+
+# Now break it for real and see whether the machinery notices.
+cat > /home/bob/app.test/app/server.js <<'JS'
+const http = require('http');
+const target = process.env.RATLINE_SOCKET || process.env.PORT;
+http.createServer((req, res) => { res.statusCode = 500; res.end('broken'); }).listen(target);
+JS
+chown bob:bob /home/bob/app.test/app/server.js
+systemctl restart ratline-bob-app_test 2>/dev/null || true
+sleep 3
+exits_with 7 "a site returning 500 fails its health check" "$RATLINE" site health app.test
+contains "and doctor reports it as not answering" "not answering" "$("$RATLINE" doctor 2>&1)"
+contains "status marks the site as needing attention" "FAILING" "$("$RATLINE" status 2>&1)"
+
+# The streak is the useful part: anyone can see it is down now.
+"$RATLINE" site health app.test >/dev/null 2>&1 || true
+streak=$("$RATLINE" status 2>&1 | grep -oE 'FAILING x[0-9]+' | head -1)
+case "$streak" in
+    "FAILING x1"|"") bad "a repeat failure did not accumulate a streak" "saw: ${streak:-none}" ;;
+    *) ok "a repeat failure accumulates a streak ($streak)" ;;
+esac
+
+# Put it back and confirm recovery clears everything.
+cat > /home/bob/app.test/app/server.js <<'JS'
+const http = require('http');
+const target = process.env.RATLINE_SOCKET || process.env.PORT;
+http.createServer((req, res) => {
+  if (req.headers.upgrade === 'websocket') return;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify({ ok: true, app: 'app.test' }));
+}).listen(target);
+JS
+chown bob:bob /home/bob/app.test/app/server.js
+systemctl restart ratline-bob-app_test 2>/dev/null || true
+sleep 3
+check "a recovered site passes again" "$RATLINE" site health app.test
+after=$("$RATLINE" status 2>&1)
+case "$after" in
+    *FAILING*) bad "a recovered site still reads as failing" "the streak did not reset" ;;
+    *) ok "and the failure streak is cleared" ;;
+esac
+doc=$("$RATLINE" doctor 2>&1)
+case "$doc" in
+    *"not answering"*) bad "doctor still reports the recovered site" "" ;;
+    *) ok "doctor stops reporting it" ;;
+esac
+
+# The timer is what makes any of this continuous.
+check "init installed the health timer" test -f /etc/systemd/system/ratline-health-check.timer
+check "systemd accepts it" systemd-analyze verify /etc/systemd/system/ratline-health-check.timer
+check "and the timer is armed" systemctl is-active --quiet ratline-health-check.timer
+# A site being down must not put the timer's unit into a failed state: it would be noise
+# every five minutes on the one page that has to stay trustworthy.
+contains "the unit treats a failing site as success" "SuccessExitStatus=7" \
+    "$(cat /etc/systemd/system/ratline-health-check.service)"
+
+info "deploy hooks"
+
+mkdir -p /home/bob/app.test/app/bin
+cat > /home/bob/app.test/app/bin/pre <<'SH'
+#!/bin/sh
+echo "pre-deploy ran for $RATLINE_DOMAIN" > /home/bob/app.test/logs/hook-pre.log
+SH
+cat > /home/bob/app.test/app/bin/post <<'SH'
+#!/bin/sh
+echo "post-deploy ran for $RATLINE_DOMAIN" > /home/bob/app.test/logs/hook-post.log
+SH
+cat > /home/bob/app.test/app/bin/fails <<'SH'
+#!/bin/sh
+exit 1
+SH
+chmod +x /home/bob/app.test/app/bin/*
+chown -R bob:bob /home/bob/app.test/app/bin
+
+check "hook set" "$RATLINE" site hook set app.test \
+    --before /home/bob/app.test/app/bin/pre --after /home/bob/app.test/app/bin/post
+contains "site show lists the pre-deploy hook" "pre-deploy hook" "$("$RATLINE" site show app.test 2>&1)"
+contains "and the post-deploy hook" "post-deploy hook" "$("$RATLINE" site show app.test 2>&1)"
+
+rm -f /home/bob/app.test/logs/hook-*.log
+check "a deploy runs them" "$RATLINE" site deploy app.test --install --restart
+contains "the pre-deploy hook ran" "pre-deploy ran for app.test" \
+    "$(cat /home/bob/app.test/logs/hook-pre.log 2>/dev/null)"
+contains "the post-deploy hook ran" "post-deploy ran for app.test" \
+    "$(cat /home/bob/app.test/logs/hook-post.log 2>/dev/null)"
+
+# A failing pre-deploy hook stops the deploy before anything restarts, so the previous
+# version keeps serving — the same promise the rest of the chain makes.
+check "point the pre hook at a failure" "$RATLINE" site hook set app.test \
+    --before /home/bob/app.test/app/bin/fails
+refute "a failing pre-deploy hook fails the deploy" "$RATLINE" site deploy app.test --install --restart
+check "and the site is still serving" "$RATLINE" site health app.test
+
+# A failing post-deploy hook must NOT roll back a healthy site: reverting a site that is
+# serving correctly because a notification failed is worse than the failure.
+check "point the post hook at a failure" "$RATLINE" site hook set app.test \
+    --before /home/bob/app.test/app/bin/pre --after /home/bob/app.test/app/bin/fails
+refute "a failing post-deploy hook fails the deploy" "$RATLINE" site deploy app.test --install --restart
+check "but the site is still serving the new code" "$RATLINE" site health app.test
+
+check "hook clear" "$RATLINE" site hook clear app.test --before --after
+shown=$("$RATLINE" site show app.test 2>&1)
+case "$shown" in
+    *"pre-deploy hook"*) bad "the cleared hook is still listed" "" ;;
+    *) ok "and the hooks are gone" ;;
+esac
+exits_with 2 "clearing without saying which is refused" "$RATLINE" site hook clear app.test
+exits_with 2 "a hook with a shell pipeline is refused" "$RATLINE" site hook set app.test --after '/bin/echo a | /bin/cat'
+
+info "site clone"
+
+check "give the source a job to copy" "$RATLINE" site cron add app.test nightly \
+    --schedule daily --command /home/bob/app.test/app/bin/pre
+check "and a hook" "$RATLINE" site hook set app.test --after /home/bob/app.test/app/bin/post
+
+out=$("$RATLINE" site clone app.test staging.test --dry-run 2>&1)
+rc=$?
+[ "$rc" = 0 ] && ok "a dry-run clone exits 0" || bad "a dry-run clone exits 0" "exit $rc"
+contains "it plans the site with the source's runtime" "--runtime node" "$out"
+contains "it plans the hook" "site hook set staging.test" "$out"
+contains "it plans the job, disabled" "--disabled" "$out"
+contains "and says why the job is disabled" "should not fire tonight" "$out"
+refute "and nothing was created" "$RATLINE" site show staging.test
+
+check "clone for real" "$RATLINE" site clone app.test staging.test --yes
+check "the copy exists" "$RATLINE" site show staging.test
+copy=$("$RATLINE" site show staging.test 2>&1)
+contains "with the source's runtime" "node" "$copy"
+contains "and the source's owner" "bob" "$copy"
+contains "and the copied hook" "post-deploy hook" "$copy"
+contains "and the copied job" "job nightly" "$copy"
+contains "which is disabled" "disabled" "$copy"
+check "nginx accepts the copy" nginx -t
+
+# The copy must have its own socket. Sharing the source's would mean two units binding one
+# address, and whichever started second would fail in a way that looks like a code bug.
+src_sock=$("$RATLINE" --json site show app.test 2>/dev/null | python3 -c 'import json,sys; print(next((v for v in json.dumps(json.load(sys.stdin)).split(chr(34)) if v.endswith(".sock")), ""))' 2>/dev/null)
+copy_sock=$("$RATLINE" --json site show staging.test 2>/dev/null | python3 -c 'import json,sys; print(next((v for v in json.dumps(json.load(sys.stdin)).split(chr(34)) if v.endswith(".sock")), ""))' 2>/dev/null)
+if [ -n "$src_sock" ] && [ -n "$copy_sock" ] && [ "$src_sock" != "$copy_sock" ]; then
+    ok "the copy has its own socket, not the source's"
+else
+    bad "the copy has its own socket" "source=$src_sock copy=$copy_sock"
+fi
+
+# The copied job must not be armed, which is the one place a clone is deliberately unfaithful.
+refute "the copied job's timer is not armed" systemctl is-active --quiet ratline-bob-staging_test-job-nightly.timer
+
+exits_with 2 "cloning onto itself is refused" "$RATLINE" site clone app.test app.test --yes
+exits_with 3 "cloning onto an existing domain is refused" "$RATLINE" site clone app.test staging.test --yes
+exits_with 3 "cloning into a tenant that does not exist is refused" \
+    "$RATLINE" site clone app.test other.test --user ghost --yes
+
+check "deleting the copy" "$RATLINE" site delete staging.test --purge --yes
+refute "its job went with it" test -f /etc/systemd/system/ratline-bob-staging_test-job-nightly.service
+check "cleaning the source's job" "$RATLINE" site cron remove app.test nightly --yes
+check "and its hook" "$RATLINE" site hook clear app.test --after
+
 # ---------------------------------------------------------------- jobs and workers
 
 info "scheduled jobs and workers"
@@ -1970,7 +2151,7 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=448
+EXPECTED_MINIMUM=500
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

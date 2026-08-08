@@ -314,4 +314,35 @@ var migrations = [][]string{
 		)`,
 		`CREATE INDEX idx_site_units_domain ON site_units(domain, kind)`,
 	},
+
+	// The result of the last health check on each site.
+	//
+	// One row per site rather than a history: what an operator needs is "is this up, and
+	// if not, since when", and a growing table on a box with no log rotation for it is a
+	// disk-space bug waiting to happen. consecutive_failures plus failing_since gives the
+	// "since when" without keeping every sample.
+	{
+		`CREATE TABLE site_health (
+			domain               TEXT NOT NULL PRIMARY KEY,
+			checked_at           TEXT NOT NULL,
+			ok                   INTEGER NOT NULL DEFAULT 0,
+			status_code          INTEGER NOT NULL DEFAULT 0,
+			latency_ms           INTEGER NOT NULL DEFAULT 0,
+			detail               TEXT NOT NULL DEFAULT '',
+			consecutive_failures INTEGER NOT NULL DEFAULT 0,
+			failing_since        TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY (domain) REFERENCES sites(domain) ON DELETE CASCADE
+		)`,
+	},
+
+	// Deploy hooks.
+	//
+	// Columns on the site rather than a table of their own, because a hook is a property
+	// of the site in exactly the way its build command is — same shape, same lifetime,
+	// same place an operator looks for it. ALTER rather than editing migration 1, which is
+	// released and must never change.
+	{
+		`ALTER TABLE sites ADD COLUMN pre_deploy_command TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sites ADD COLUMN post_deploy_command TEXT NOT NULL DEFAULT ''`,
+	},
 }

@@ -343,6 +343,8 @@ var managedTimers = []string{
 	"ratline-cert-renew.timer",
 	"ratline-key-prune.service",
 	"ratline-key-prune.timer",
+	"ratline-health-check.service",
+	"ratline-health-check.timer",
 }
 
 // IsOwnUnit reports whether a unit name is one ratline runs for itself, as opposed to

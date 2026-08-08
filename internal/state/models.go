@@ -66,6 +66,11 @@ type Site struct {
 	Repo           string `json:"repo,omitempty"`
 	Branch         string `json:"branch,omitempty"`
 
+	// Deploy hooks. Run as the tenant, in the application directory, with the site's
+	// environment — the same conditions as the build command beside them.
+	PreDeployCommand  string `json:"pre_deploy_command,omitempty"`
+	PostDeployCommand string `json:"post_deploy_command,omitempty"`
+
 	MemoryMax         string   `json:"memory_max,omitempty"`
 	CPUQuota          string   `json:"cpu_quota,omitempty"`
 	ClientMaxBodySize string   `json:"client_max_body_size,omitempty"`

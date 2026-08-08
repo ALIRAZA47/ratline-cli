@@ -275,6 +275,47 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		}
 	}
 
+	// Whether each site is actually answering.
+	//
+	// The checks above ask whether the configuration is right. This asks whether the
+	// application works, which is a different question and the one that matters to a
+	// visitor: a unit can be perfectly active while everything inside it returns 500.
+	//
+	// Read from what the timer recorded rather than probed here, so that `doctor` stays
+	// fast and so that "failing since" means since the first failure rather than since
+	// somebody happened to run this.
+	if health, err := st.ListHealth(ctx); err == nil {
+		now := time.Now()
+		for _, s := range sites {
+			h := health[s.Domain]
+			if !s.Dynamic() || !s.Enabled {
+				continue
+			}
+			switch {
+			case h == nil:
+				// Nothing recorded at all. Worth one warning rather than silence: it
+				// usually means the timer is not installed, which is exactly the state
+				// where somebody believes they have monitoring and does not.
+				add("warning", "health", s.Domain, "never health-checked",
+					"ratline site health "+s.Domain+", and 'ratline init' installs the timer")
+			case !h.OK:
+				since := ""
+				if !h.FailingSince.IsZero() {
+					since = ", since " + h.FailingSince.Format("2006-01-02 15:04")
+				}
+				add("problem", "health", s.Domain,
+					fmt.Sprintf("not answering: %s%s", h.Detail, since),
+					"ratline troubleshoot "+s.Domain)
+			case staleHealth(h, now):
+				// A recorded "healthy" from days ago on a server whose timer has stopped
+				// is worse than no answer, because it reads as current.
+				add("warning", "health", s.Domain,
+					"last checked "+h.CheckedAt.Format("2006-01-02 15:04")+", so this is stale",
+					"systemctl status ratline-health-check.timer")
+			}
+		}
+	}
+
 	// The site's scheduled jobs and workers.
 	//
 	// These were shipped invisible to this page, which was the whole argument for their

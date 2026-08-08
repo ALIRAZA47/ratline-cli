@@ -205,3 +205,31 @@ func (c *Context) SiteEnv() []string {
 	}
 	return out
 }
+
+// RunHook runs a site's deploy hook as the tenant.
+//
+// The same conditions as the build command: the tenant's identity, the application
+// directory, the site's own environment, and ratline's PATH appended last so a hook cannot
+// redirect itself to a different interpreter.
+//
+// Exported because the hook belongs to the deploy chain in internal/cli rather than to a
+// runtime — a static site has no runtime worth speaking of and can still want a hook.
+func RunHook(ctx context.Context, c *Context, which, command string) error {
+	parsed, err := system.ParseCommand(command)
+	if err != nil {
+		return err
+	}
+	env := system.UserEnv(c.Identity, append(c.SiteEnv(),
+		"RATLINE_HOOK="+which,
+		"RATLINE_DOMAIN="+c.Site.Domain,
+		"PATH="+strings.Join(c.RuntimeBinDirs(), ":")+":"+system.DefaultPath)...)
+	c.Log.Info("running the "+which+" hook", "command", command)
+	_, err = runAsOwner(ctx, c, system.Cmd{
+		Path:    resolveProgram(parsed.Argv[0], c),
+		Args:    parsed.Argv[1:],
+		Env:     env,
+		Timeout: c.Cfg.Runtimes.BuildTimeout.D(),
+		Label:   which + " hook",
+	})
+	return err
+}
