@@ -520,9 +520,18 @@
 /* One page opts into the wider canvas for its whole article: the front door,
    whose job is a hero, a diagram and a grid of cards rather than sustained
    reading. Its prose still sets to the measure — `.prose p` caps itself — so
-   the difference shows up only in the elements that wanted the room. */
+   the difference shows up only in the elements that wanted the room.
+
+   The shell has to grow with it. Widening the column alone did almost nothing:
+   the three columns are centred inside a container capped at the sum of their
+   normal widths, so the extra 12rem was simply taken back off the content
+   column, and `main` came out 672px on a page that had asked for 832. */
 main:has([data-width='wide']) {
   max-width: min(var(--canvas-wide), 100%);
+}
+
+.shell:has([data-width='wide']) {
+  max-width: calc(var(--shell-max) + var(--canvas-wide) - var(--content-w));
 }
 
 /* Thin scrollbars on the internal scroll containers (sidebar, code, tables). */

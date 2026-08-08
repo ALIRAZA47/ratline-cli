@@ -215,7 +215,7 @@ export function Layout() {
           measure, so on a wide monitor it cannot grow to absorb the spare width — and
           before this, the spare width all landed to the right of the text, leaving the
           article huddled against the sidebar with half the screen empty beside it. */}
-      <div className="mx-auto flex w-full max-w-[var(--shell-max)] justify-center px-4 lg:px-6">
+      <div className="shell mx-auto flex w-full max-w-[var(--shell-max)] justify-center px-4 lg:px-6">
         {drawer && (
           <button
             type="button"

@@ -141,12 +141,17 @@ export function RefRow({
           </span>
         ))}
         {pills}
-        {/* The anchor, revealed on hover or focus. "Which flag was it that…" is the single
-            most common thing anybody needs to send a colleague. */}
+        {/* The anchor, revealed on hover. "Which flag was it that…" is the single most
+            common thing anybody needs to send a colleague.
+
+            Out of the tab order and hidden from assistive technology on purpose: the
+            identifier itself is already a link to the same place, so leaving this one in
+            would double every stop in a twenty-flag list to reach the same href twice. */}
         <a
           href={`#${anchor}`}
-          aria-label={`Link to ${name ?? anchor}`}
-          className="ml-auto shrink-0 font-mono text-xs text-faint no-underline opacity-0 transition-opacity hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="ml-auto shrink-0 font-mono text-xs text-faint no-underline opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
         >
           #
         </a>
