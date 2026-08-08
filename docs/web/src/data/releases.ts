@@ -39,6 +39,40 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.11.2',
+    date: '2026-08-08',
+    summary:
+      '`ratline doctor` exited 0 on every server however broken, contradicting its own help — and the documentation site has been rebuilt to be read.',
+    assertions: 513,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`ratline doctor` always exited 0',
+        body:
+          'Its help has promised “exit code 0 means healthy, which makes it usable from cron” since it was written, and it returned success unconditionally. Anybody who had wired it into a monitor was being told everything was fine. A problem now exits 7 — the same code `site health` uses. A warning does not: paging somebody for an orphaned unit or a certificate three weeks out is how a check gets muted, after which the problems go unread too.',
+      },
+      {
+        title: 'Turning the exit code on surfaced four things it had been hiding',
+        body:
+          'A site in the test harness had been broken since line 400 of a 1900-line suite, because the section that deletes /run/ratline to prove the tmpfiles rule works restarted only one of the services it had orphaned. `doctor --json` wrote two envelopes once it started failing — its own and then the error one — breaking the documented promise of exactly one object on stdout and turning a jq filter that had worked for a year into one that returned two answers. And two assertions had been asserting the wrong thing, invisibly, because exit 0 was all they could ever see.',
+      },
+      {
+        kind: 'fix',
+        title: 'doctor reports one of ratline’s own timers being absent',
+        body:
+          'The general form of the v0.11.0 upgrade bug. A self-updater can only fix updates it performs itself, so a check that catches the state however a server got into it is worth more than the fix to the update path. Not on a box where ratline has never run: none of them exist there, and `doctor` on a bare box is being used to look at the machine before `init`.',
+      },
+      {
+        title: 'The documentation site has been rebuilt',
+        body:
+          'Three columns with a real measure, reference pages that read as reference — flags, exit codes, config settings and the JSON envelope as one row treatment with an anchor per field — dark code panels with copy buttons and tabs, grouped keyboard-first search, and both themes designed rather than one inverted. Two things were broken rather than plain: the “on this page” column never appeared on a first visit to any page, because it collected headings on a single frame and every route is lazy; and the flag table rendered twice and chose with a ResizeObserver, which is why deep links into a flag sometimes went nowhere.',
+      },
+    ],
+    known: [
+      'Topic code blocks are highlighted as shell whatever they contain: language hints would clutter files that also have to read well in a terminal under SSH.',
+    ],
+  },
+  {
     version: 'v0.11.1',
     date: '2026-08-08',
     summary:
