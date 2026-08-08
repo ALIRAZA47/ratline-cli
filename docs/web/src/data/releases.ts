@@ -39,6 +39,27 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.11.3',
+    date: '2026-08-08',
+    summary:
+      'A job that failed once and was then deleted kept reporting itself as failed to `systemctl --failed` for ever.',
+    assertions: 515,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'A removed job left its failed state behind in systemd',
+        body:
+          'Removing a job or worker took the unit files away and left systemd remembering that the unit had failed. The entry becomes “not-found failed” and stays in `systemctl list-units --all` and, worse, in `systemctl --failed` — which is what an operator looks at and what a monitoring check watches. A job that failed once and was then deleted would alarm about itself indefinitely, for a unit that no longer exists and no file on disk mentions. `reset-failed` runs after the reload, not before.',
+        code: `● ratline-acme-app_example_com-job-nightly.service  not-found  failed  failed`,
+      },
+      {
+        title: 'How it was found',
+        body:
+          'By snapshotting a real server, running every feature against throwaway tenants, tearing them down, and diffing the server against the snapshot. Ten aspects matched — users, groups, unit files, vhosts, homes, certificates, /etc/ratline, logrotate, and config.yaml byte for byte. The eleventh did not, and nothing on disk explained why.',
+      },
+    ],
+  },
+  {
     version: 'v0.11.2',
     date: '2026-08-08',
     summary:
