@@ -1,45 +1,32 @@
-import { Suspense, useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { allNavItems, nav } from '../data/nav';
-import type { NavItem } from '../data/nav';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
+import { allNavItems } from '../data/nav';
+import { releases } from '../data/releases';
 import { useTheme } from '../lib/useTheme';
 import { SearchDialog } from './Search';
-import { Toc } from './Toc';
+import { Sidebar } from './Sidebar';
+import { Toc, TocInline } from './Toc';
 
-/**
- * One level of the sidebar.
- *
- * `here` is pathname + hash rather than pathname alone, because the settings entries link
- * into sections of the configuration page. Matching on pathname would light up all twelve
- * of them at once the moment you opened that page.
- */
-function NavList({ items, here }: { items: NavItem[]; here: string }) {
+const currentVersion = releases[0]?.version ?? '';
+
+function MenuIcon({ open }: { open: boolean }) {
   return (
-    <ul className="space-y-px border-l border-line">
-      {items.map((item) => {
-        const cls = (active: boolean) =>
-          [
-            '-ml-px block border-l-2 py-1 pl-3 pr-2 leading-snug no-underline transition-colors',
-            item.mono ? 'font-mono text-[0.8125rem]' : 'text-sm',
-            active
-              ? 'border-accent bg-accent-soft font-medium text-strong'
-              : 'border-transparent text-muted hover:border-line-strong hover:text-fg',
-          ].join(' ');
-        return (
-          <li key={item.to}>
-            {item.to.includes('#') ? (
-              <Link to={item.to} className={cls(here === item.to)}>
-                {item.label}
-              </Link>
-            ) : (
-              <NavLink to={item.to} end className={({ isActive }) => cls(isActive)}>
-                {item.label}
-              </NavLink>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" fill="none">
+      {open ? (
+        <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.6" />
+      ) : (
+        <path d="M2 5h14M2 9h14M2 13h14" stroke="currentColor" strokeWidth="1.6" />
+      )}
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none">
+      <circle cx="6" cy="6" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
   );
 }
 
@@ -48,10 +35,27 @@ export function Layout() {
   const { theme, toggle } = useTheme();
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const stickyNav = useRef<HTMLDivElement>(null);
+  const drawerNav = useRef<HTMLDivElement>(null);
 
   // Close the mobile drawer on navigation; otherwise it covers the page you
   // just asked for.
   useEffect(() => setDrawer(false), [pathname, hash]);
+
+  // The drawer is a modal over the page: lock the page's scroll while it is open, and hand
+  // focus back to the button that opened it on the way out, so a keyboard reader is not
+  // dropped at the top of the document.
+  useEffect(() => {
+    if (!drawer) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    drawerNav.current?.querySelector<HTMLElement>('a, summary')?.focus();
+    return () => {
+      document.body.style.overflow = previous;
+      menuButton.current?.focus();
+    };
+  }, [drawer]);
 
   // Scroll handling: to the anchor if there is one, to the top otherwise.
   //
@@ -120,59 +124,61 @@ export function Layout() {
     <div className="min-h-screen">
       <a
         href="#content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-60 focus:rounded focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:text-accent-fg"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-[60] focus:rounded focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg"
       >
         Skip to content
       </a>
 
       <header className="sticky top-0 z-40 border-b border-line bg-[color-mix(in_oklab,var(--bg)_88%,transparent)] backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-[100rem] items-center gap-3 px-4 lg:px-6">
+        <div className="mx-auto flex h-[var(--header-h)] max-w-[var(--shell-max)] items-center gap-3 px-4 lg:px-6">
           <button
+            ref={menuButton}
             type="button"
             onClick={() => setDrawer((d) => !d)}
             aria-expanded={drawer}
             aria-controls="sidebar-nav"
-            className="-ml-1 rounded p-2 text-muted hover:bg-hover hover:text-fg lg:hidden"
+            className="-ml-1 rounded p-2 text-muted hover:bg-hover hover:text-strong lg:hidden"
           >
             <span className="sr-only">{drawer ? 'Close navigation' : 'Open navigation'}</span>
-            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" fill="none">
-              {drawer ? (
-                <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.6" />
-              ) : (
-                <path d="M2 5h14M2 9h14M2 13h14" stroke="currentColor" strokeWidth="1.6" />
-              )}
-            </svg>
+            <MenuIcon open={drawer} />
           </button>
 
-          <Link to="/" className="flex items-baseline gap-2 no-underline">
-            <span className="font-mono text-[0.95rem] font-semibold tracking-tight text-strong">
+          <Link to="/" className="flex items-center gap-2.5 no-underline">
+            <span className="font-mono text-[0.9375rem] font-semibold tracking-tight text-strong">
               ratline
             </span>
-            <span className="hidden text-xs text-muted sm:inline">provisioning docs</span>
+            <span aria-hidden="true" className="hidden h-4 w-px bg-line-strong sm:block" />
+            <span className="hidden text-sm text-muted sm:inline">docs</span>
           </Link>
 
           <div className="ml-auto flex items-center gap-2">
+            {currentVersion && (
+              <Link
+                to="/releases"
+                className="hidden rounded-full border border-line bg-sunken px-2.5 py-1 font-mono text-2xs text-muted no-underline transition-colors hover:border-line-strong hover:text-strong md:inline-block"
+              >
+                {currentVersion}
+              </Link>
+            )}
+
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
               aria-label="Search the documentation"
-              aria-keyshortcuts="/"
-              className="flex items-center gap-2 rounded-md border border-line bg-raised px-2.5 py-1.5 text-sm text-muted transition-colors hover:border-line-strong hover:bg-hover"
+              aria-keyshortcuts="/ Meta+K"
+              className="flex items-center gap-2 rounded-md border border-line bg-raised px-2.5 py-1.5 text-sm text-muted shadow-[var(--shadow-card)] transition-colors hover:border-line-strong hover:bg-hover sm:w-[13rem]"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none">
-                <circle cx="6" cy="6" r="4.25" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
+              <SearchIcon />
               <span className="hidden sm:inline">Search</span>
-              <kbd className="hidden rounded border border-line bg-sunken px-1 font-mono text-2xs text-faint sm:inline">
-                /
+              <kbd className="ml-auto hidden rounded border border-line bg-sunken px-1.5 py-px font-mono text-2xs text-faint sm:inline">
+                ⌘K
               </kbd>
             </button>
 
             <button
               type="button"
               onClick={toggle}
-              className="rounded-md border border-line bg-raised p-2 text-muted transition-colors hover:border-line-strong hover:bg-hover hover:text-fg"
+              className="rounded-md border border-line bg-raised p-2 text-muted shadow-[var(--shadow-card)] transition-colors hover:border-line-strong hover:bg-hover hover:text-strong"
               aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
             >
               {theme === 'dark' ? (
@@ -199,153 +205,106 @@ export function Layout() {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-[100rem] px-4 lg:px-6">
-        {/* Sidebar. A drawer under lg, a sticky column above it. */}
+      {/* The shell: three columns centred as a group.
+          `justify-center` is what does that. The content column is capped at the reading
+          measure, so on a wide monitor it cannot grow to absorb the spare width — and
+          before this, the spare width all landed to the right of the text, leaving the
+          article huddled against the sidebar with half the screen empty beside it. */}
+      <div className="mx-auto flex w-full max-w-[var(--shell-max)] justify-center px-4 lg:px-6">
         {drawer && (
           <button
             type="button"
             aria-label="Close navigation"
             onClick={() => setDrawer(false)}
-            className="fixed inset-0 top-14 z-30 bg-[oklch(20%_0.02_255_/_0.4)] lg:hidden"
+            className="fixed inset-0 top-[var(--header-h)] z-30 bg-[oklch(20%_0.02_265_/_0.45)] lg:hidden"
           />
         )}
-        <aside
+        <div
           id="sidebar-nav"
           className={[
-            'z-35 w-[16rem] shrink-0',
+            'w-[var(--sidebar-w)] shrink-0',
             drawer
-              ? 'fixed inset-y-0 left-0 top-14 block overflow-y-auto border-r border-line bg-bg px-4 pb-10 pt-4'
-              : 'hidden lg:block',
+              ? 'fixed inset-y-0 left-0 top-[var(--header-h)] z-40 block max-w-[calc(100vw-3rem)] border-r border-line bg-bg'
+              : 'hidden lg:block lg:border-r lg:border-line',
           ].join(' ')}
         >
-          <nav
-            aria-label="Documentation"
+          <div
+            ref={drawer ? drawerNav : stickyNav}
             className={
               drawer
-                ? ''
-                : 'scroll-thin sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto py-7 pr-5'
+                ? 'scroll-thin h-full overflow-y-auto px-4 pb-16 pt-5'
+                : 'scroll-thin sticky top-[var(--header-h)] max-h-[calc(100vh-var(--header-h))] overflow-y-auto py-8 pr-6'
             }
           >
-            {nav.map((section) => (
-              <div key={section.title} className="mb-6">
-                <h2 className="mb-1.5 font-mono text-2xs font-semibold uppercase tracking-wider text-faint">
-                  {section.title}
-                </h2>
-                {section.items && <NavList items={section.items} here={here} />}
-                {section.groups?.map((group) =>
-                  group.collapsible ? (
-                    // Native <details>, so 86 command pages fit in a 16rem column without
-                    // a line of state. Open when the page you are on is inside it — which
-                    // is also what makes a deep link arrive with its context expanded.
-                    <details
-                      key={group.title}
-                      open={group.items.some((i) => i.to === pathname)}
-                      className="mt-2 first:mt-1"
-                    >
-                      <summary className="cursor-pointer list-none py-0.5 text-sm text-muted marker:content-none hover:text-fg [&::-webkit-details-marker]:hidden">
-                        <span className="inline-flex items-center gap-1.5">
-                          <svg
-                            width="9"
-                            height="9"
-                            viewBox="0 0 9 9"
-                            aria-hidden="true"
-                            className="shrink-0 transition-transform [details[open]>summary_&]:rotate-90"
-                          >
-                            <path d="M2.5 1L6.5 4.5L2.5 8" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                          </svg>
-                          {group.title}
-                        </span>
-                      </summary>
-                      <div className="ml-2 mt-0.5">
-                        <NavList items={group.items} here={here} />
-                      </div>
-                    </details>
-                  ) : (
-                    <div key={group.title} className="mt-3">
-                      <h3 className="mb-1 text-2xs uppercase tracking-wide text-faint">
-                        {group.title}
-                      </h3>
-                      <NavList items={group.items} here={here} />
-                    </div>
-                  ),
-                )}
-              </div>
-            ))}
-            <p className="mt-8 max-w-[14rem] border-t border-line pt-4 text-xs leading-relaxed text-faint">
-              Everything here is derived from{' '}
-              <code className="font-mono">docs/reference/command-surface.md</code>,{' '}
-              <code className="font-mono">internal/config/defaults.yaml</code> and the validators in{' '}
-              <code className="font-mono">internal/validate</code>. Commands marked{' '}
-              <span className="text-muted">planned</span> are specified, not yet implemented.
-            </p>
-          </nav>
-        </aside>
-
-        {/* Content column. */}
-        <div className="min-w-0 flex-1">
-          <main id="content" className="min-w-0 py-9 lg:py-11 lg:pl-9 xl:pr-9">
-            {/* The boundary sits here rather than around the whole tree so the header
-                and the sidebar stay put while a route's chunk arrives — only the article
-                is replaced. min-h holds the scroll position steady on the way in. */}
-            <Suspense
-              fallback={
-                <div className="min-h-[60vh]" role="status" aria-live="polite">
-                  <span className="sr-only">Loading…</span>
-                </div>
-              }
-            >
-              <Outlet />
-            </Suspense>
-
-            {(prev || next) && (
-              <nav
-                aria-label="Previous and next page"
-                className="mt-14 grid gap-3 border-t border-line pt-6 sm:grid-cols-2"
-              >
-                {prev ? (
-                  <Link
-                    to={prev.to}
-                    className="group rounded-[var(--radius-card)] border border-line px-4 py-3 no-underline transition-colors hover:border-line-strong hover:bg-hover"
-                  >
-                    <span className="block font-mono text-2xs uppercase tracking-wider text-faint">
-                      ← Previous
-                    </span>
-                    <span className="mt-0.5 block text-sm font-medium text-strong">
-                      {prev.label}
-                    </span>
-                  </Link>
-                ) : (
-                  <span />
-                )}
-                {next && (
-                  <Link
-                    to={next.to}
-                    className="group rounded-[var(--radius-card)] border border-line px-4 py-3 text-right no-underline transition-colors hover:border-line-strong hover:bg-hover sm:col-start-2"
-                  >
-                    <span className="block font-mono text-2xs uppercase tracking-wider text-faint">
-                      Next →
-                    </span>
-                    <span className="mt-0.5 block text-sm font-medium text-strong">
-                      {next.label}
-                    </span>
-                  </Link>
-                )}
-              </nav>
-            )}
-          </main>
+            <Sidebar here={here} pathname={pathname} scrollHost={drawer ? drawerNav : stickyNav} />
+          </div>
         </div>
 
-        {/* On-page TOC. Only wide enough screens get it. */}
-        <div className="hidden w-[12.5rem] shrink-0 xl:block">
-          <div className="scroll-thin sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto py-11 pl-1">
+        {/* Content column. Capped at the reading measure; everything inside shares it. */}
+        <main
+          id="content"
+          className="min-w-0 max-w-[var(--content-w)] flex-1 py-10 lg:py-12 lg:pl-[var(--content-gap)]"
+        >
+          <TocInline />
+
+          {/* The boundary sits here rather than around the whole tree so the header
+              and the sidebar stay put while a route's chunk arrives — only the article
+              is replaced. min-h holds the scroll position steady on the way in. */}
+          <Suspense
+            fallback={
+              <div className="min-h-[60vh]" role="status" aria-live="polite">
+                <span className="sr-only">Loading…</span>
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
+
+          {(prev || next) && (
+            <nav
+              aria-label="Previous and next page"
+              className="mt-16 grid gap-3 border-t border-line pt-6 sm:grid-cols-2"
+            >
+              {prev ? (
+                <Link
+                  to={prev.to}
+                  className="group rounded-[var(--radius-card)] border border-line px-4 py-3 no-underline transition-colors hover:border-accent hover:bg-hover"
+                >
+                  <span className="label block text-faint">← Previous</span>
+                  <span className="mt-1 block text-sm font-medium text-strong group-hover:text-accent">
+                    {prev.label}
+                  </span>
+                </Link>
+              ) : (
+                <span />
+              )}
+              {next && (
+                <Link
+                  to={next.to}
+                  className="group rounded-[var(--radius-card)] border border-line px-4 py-3 text-right no-underline transition-colors hover:border-accent hover:bg-hover sm:col-start-2"
+                >
+                  <span className="label block text-faint">Next →</span>
+                  <span className="mt-1 block text-sm font-medium text-strong group-hover:text-accent">
+                    {next.label}
+                  </span>
+                </Link>
+              )}
+            </nav>
+          )}
+        </main>
+
+        {/* On-page contents. Only screens wide enough for a third column get it; the
+            others get the collapsed version at the top of the article. */}
+        <div className="hidden w-[var(--toc-w)] shrink-0 pl-[var(--toc-gap)] xl:block">
+          <div className="scroll-thin sticky top-[var(--header-h)] max-h-[calc(100vh-var(--header-h))] overflow-y-auto py-12">
             <Toc />
           </div>
         </div>
       </div>
 
-      <footer className="border-t border-line py-8">
-        <div className="mx-auto max-w-[100rem] px-4 text-xs leading-relaxed text-faint lg:px-6">
-          <p className="max-w-[var(--container-measure)]">
+      <footer className="mt-4 border-t border-line py-8">
+        <div className="mx-auto max-w-[var(--shell-max)] px-4 text-xs leading-relaxed text-muted lg:px-6">
+          <p className="max-w-[var(--content-w)]">
             ratline documentation. No external fonts, no CDN, no analytics, no network calls at
             runtime — this page is the whole thing.
           </p>

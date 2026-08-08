@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { isValidElement, useEffect, useId, useState } from 'react';
+import { isValidElement, useId, useState } from 'react';
 import type { Status } from '../data/types';
 import { slugify } from '../lib/slug';
 
@@ -16,7 +16,7 @@ export function StatusBadge({ status, size = 'sm' }: { status: Status; size?: 's
   return (
     <span
       className={[
-        'inline-flex shrink-0 items-center gap-1 rounded-full border font-medium',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full border font-medium',
         size === 'xs' ? 'px-1.5 py-px text-2xs' : 'px-2 py-0.5 text-2xs',
         built
           ? 'border-[color-mix(in_oklab,var(--ok)_35%,transparent)] bg-ok-soft text-ok'
@@ -38,38 +38,78 @@ export function StatusBadge({ status, size = 'sm' }: { status: Status; size?: 's
 
 type Tone = 'note' | 'warn' | 'danger' | 'ok';
 
-const TONE: Record<Tone, { border: string; bg: string; fg: string; label: string; sigil: string }> =
-  {
-    note: {
-      border: 'border-[color-mix(in_oklab,var(--info)_30%,transparent)]',
-      bg: 'bg-info-soft',
-      fg: 'text-info',
-      label: 'Note',
-      sigil: '→',
-    },
-    ok: {
-      border: 'border-[color-mix(in_oklab,var(--ok)_30%,transparent)]',
-      bg: 'bg-ok-soft',
-      fg: 'text-ok',
-      label: 'Good',
-      sigil: '✓',
-    },
-    warn: {
-      border: 'border-[color-mix(in_oklab,var(--warn)_35%,transparent)]',
-      bg: 'bg-warn-soft',
-      fg: 'text-warn',
-      label: 'Careful',
-      sigil: '!',
-    },
-    danger: {
-      border: 'border-[color-mix(in_oklab,var(--danger)_35%,transparent)]',
-      bg: 'bg-danger-soft',
-      fg: 'text-danger',
-      label: 'Refused',
-      sigil: '✗',
-    },
-  };
+const TONE: Record<
+  Tone,
+  { rule: string; bg: string; fg: string; label: string; icon: ReactNode }
+> = {
+  note: {
+    rule: 'border-l-[var(--info)]',
+    bg: 'bg-info-soft',
+    fg: 'text-info',
+    label: 'Note',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" fill="none">
+        <circle cx="6.5" cy="6.5" r="5.4" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M6.5 5.6v4M6.5 3.4v.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  ok: {
+    rule: 'border-l-[var(--ok)]',
+    bg: 'bg-ok-soft',
+    fg: 'text-ok',
+    label: 'Good',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" fill="none">
+        <circle cx="6.5" cy="6.5" r="5.4" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M4.2 6.7l1.7 1.7 3.1-3.6"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  warn: {
+    rule: 'border-l-[var(--warn)]',
+    bg: 'bg-warn-soft',
+    fg: 'text-warn',
+    label: 'Careful',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" fill="none">
+        <path
+          d="M6.5 1.4l5.1 9.2H1.4z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path d="M6.5 5v2.5M6.5 8.9v.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  danger: {
+    rule: 'border-l-[var(--danger)]',
+    bg: 'bg-danger-soft',
+    fg: 'text-danger',
+    label: 'Refused',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" fill="none">
+        <circle cx="6.5" cy="6.5" r="5.4" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M4.5 4.5l4 4M8.5 4.5l-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+};
 
+/**
+ * A note, a warning, a refusal.
+ *
+ * A 3px rule in the semantic hue carries the meaning; the tint is faint enough that a page
+ * with three of them still reads as a page rather than as a set of boxes. Colour is never
+ * the only signal — the glyph and the label say the same thing.
+ */
 export function Callout({
   tone = 'note',
   title,
@@ -82,15 +122,15 @@ export function Callout({
   const t = TONE[tone];
   return (
     <aside
-      className={`not-prose my-5 rounded-[var(--radius-card)] border ${t.border} ${t.bg} px-4 py-3`}
+      className={`not-prose my-6 max-w-[var(--content-w)] rounded-r-[var(--radius-card)] border-y border-r border-line border-l-[3px] ${t.rule} ${t.bg} px-4 py-3`}
     >
-      <p className={`mb-1 flex items-center gap-1.5 text-xs font-semibold ${t.fg}`}>
-        <span aria-hidden="true" className="font-mono">
-          {t.sigil}
+      <p className={`mb-1.5 flex items-center gap-2 text-xs font-semibold ${t.fg}`}>
+        <span aria-hidden="true" className="shrink-0">
+          {t.icon}
         </span>
         {title ?? t.label}
       </p>
-      <div className="max-w-[var(--container-measure)] text-sm leading-relaxed text-fg [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:border [&_code]:border-line [&_code]:bg-bg [&_code]:px-1 [&_code]:py-px [&_code]:text-[0.85em] [&_p+p]:mt-2">
+      <div className="text-[0.9375rem] leading-relaxed text-fg [&_a]:font-medium [&_a]:text-accent [&_a]:underline [&_a]:decoration-[color-mix(in_oklab,var(--accent)_35%,transparent)] [&_a]:underline-offset-2 [&_code]:rounded [&_code]:border [&_code]:border-line [&_code]:bg-[color-mix(in_oklab,var(--bg-raised)_70%,transparent)] [&_code]:px-1 [&_code]:py-px [&_code]:text-[0.85em] [&_p+p]:mt-2.5">
         {children}
       </div>
     </aside>
@@ -99,6 +139,7 @@ export function Callout({
 
 /* ----------------------------------------------------------------------- Tabs */
 
+/** Content in several forms. For code specifically, prefer `CodeTabs`. */
 export function Tabs({
   tabs,
   label,
@@ -108,13 +149,17 @@ export function Tabs({
 }) {
   const [active, setActive] = useState(tabs[0]?.id);
   const base = useId();
+
+  const move = (delta: number) => {
+    const i = tabs.findIndex((x) => x.id === active);
+    const next = tabs[(i + delta + tabs.length) % tabs.length];
+    setActive(next.id);
+    document.getElementById(`${base}-tab-${next.id}`)?.focus();
+  };
+
   return (
-    <div className="not-prose my-5">
-      <div
-        role="tablist"
-        aria-label={label}
-        className="flex flex-wrap gap-1 border-b border-line"
-      >
+    <div className="not-prose my-6">
+      <div role="tablist" aria-label={label} className="flex flex-wrap gap-0.5 border-b border-line">
         {tabs.map((t) => {
           const selected = t.id === active;
           return (
@@ -127,15 +172,20 @@ export function Tabs({
               tabIndex={selected ? 0 : -1}
               onClick={() => setActive(t.id)}
               onKeyDown={(e) => {
-                const i = tabs.findIndex((x) => x.id === active);
-                if (e.key === 'ArrowRight') setActive(tabs[(i + 1) % tabs.length].id);
-                if (e.key === 'ArrowLeft') setActive(tabs[(i - 1 + tabs.length) % tabs.length].id);
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  move(1);
+                }
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  move(-1);
+                }
               }}
               className={[
-                '-mb-px rounded-t px-3 py-1.5 text-sm font-medium transition-colors',
+                '-mb-px border-b-2 px-3 py-2 text-sm transition-colors',
                 selected
-                  ? 'border-b-2 border-accent text-strong'
-                  : 'border-b-2 border-transparent text-muted hover:text-fg',
+                  ? 'border-accent font-semibold text-accent'
+                  : 'border-transparent font-medium text-muted hover:text-strong',
               ].join(' ')}
             >
               {t.label}
@@ -173,8 +223,8 @@ function textOf(node: ReactNode): string {
 export function H2({ children, id }: { children: ReactNode; id?: string }) {
   const anchor = id ?? slugify(textOf(children));
   return (
-    <h2 id={anchor} className="group scroll-mt-24">
-      <a href={`#${anchor}`} className="!no-underline !text-[inherit]">
+    <h2 id={anchor} className="group">
+      <a href={`#${anchor}`} className="heading-anchor">
         {children}
         <span
           aria-hidden="true"
@@ -190,8 +240,8 @@ export function H2({ children, id }: { children: ReactNode; id?: string }) {
 export function H3({ children, id }: { children: ReactNode; id?: string }) {
   const anchor = id ?? slugify(textOf(children));
   return (
-    <h3 id={anchor} className="group scroll-mt-24">
-      <a href={`#${anchor}`} className="!no-underline !text-[inherit]">
+    <h3 id={anchor} className="group">
+      <a href={`#${anchor}`} className="heading-anchor">
         {children}
         <span
           aria-hidden="true"
@@ -209,11 +259,11 @@ export function H3({ children, id }: { children: ReactNode; id?: string }) {
 /** A key/value grid, for "at a glance" panels. */
 export function Facts({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <dl className="not-prose my-5 grid gap-x-6 gap-y-2.5 rounded-[var(--radius-card)] border border-line bg-sunken px-4 py-3.5 text-sm sm:grid-cols-[max-content_1fr]">
+    <dl className="not-prose my-6 grid max-w-[var(--content-w)] gap-x-6 gap-y-2.5 rounded-[var(--radius-card)] border border-line bg-sunken px-4 py-3.5 text-sm sm:grid-cols-[max-content_1fr]">
       {rows.map(([k, v], i) => (
         <div key={i} className="contents">
-          <dt className="font-mono text-xs text-muted sm:pt-0.5">{k}</dt>
-          <dd className="text-fg [&_a]:text-accent [&_a]:underline [&_code]:font-mono [&_code]:text-[0.9em]">
+          <dt className="font-mono text-xs text-muted sm:pt-1">{k}</dt>
+          <dd className="text-fg [&_a]:font-medium [&_a]:text-accent [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-mono [&_code]:text-[0.9em]">
             {v}
           </dd>
         </div>
@@ -227,7 +277,7 @@ export function Facts({ rows }: { rows: [string, ReactNode][] }) {
 /** Wraps a wide table so it scrolls inside its own container, never the page. */
 export function TableScroll({ children }: { children: ReactNode }) {
   return (
-    <div className="not-prose scroll-thin my-4 overflow-x-auto rounded-[var(--radius-card)] border border-line">
+    <div className="not-prose scroll-thin my-5 overflow-x-auto rounded-[var(--radius-card)] border border-line bg-raised">
       {children}
     </div>
   );
@@ -250,20 +300,22 @@ export function CardLink({
   const inner = (
     <>
       <span className="flex items-center gap-2">
-        <span className="font-medium text-strong">{title}</span>
+        <span className="font-medium text-strong group-hover:text-accent">{title}</span>
         {meta}
         <span
           aria-hidden="true"
-          className="ml-auto text-muted transition-transform group-hover:translate-x-0.5"
+          className="ml-auto text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-accent"
         >
           →
         </span>
       </span>
-      {children && <span className="mt-1 block text-sm leading-relaxed text-muted">{children}</span>}
+      {children && (
+        <span className="mt-1 block text-sm leading-relaxed text-muted">{children}</span>
+      )}
     </>
   );
   const cls =
-    'group block rounded-[var(--radius-card)] border border-line bg-raised px-4 py-3 no-underline transition-colors hover:border-line-strong hover:bg-hover';
+    'group block rounded-[var(--radius-card)] border border-line bg-raised px-4 py-3 no-underline shadow-[var(--shadow-card)] transition-colors hover:border-accent hover:bg-hover';
   return external ? (
     <a href={to} className={cls}>
       {inner}
@@ -289,7 +341,7 @@ export function ExitChip({ code }: { code: number }) {
   return (
     <Link
       to={`/reference/exit-codes#code-${code}`}
-      className={`inline-flex size-6 shrink-0 items-center justify-center rounded border font-mono text-xs no-underline ${cls}`}
+      className={`inline-flex size-6 shrink-0 items-center justify-center rounded border font-mono text-xs font-medium no-underline ${cls}`}
       title={`Exit code ${code}`}
     >
       {code}
@@ -297,27 +349,13 @@ export function ExitChip({ code }: { code: number }) {
   );
 }
 
-/* --------------------------------------------------------- Copy-to-clipboard */
+/* --------------------------------------------------------------------- Kbd */
 
-export function CopyButton({ text, label = 'copy' }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = window.setTimeout(() => setCopied(false), 1600);
-    return () => window.clearTimeout(t);
-  }, [copied]);
+/** A key, as the reader would press it. */
+export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={() => {
-        navigator.clipboard?.writeText(text).then(
-          () => setCopied(true),
-          () => setCopied(false),
-        );
-      }}
-      className="rounded border border-line px-1.5 py-0.5 font-mono text-2xs text-muted transition-colors hover:border-line-strong hover:bg-hover hover:text-strong"
-    >
-      {copied ? 'copied' : label}
-    </button>
+    <kbd className="rounded border border-line bg-sunken px-1.5 py-px font-mono text-2xs text-muted">
+      {children}
+    </kbd>
   );
 }

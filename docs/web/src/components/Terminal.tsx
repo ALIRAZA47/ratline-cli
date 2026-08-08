@@ -76,29 +76,38 @@ export function Terminal({ children, title }: Props) {
   }, [commands]);
 
   return (
-    <div className="not-prose my-4 overflow-hidden rounded-[var(--radius-card)] border border-line-strong bg-term shadow-[var(--shadow-card)]">
-      <div className="flex items-center gap-2 border-b border-white/8 px-3 py-1.5">
+    <div className="not-prose my-5 overflow-hidden rounded-[var(--radius-panel)] border border-panel-line bg-panel shadow-[var(--shadow-panel)]">
+      <div className="flex min-h-[2.25rem] items-center gap-2.5 border-b border-panel-line bg-panel-chrome px-3">
         <span aria-hidden="true" className="flex gap-1.5">
-          <span className="size-2 rounded-full bg-white/15" />
-          <span className="size-2 rounded-full bg-white/15" />
-          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-panel-line-strong" />
+          <span className="size-2 rounded-full bg-panel-line-strong" />
+          <span className="size-2 rounded-full bg-panel-line-strong" />
         </span>
-        <span className="ml-1 truncate font-mono text-2xs text-white/45">
+        <span className="ml-1 truncate font-mono text-2xs text-panel-muted">
           {title ?? 'root@server'}
         </span>
         {commands && (
           <button
             type="button"
             onClick={copy}
-            className="ml-auto rounded border border-white/15 px-1.5 py-0.5 font-mono text-2xs text-white/55 transition-colors hover:border-white/30 hover:text-white/90"
-            aria-label={copied ? 'Copied commands' : 'Copy the commands from this transcript'}
+            className={[
+              'ml-auto flex shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-2xs transition-colors',
+              copied
+                ? 'border-[color-mix(in_oklab,var(--ok)_45%,transparent)] text-ok'
+                : 'border-panel-line-strong text-panel-muted hover:bg-[color-mix(in_oklab,white_8%,transparent)] hover:text-panel-fg',
+            ].join(' ')}
+            aria-label={
+              copied
+                ? 'Commands copied to clipboard'
+                : 'Copy the commands from this transcript, without their output'
+            }
           >
-            {copied ? 'copied' : 'copy'}
+            <span aria-hidden="true">{copied ? 'copied' : 'copy commands'}</span>
           </button>
         )}
       </div>
-      <div className="scroll-thin overflow-x-auto">
-        <pre className="px-3.5 py-3 text-xs leading-[1.8] md:text-[0.8125rem]">
+      <div className="scroll-thin-dark overflow-x-auto">
+        <pre className="px-4 py-3 text-xs leading-[1.8] md:text-[0.8125rem]">
           <code className="block">
             {lines.map((l, i) => (
               <span key={i} className={`block ${CLS[l.kind]}`}>
