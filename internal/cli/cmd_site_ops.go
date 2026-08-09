@@ -117,15 +117,18 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 	return cmd
 }
 
-// execInPlace runs a viewer with the process's own streams, so following a log
-// behaves like running tail directly.
+// execInPlace runs a viewer wired to the operator's own streams, so following
+// a log behaves like running tail directly: lines appear as they are written,
+// not when the child finally exits.
 func execInPlace(ctx context.Context, g *Globals, path string, args []string) error {
-	res, err := g.Runner.Run(ctx, system.Cmd{
-		Path: path, Args: args, Stream: false, Timeout: 24 * time.Hour,
+	_, err := g.Runner.Run(ctx, system.Cmd{
+		Path: path, Args: args, Timeout: 24 * time.Hour,
+		Stdout: g.Stdout, Stderr: g.Stderr,
 		OKExit: []int{1, 130},
 	})
-	if res != nil && res.Stdout != "" {
-		fmt.Fprint(g.Stdout, res.Stdout)
+	if ctx.Err() != nil {
+		//nolint:nilerr // Ctrl+C is how an operator ends a --follow; the cancellation is the intent, not a failure
+		return nil
 	}
 	return err
 }

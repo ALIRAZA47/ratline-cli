@@ -286,9 +286,12 @@ func (n Node) directStartCommand(ctx context.Context, c *Context) (string, unit.
 		// EACCES and every request would be a 502. The unit already sets
 		// UMask=0007 for socket sites; this waits for the socket and fixes the
 		// mode as a belt-and-braces measure for a framework that chmods it
-		// itself. It runs as root (the + prefix) and always exits 0.
+		// itself. It runs as the tenant (no '+' prefix), never root: the socket is
+		// the tenant's own inode in a directory they own, so a symlink they swap in
+		// cannot redirect the chmod onto a root-owned file — a non-root chmod can
+		// only touch what the tenant already owns. Always exits 0.
 		opts.ExecStartPost = []string{
-			"+/bin/sh -c 'for i in $(seq 1 100); do if [ -S " + socket + " ]; then chmod 0660 " + socket +
+			"/bin/sh -c 'for i in $(seq 1 100); do if [ -S " + socket + " ]; then chmod 0660 " + socket +
 				"; exit 0; fi; sleep 0.1; done; exit 0'",
 		}
 	}

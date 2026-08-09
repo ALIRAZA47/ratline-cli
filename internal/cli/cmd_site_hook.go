@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
 // `ratline site hook` — the two points in a deploy where a site gets to run its own thing.
@@ -154,6 +155,11 @@ func newSiteHookClearCommand(g *Globals) *cobra.Command {
 func checkHookCommand(command string) error {
 	if command == "" {
 		return nil
+	}
+	// A control character is caught by ParseCommand when the hook runs at deploy time, but
+	// rejecting it here turns a deploy-time surprise into an error at the moment it is set.
+	if err := validate.NoControlChars("hook", command); err != nil {
+		return err
 	}
 	for _, meta := range []string{"|", "&&", "||", ";", ">", "<", "$(", "`"} {
 		if strings.Contains(command, meta) {

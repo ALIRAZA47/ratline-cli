@@ -172,6 +172,13 @@ func ReadManifest(path string) (*state.Site, error) {
 	if site.Instances < 1 {
 		site.Instances = 1
 	}
+	// Every other field that reaches a generated config, held to the same rules as if it
+	// had been typed. The four fields above were validated on the argument that they reach
+	// a unit name and a server_name; so do the document root, the index file, the static
+	// location, the commands and the limits, and this file is exactly as untrusted.
+	if err := validateSiteRow(site); err != nil {
+		return nil, rlerr.Wrap(err, rlerr.CodePrecondition, "the manifest describes a site ratline would not create")
+	}
 	return site, nil
 }
 

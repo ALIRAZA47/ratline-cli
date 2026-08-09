@@ -221,26 +221,48 @@ func forbiddenFlag(program string, argv []string) string {
 // escapingPath returns the first argument that names a path outside the site.
 func escapingPath(root string, argv []string) string {
 	for _, a := range argv[1:] {
-		if a == "" || strings.HasPrefix(a, "-") {
+		if a == "" {
+			continue
+		}
+		// An option that carries its value as --flag=VALUE hides a path from the bare-arg
+		// check below, which skips anything starting with '-'. rsync in --server mode passes
+		// filesystem paths exactly this way — --copy-dest=, --link-dest=, --compare-dest=,
+		// --temp-dir=, --partial-dir=, --backup-dir=, --files-from=, --log-file= — so a
+		// confined key could otherwise read or write outside the site through one of them.
+		// Check the value; a non-path value (a number, a format string, a relative name)
+		// resolves harmlessly inside the site and is not flagged. The space-separated form
+		// (--flag /path) is already caught, because /path is a bare argument.
+		if strings.HasPrefix(a, "-") {
+			if i := strings.IndexByte(a, '='); i >= 0 && pathEscapes(root, a[i+1:]) {
+				return a
+			}
 			continue
 		}
 		// rsync's protocol sends "." for the transfer root, which means the cwd.
 		if a == "." || a == "./" {
 			continue
 		}
-		candidate := a
-		if !filepath.IsAbs(candidate) {
-			candidate = filepath.Join(root, candidate)
-		}
-		resolved, err := resolveDeepest(candidate)
-		if err != nil {
-			return a
-		}
-		if resolved != root && !strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+		if pathEscapes(root, a) {
 			return a
 		}
 	}
 	return ""
+}
+
+// pathEscapes reports whether candidate, resolved against the site root and following
+// symlinks in its existing prefix, lands outside it. An empty value is not a path.
+func pathEscapes(root, candidate string) bool {
+	if candidate == "" {
+		return false
+	}
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	resolved, err := resolveDeepest(candidate)
+	if err != nil {
+		return true
+	}
+	return resolved != root && !strings.HasPrefix(resolved, root+string(filepath.Separator))
 }
 
 // resolveDeepest resolves the longest existing prefix of a path, so an upload to

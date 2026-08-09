@@ -135,9 +135,18 @@ func KeyChecks(env *Env, k *state.Key) []Check {
 				if path == "" {
 					return Skip("there is no file for this scope")
 				}
-				body, err := os.ReadFile(path)
+				// Bounded, not os.ReadFile: this path is the key owner's authorized_keys,
+				// a file the tenant owns and can point at /dev/zero (or grow without limit).
+				// An unbounded read of it in the root diagnosis process is a DoS; ReadFileLimit
+				// rejects an oversized file and caps a device symlink, matching every other
+				// authorized_keys reader in the tree.
+				body, err := system.ReadFileLimit(path, int64(env.Cfg.SSH.MaxAuthKeysBytes))
 				if err != nil {
-					return Fail("%s does not exist", path).
+					if os.IsNotExist(err) {
+						return Fail("%s does not exist", path).
+							WithFix("ratline key sync").WithTopic("ssh")
+					}
+					return Fail("%s could not be read: %v", path, err).
 						WithFix("ratline key sync").WithTopic("ssh")
 				}
 				// Matched on the blob rather than the fingerprint, because the blob is

@@ -50,6 +50,14 @@ type Cmd struct {
 	Env   []string // complete replacement; nil means MinimalEnv or UserEnv
 	Stdin io.Reader
 
+	// Stdout and Stderr, when set, receive the child's output raw and as it
+	// arrives, alongside the capture in Result. They are for viewers whose
+	// output *is* the product — tail -f, journalctl --follow — where waiting
+	// for exit would show nothing and the logger's framing would be noise.
+	// Stream, by contrast, surfaces progress through the logger.
+	Stdout io.Writer
+	Stderr io.Writer
+
 	// As drops privileges to a site owner for the duration of the command.
 	As *Identity
 
@@ -181,15 +189,21 @@ func (r *execRunner) Run(ctx context.Context, c Cmd) (*Result, error) {
 
 	var stdout, stderr capBuffer
 	stdout.max, stderr.max = maxCapturedOutput, maxCapturedOutput
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	outs, errs := []io.Writer{&stdout}, []io.Writer{&stderr}
 	if c.Stream {
 		so := r.log.Stream(log.LevelInfo, label)
 		se := r.log.Stream(log.LevelInfo, label)
 		defer so.Close()
 		defer se.Close()
-		cmd.Stdout = io.MultiWriter(&stdout, so)
-		cmd.Stderr = io.MultiWriter(&stderr, se)
+		outs, errs = append(outs, so), append(errs, se)
 	}
+	if c.Stdout != nil {
+		outs = append(outs, c.Stdout)
+	}
+	if c.Stderr != nil {
+		errs = append(errs, c.Stderr)
+	}
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(outs...), io.MultiWriter(errs...)
 
 	r.log.Debug("run", "cmd", log.ArgvString(append([]string{path}, c.Args...)), "dir", c.Dir, "as", identityName(c.As))
 	start := time.Now()

@@ -91,6 +91,19 @@ environment. No script is built from user input and the admin URI never appears 
   nginx can serve. `.env` is 0600 and never inside a document root.
 - sshd's `PermitRootLogin`, `PasswordAuthentication`, `AllowUsers` and `Port` are never
   modified without an explicit flag and a typed confirmation.
+- **A value that reaches a generated config is validated where it enters, not where it is
+  written.** `nginx -t` and `systemd-analyze verify` reject configuration that does not
+  *parse*, not configuration that parses and says something nobody asked for — a newline, a
+  space or a `;` in a field is a syntactically valid way to add a directive to a root-owned
+  file. Every render-bound field on a site row is gated by `internal/site.validateSiteRow`,
+  called from both `buildSite` (typed input) and `parseManifest` (a `restore` reads an
+  untrusted manifest and renders straight from it). The job/worker command and timeout are
+  gated in `unit.RenderSiteUnit`. `validate.NoControlChars` is the blanket check underneath.
+- **Never write as root through a symlink into a tenant-owned tree.** A tenant owns their
+  site directory and can swap a subdirectory for a link between operations. `WriteFileAtomic`
+  and `EnsureDir` `Lstat` the component they touch and refuse a symlink; site provisioning
+  calls `system.CheckNoSymlinks` from the root-owned `/home` boundary down, to catch one
+  swapped higher up the path than a single `Lstat` can see.
 
 ## Documentation — two places that must agree
 

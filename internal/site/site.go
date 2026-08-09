@@ -460,6 +460,13 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 	if site.HSTS {
 		m.Log.Warn("HSTS will only be rendered once a trusted certificate is attached")
 	}
+	// The per-flag checks above give the best messages; this is the belt that guarantees
+	// no field reaching a config was missed — the same gate `restore` applies to a
+	// manifest, so `site add`, `import` and `clone` cannot describe a site `restore` would
+	// reject, or the other way round. It is where IndexFile and StaticURL are caught.
+	if err := validateSiteRow(site); err != nil {
+		return nil, err
+	}
 	return site, nil
 }
 
@@ -561,6 +568,16 @@ func (m *Manager) buildTree(ctx context.Context, site *state.Site, id *system.Id
 		return nil
 	}
 
+	// Before writing anything as root into a tenant-owned tree, prove the path to it has no
+	// symlink components. The per-write Lstat guards catch a directory swapped at the level
+	// being written; this catches one swapped higher up, which those cannot see. /home is
+	// root-owned, so a tenant can rearrange things inside their own home but not replace the
+	// home itself — that is the boundary the walk starts from.
+	homeBase := filepath.Dir(m.Cfg.HomeDir(site.Owner))
+	if err := system.CheckNoSymlinks(homeBase, siteDir); err != nil {
+		return err
+	}
+
 	logGID := id.GID
 	if gid, err := system.LookupGroupID(m.Cfg.Users.LogGroup); err == nil {
 		logGID = gid
@@ -631,6 +648,18 @@ func (m *Manager) writeManifest(site *state.Site, id *system.Identity) error {
 		return nil
 	}
 	path := filepath.Join(m.Cfg.SiteDir(site.Owner, site.Domain), ".ratline", "site.yaml")
+	// The manifest is the one root-owned file ratline writes back into a directory the tenant
+	// owns, so the symlink rule has to hold here too. `restore` reaches this with the site
+	// tree only just renamed into place — after the checks in buildTree, and with an nginx
+	// reload and a systemd cycle in between, which is a wide enough window for a tenant to
+	// swap the site directory (or their home) for a symlink and have this write land as root
+	// wherever it points. WriteFileAtomic refuses a symlinked *immediate* parent; this walks
+	// the whole path from the root-owned home boundary down, which is the only thing that
+	// catches a component swapped higher up. /home is root-owned, so it is the trusted anchor.
+	homeBase := filepath.Dir(m.Cfg.HomeDir(site.Owner))
+	if err := system.CheckNoSymlinks(homeBase, filepath.Dir(path)); err != nil {
+		return err
+	}
 	var b strings.Builder
 	b.WriteString("# " + system.ManagedHeader + "\n")
 	b.WriteString("# The rendered manifest for this site. ratline reads it during reconcile,\n")

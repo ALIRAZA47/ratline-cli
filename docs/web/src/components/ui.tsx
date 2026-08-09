@@ -25,7 +25,7 @@ export function StatusBadge({ status, size = 'sm' }: { status: Status; size?: 's
       title={
         built
           ? 'Implemented today.'
-          : 'Specified, not yet implemented. Phase 1 — skeleton, config, logging, safe-exec, validators — is complete; everything else is being built in order.'
+          : 'Specified, not yet implemented.'
       }
     >
       <span aria-hidden="true" className={`size-1.5 rounded-full ${built ? 'bg-ok' : 'bg-faint'}`} />

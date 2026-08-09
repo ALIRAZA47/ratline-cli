@@ -407,3 +407,21 @@ func NormalizeFingerprint(s string) string {
 	}
 	return s
 }
+
+// NoControlChars refuses a value that carries a control character other than a tab.
+//
+// The one check that stops a newline turning a single generated directive — an nginx
+// location, a systemd ExecStart — into two. It is deliberately blunt and applied wherever a
+// stored string is written verbatim into a config file: no legitimate value for any such
+// field has ever contained a control character, and the tools that check those files accept
+// a second valid directive without complaint.
+func NoControlChars(field, value string) error {
+	for _, r := range value {
+		if r != '\t' && unicode.IsControl(r) {
+			return rlerr.Usagef("the %s contains a control character", field).
+				WithHint("it is written into a generated configuration file, where a newline " +
+					"would add a line nobody asked for")
+		}
+	}
+	return nil
+}

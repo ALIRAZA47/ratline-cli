@@ -177,3 +177,47 @@ func FuzzResolveWithin(f *testing.F) {
 		}
 	})
 }
+
+func TestIndexFileRejectsNginxInjection(t *testing.T) {
+	for _, ok := range []string{"index.html", "index.htm", "main.php", "app_index.html", "_next.html", "index-2.html"} {
+		if err := IndexFile(ok); err != nil {
+			t.Errorf("IndexFile(%q) = %v, want accepted", ok, err)
+		}
+	}
+	// Each of these renders into `index …;` and would add or change an nginx directive.
+	for _, bad := range []string{
+		"", "..", ".",
+		"index.html;",           // ends the directive
+		"index.html; root /etc", // adds one
+		"a b",                   // a second token
+		"a/b",                   // a path, not a filename
+		"x\ny",                  // a newline: a whole new directive
+		"in{dex",                // a block character
+	} {
+		if err := IndexFile(bad); err == nil {
+			t.Errorf("IndexFile(%q) was accepted; it can inject an nginx directive", bad)
+		}
+	}
+}
+
+func TestURLPathRejectsLocationInjection(t *testing.T) {
+	for _, ok := range []string{"/", "/static/", "/assets", "/a/b/", "/media-files/", "/v1.0/"} {
+		if err := URLPath(ok); err != nil {
+			t.Errorf("URLPath(%q) = %v, want accepted", ok, err)
+		}
+	}
+	// Each renders as `location <path> {` and would close that block and open another.
+	for _, bad := range []string{
+		"", "static", // not rooted
+		"/x { } location / { root /etc; }", // the classic
+		"/x\n    root /etc;",               // a newline
+		"/x;",                              // a semicolon
+		"/../etc",                          // traversal
+		"/a b",                             // whitespace
+		"/x\"y",                            // a quote
+	} {
+		if err := URLPath(bad); err == nil {
+			t.Errorf("URLPath(%q) was accepted; it can inject an nginx location", bad)
+		}
+	}
+}

@@ -91,6 +91,32 @@ func SiteTimerName(slug, name string) string {
 
 // RenderSiteUnit produces the service, and for a job the timer as well.
 func (m *Manager) RenderSiteUnit(site *state.Site, u *state.SiteUnit) (service, timer []byte, err error) {
+	// The command and the timeout are written verbatim into the unit as ExecStart and
+	// TimeoutStartSec. A newline in either adds a directive to a root-installed unit that
+	// `systemd-analyze verify` still accepts, because a second ExecStart is valid syntax.
+	// This is the boundary the invariant has to hold at: the CLI checks the same things
+	// for a friendlier message, but import and clone reach here too, and a crafted export
+	// is exactly the untrusted input that would carry a newline.
+	if err := validate.NoControlChars("command", u.Command); err != nil {
+		return nil, nil, err
+	}
+	if u.Timeout != "" {
+		if err := validate.NoControlChars("timeout", u.Timeout); err != nil {
+			return nil, nil, err
+		}
+		if _, err := validate.Duration(u.Timeout); err != nil {
+			return nil, nil, rlerr.Wrap(err, rlerr.CodeUsage, "the timeout %q is not a duration", u.Timeout)
+		}
+	}
+	// The unit's own memory ceiling reaches a Limits line (MemoryMax=...); validate.Size
+	// below accepts a trailing newline, so refuse control characters here for the same
+	// reason the command and timeout are refused.
+	if u.MemoryMax != "" {
+		if err := validate.NoControlChars("memory-max", u.MemoryMax); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	siteDir := m.Cfg.SiteDir(site.Owner, site.Domain)
 	relaxed := append([]string(nil), site.Relaxed...)
 	relaxed = append(relaxed, defaultRelaxed[site.Runtime]...)

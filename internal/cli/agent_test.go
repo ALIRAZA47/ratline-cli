@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
+	"github.com/ALIRAZA47/ratline-cli/internal/state"
 )
 
 // An agent driving a root tool must not have to guess. These check the two properties
@@ -162,6 +165,95 @@ func TestTheMCPServerIsReadOnlyUntilAsked(t *testing.T) {
 				t.Errorf("the refusal does not name the flag that would enable it: %q", msg)
 			}
 		}
+	}
+}
+
+// ratline_site_jobs describes itself as listing "scheduled jobs and long-running
+// workers", and its first implementation ran `site cron list`, which filters to
+// kind=job — so a worker, the part of a site least likely to be noticed when it
+// stops, was invisible to exactly the audience the tool was built for. Both kinds
+// must come back from one call.
+func TestTheSiteJobsToolListsWorkersToo(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+	st, err := state.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open = %v", err)
+	}
+	if err := st.PutUser(t.Context(), &state.User{
+		Name: "acme", Home: filepath.Join(dir, "home", "acme"), Shell: "/bin/sh",
+	}); err != nil {
+		t.Fatalf("PutUser = %v", err)
+	}
+	if err := st.PutSite(t.Context(), &state.Site{
+		Domain: "app.test", Owner: "acme", Runtime: "static", Slug: "acme-app_test",
+	}); err != nil {
+		t.Fatalf("PutSite = %v", err)
+	}
+	for _, u := range []*state.SiteUnit{
+		{Domain: "app.test", Name: "nightly", Kind: state.UnitJob,
+			Command: "/home/acme/app.test/app/bin/nightly", Schedule: "*-*-* 03:00:00", Enabled: true},
+		{Domain: "app.test", Name: "queue", Kind: state.UnitWorker,
+			Command: "/home/acme/app.test/app/bin/worker", Enabled: true},
+	} {
+		if err := st.PutSiteUnit(t.Context(), u); err != nil {
+			t.Fatalf("PutSiteUnit(%s) = %v", u.Name, err)
+		}
+	}
+	st.Close()
+
+	configPath := filepath.Join(dir, "config.yaml")
+	body := "version: 1\npaths:\n  state_db: " + dbPath +
+		"\n  lock: " + filepath.Join(dir, "lock") +
+		"\n  audit_log: " + filepath.Join(dir, "audit.log") + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := &strings.Builder{}
+	g := &Globals{
+		ConfigPath: configPath,
+		Stdin: strings.NewReader(
+			`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":` +
+				`{"name":"ratline_site_jobs","arguments":{"domain":"app.test"}}}` + "\n"),
+		Stdout: out, Stderr: &strings.Builder{},
+	}
+	g.Log = log.Discard()
+	if err := g.runMCP(context.Background(), false); err != nil {
+		t.Fatalf("runMCP: %v", err)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &m); err != nil {
+		t.Fatalf("the reply is not JSON: %v", err)
+	}
+	res, _ := m["result"].(map[string]any)
+	if res == nil {
+		t.Fatalf("no result in the reply: %s", out.String())
+	}
+	if res["isError"] == true {
+		t.Fatalf("the tool call failed: %s", out.String())
+	}
+	text := res["content"].([]any)[0].(map[string]any)["text"].(string)
+	var env Envelope
+	if err := json.Unmarshal([]byte(text), &env); err != nil {
+		t.Fatalf("the tool result is not the JSON envelope: %q", text)
+	}
+
+	kinds := map[string]string{}
+	data, _ := env.Data.(map[string]any)
+	units, _ := data["units"].([]any)
+	for _, row := range units {
+		r, _ := row.(map[string]any)
+		name, _ := r["name"].(string)
+		kind, _ := r["kind"].(string)
+		kinds[name] = kind
+	}
+	if kinds["nightly"] != state.UnitJob {
+		t.Errorf("the job is missing or mislabelled: %v", kinds)
+	}
+	if kinds["queue"] != state.UnitWorker {
+		t.Errorf("the worker is invisible to the tool that promises it: %v", kinds)
 	}
 }
 

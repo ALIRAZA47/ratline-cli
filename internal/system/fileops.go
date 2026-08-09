@@ -28,10 +28,21 @@ const KeepUnchanged = -1
 // its mode and owner, and every caller knows better than this function does.
 func WriteFileAtomic(path string, data []byte, mode fs.FileMode, uid, gid int) error {
 	dir := filepath.Dir(path)
-	fi, err := os.Stat(dir)
+	// Lstat, not Stat: the parent must be a real directory, not a symlink. ratline writes
+	// as root into directories a tenant owns — a site's .env, its logs, its manifest — and
+	// a tenant with shell access could replace one of those directories with a symlink to,
+	// say, /etc/cron.d between operations. Stat would follow it and this write would land
+	// wherever the tenant pointed, as root. A ratline directory is never legitimately a
+	// symlink, so refusing one costs nothing and closes that redirection.
+	fi, err := os.Lstat(dir)
 	if err != nil {
 		return rlerr.Wrap(err, rlerr.CodePrecondition, "cannot write %s", path).
 			WithHint("its parent directory %s does not exist yet", dir)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return rlerr.Preconditionf("refusing to write %s: its parent %s is a symlink", path, dir).
+			WithHint("ratline never writes through a symlinked directory; something replaced " +
+				"a real directory with a link to somewhere else")
 	}
 	if !fi.IsDir() {
 		return rlerr.Preconditionf("cannot write %s: %s is not a directory", path, dir)
@@ -99,9 +110,17 @@ func WriteFileAtomicPreserve(path string, data []byte, fallbackMode fs.FileMode)
 // It reports whether it created it, which the rollback stack uses to decide
 // whether removing it on failure is safe.
 func EnsureDir(path string, mode fs.FileMode, uid, gid int) (bool, error) {
-	fi, err := os.Stat(path)
+	// Lstat so a symlink is seen as a symlink, not as whatever it points at. A tenant who
+	// replaced a site subdirectory with a link to /etc would otherwise have ratline accept
+	// the link as "the directory already exists" and then write through it as root.
+	fi, err := os.Lstat(path)
 	switch {
 	case err == nil:
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return false, rlerr.Preconditionf("%s is a symlink, not a directory", path).
+				WithHint("ratline will not treat a symlink as one of its directories; " +
+					"remove it if it was put there by mistake")
+		}
 		if !fi.IsDir() {
 			return false, rlerr.Preconditionf("%s exists but is not a directory", path)
 		}
@@ -138,6 +157,36 @@ func Chown(path string, uid, gid int) error {
 // Chmod sets a file's permission bits.
 func Chmod(path string, mode fs.FileMode) error {
 	if err := os.Chmod(path, mode); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode %04o on %s", mode.Perm(), path)
+	}
+	return nil
+}
+
+// ChmodNoFollow sets a file's mode without following a final symlink.
+//
+// os.Chmod resolves symlinks, so chmod'ing a path inside a directory a tenant owns can be
+// redirected: the tenant swaps the file for a link to one of root's between the file's
+// creation and the chmod, and root then changes the mode of the link's target — a
+// world-readable private key one race away. This opens the path with O_NOFOLLOW so a
+// symlinked final component fails outright, confirms the descriptor is a regular file, and
+// fchmod's the descriptor, never re-resolving the path between check and change. Pair it with
+// CheckNoSymlinks when an intermediate directory could also be swapped: O_NOFOLLOW guards
+// only the last component.
+func ChmodNoFollow(path string, mode fs.FileMode) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodePrecondition, "cannot set the mode of %s", path).
+			WithHint("it may be a symlink, which ratline will not chmod through")
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "inspecting %s", path)
+	}
+	if !fi.Mode().IsRegular() {
+		return rlerr.Preconditionf("refusing to chmod %s: it is not a regular file", path)
+	}
+	if err := f.Chmod(mode); err != nil {
 		return rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode %04o on %s", mode.Perm(), path)
 	}
 	return nil
@@ -420,6 +469,48 @@ func ChownTree(root string, uid, gid int) error {
 		}
 		return rlerr.Genericf("could not set ownership on %d path(s) under %s, including %s",
 			len(failed), root, strings.Join(shown, ", "))
+	}
+	return nil
+}
+
+// CheckNoSymlinks refuses if any path component below trustedBase is a symlink.
+//
+// The single-component Lstat guards in WriteFileAtomic and EnsureDir catch a directory that
+// was swapped for a symlink at the level being written; this catches one swapped higher up
+// the tree, which those cannot see because the kernel follows every component before the
+// last. Anchored at a directory the tenant cannot modify — /home is root-owned 0755, so a
+// tenant can rearrange things inside their own home but cannot replace the home itself —
+// and walked downward, lstat'ing each component so a link anywhere along the way is refused.
+//
+// path must be under trustedBase; both are cleaned first. trustedBase itself is trusted and
+// not re-checked.
+func CheckNoSymlinks(trustedBase, path string) error {
+	base := filepath.Clean(trustedBase)
+	target := filepath.Clean(path)
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rlerr.Preconditionf("%s is not under %s", path, trustedBase)
+	}
+	if rel == "." {
+		return nil
+	}
+	cur := base
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		fi, err := os.Lstat(cur)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				// Not yet created is fine — there is nothing to redirect through. The
+				// components that do exist have been checked.
+				return nil
+			}
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "inspecting %s", cur)
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return rlerr.Preconditionf("refusing to operate under %s: %s is a symlink", target, cur).
+				WithHint("a directory ratline manages was replaced with a link to somewhere " +
+					"else; remove it and let ratline recreate the real directory")
+		}
 	}
 	return nil
 }

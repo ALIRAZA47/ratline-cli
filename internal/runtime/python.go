@@ -319,10 +319,12 @@ func (p Python) StartCommand(ctx context.Context, c *Context) (string, unit.Rend
 		if strings.HasPrefix(bind, "unix:") {
 			args = append(args, "--uds", strings.TrimPrefix(bind, "unix:"))
 			// uvicorn has no umask option, so the socket it creates is 0640
-			// under any sane umask and nginx cannot connect. A root-side chmod
-			// after the socket appears is the fix; it is idempotent and bounded.
+			// under any sane umask and nginx cannot connect. A chmod after the
+			// socket appears is the fix; it is idempotent and bounded. It runs as
+			// the tenant (no '+'), never root: the socket is the tenant's own inode,
+			// so a symlink they swap in cannot redirect the chmod onto a root file.
 			opts.ExecStartPost = []string{
-				"+/bin/sh -c 'for i in $(seq 1 50); do [ -S " + strings.TrimPrefix(bind, "unix:") +
+				"/bin/sh -c 'for i in $(seq 1 50); do [ -S " + strings.TrimPrefix(bind, "unix:") +
 					" ] && chmod 0660 " + strings.TrimPrefix(bind, "unix:") + " && exit 0; sleep 0.1; done; exit 0'",
 			}
 		} else {

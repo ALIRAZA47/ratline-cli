@@ -1,9 +1,12 @@
 package system
 
 import (
+	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +25,7 @@ func testRunner(t *testing.T, dryRun bool) (Runner, *Binaries) {
 		"sleep": {"/bin/sleep", "/usr/bin/sleep"},
 		"false": {"/usr/bin/false", "/bin/false"},
 		"cat":   {"/bin/cat", "/usr/bin/cat"},
+		"tail":  {"/usr/bin/tail", "/bin/tail"},
 	} {
 		found := ""
 		for _, c := range candidates {
@@ -104,6 +108,65 @@ func TestRunPassesStdin(t *testing.T) {
 	}
 	if res.Out() != "piped" {
 		t.Errorf("stdout = %q, want %q", res.Out(), "piped")
+	}
+}
+
+// waitForWriter closes found the first time needle appears in its input.
+type waitForWriter struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	needle string
+	once   sync.Once
+	found  chan struct{}
+}
+
+func (w *waitForWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(p)
+	if strings.Contains(w.buf.String(), w.needle) {
+		w.once.Do(func() { close(w.found) })
+	}
+	return len(p), nil
+}
+
+func TestRunTeesCmdStdoutBeforeTheChildExits(t *testing.T) {
+	// tail -f prints the file's existing line and then follows for ever, so
+	// the line can only reach Cmd.Stdout if output is teed as it arrives.
+	r, _ := testRunner(t, false)
+	logFile := filepath.Join(t.TempDir(), "app.log")
+	if err := os.WriteFile(logFile, []byte("a line to stream\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w := &waitForWriter{needle: "a line to stream", found: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type outcome struct {
+		res *Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := r.Run(ctx, Cmd{Name: "tail", Args: []string{"-n", "5", "-f", logFile}, Stdout: w})
+		done <- outcome{res, err}
+	}()
+
+	select {
+	case <-w.found:
+		// Streamed while the child was still running.
+	case o := <-done:
+		t.Fatalf("Run returned (err=%v) without the line ever reaching Cmd.Stdout", o.err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the line never reached Cmd.Stdout while the child ran: output is not teed")
+	}
+
+	cancel()
+	o := <-done
+	// The capture must keep working alongside the tee: failure messages and
+	// callers still read Result.
+	if o.res == nil || !strings.Contains(o.res.Stdout, "a line to stream") {
+		t.Errorf("Result.Stdout lost the output when a tee was attached: %+v", o.res)
 	}
 }
 

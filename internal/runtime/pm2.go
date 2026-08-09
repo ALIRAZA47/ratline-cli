@@ -340,9 +340,11 @@ func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.Ren
 	if c.Site.Listen != "port" {
 		socket := c.Cfg.SocketPath(c.Site.Owner, c.Site.Domain)
 		// The socket-permission fix still applies: PM2's workers create the socket
-		// with their own umask, and connect(2) needs write permission on it.
+		// with their own umask, and connect(2) needs write permission on it. It runs
+		// as the tenant (no '+'), never root: the socket is the tenant's own inode, so
+		// a symlink swapped in cannot redirect this chmod onto a root-owned file.
 		opts.ExecStartPost = []string{
-			"+/bin/sh -c 'for i in $(seq 1 100); do if [ -S " + socket + " ]; then chmod 0660 " + socket +
+			"/bin/sh -c 'for i in $(seq 1 100); do if [ -S " + socket + " ]; then chmod 0660 " + socket +
 				"; exit 0; fi; sleep 0.1; done; exit 0'",
 		}
 	}

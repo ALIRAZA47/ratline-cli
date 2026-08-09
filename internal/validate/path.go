@@ -198,3 +198,67 @@ func within(root, p string) bool {
 	}
 	return strings.HasPrefix(p, root+string(filepath.Separator))
 }
+
+// indexFileRe is a single filename: letters, digits, dot, underscore, hyphen. No slash, no
+// space, and none of the characters that would end an nginx directive.
+var indexFileRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// IndexFile validates a site's index document.
+//
+// It is rendered raw into three nginx directives — `index`, `location = /<file>` and a
+// `try_files` target — so a value containing a space, a semicolon or a newline would not be
+// a filename but a way to add directives to a root-owned config that `nginx -t` still
+// accepts. A single safe filename is the only thing that belongs here.
+func IndexFile(s string) error {
+	if s == "" {
+		return rlerr.Usagef("the index file is empty")
+	}
+	if len(s) > 255 {
+		return rlerr.Usagef("the index file name is longer than 255 characters")
+	}
+	if s == "." || s == ".." || strings.Contains(s, "/") {
+		return rlerr.Usagef("invalid index file %q: it must be a single filename, not a path", s)
+	}
+	if !indexFileRe.MatchString(s) {
+		return rlerr.Usagef("invalid index file %q: use letters, digits, dot, underscore and hyphen", s).
+			WithHint("it becomes an nginx directive value, so a space or a semicolon would " +
+				"change the configuration rather than name a file")
+	}
+	return nil
+}
+
+// urlPathRe is a rooted URL path restricted to the characters a static-file location
+// prefix actually needs. Deliberately narrow: a semicolon ends an nginx directive and the
+// sub-delims RFC 3986 permits in a path are not needed here, so they are not allowed.
+var urlPathRe = regexp.MustCompile(`^/[A-Za-z0-9._~%/-]*$`)
+
+// URLPath validates a URL path used as an nginx location, such as a static-file prefix.
+//
+// It is rendered as `location <path> {`, so a value containing whitespace, braces or a
+// newline could close that block and open another — a root-owned nginx directive that
+// `nginx -t` accepts because it is syntactically valid. The value must be a single rooted
+// path with no traversal.
+func URLPath(s string) error {
+	if s == "" {
+		return rlerr.Usagef("the URL path is empty")
+	}
+	if len(s) > 1024 {
+		return rlerr.Usagef("the URL path is longer than 1024 characters")
+	}
+	if !strings.HasPrefix(s, "/") {
+		return rlerr.Usagef("invalid URL path %q: it must start with /", s)
+	}
+	// Whitespace, control characters and the nginx block characters are what would let a
+	// value escape the location directive; the regex admits only ordinary path bytes, but
+	// name the ones people actually reach for.
+	if strings.ContainsAny(s, " \t\r\n{};\\\"") {
+		return rlerr.Usagef("invalid URL path %q: it must not contain spaces, braces, semicolons or quotes", s)
+	}
+	if !urlPathRe.MatchString(s) {
+		return rlerr.Usagef("invalid URL path %q: it contains a character that is not allowed in a path", s)
+	}
+	if strings.Contains(s, "..") {
+		return rlerr.Usagef("invalid URL path %q: it must not contain ..", s)
+	}
+	return nil
+}

@@ -107,6 +107,51 @@ func TestEscapingPath(t *testing.T) {
 	}
 }
 
+// rsync in --server mode carries filesystem paths as --flag=VALUE options. The bare-argument
+// check skips anything starting with '-', so without inspecting the value a confined key
+// could read or write outside the site through --copy-dest=, --temp-dir=, --log-file= and
+// friends — the exact escape the confinement exists to prevent.
+func TestEscapingPathChecksAttachedOptionValues(t *testing.T) {
+	root := t.TempDir()
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(real, "public"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Each of these points a path-bearing option outside the site and must be refused.
+	for _, argv := range [][]string{
+		{"rsync", "--server", "--copy-dest=/etc", ".", "."},
+		{"rsync", "--server", "--link-dest=/home/victim/.ssh", ".", "."},
+		{"rsync", "--server", "--compare-dest=../sibling", ".", "."},
+		{"rsync", "--server", "--temp-dir=/tmp", ".", "."},
+		{"rsync", "--server", "--partial-dir=/etc", ".", "."},
+		{"rsync", "--server", "--backup-dir=/var/tmp", ".", "."},
+		{"rsync", "--server", "--files-from=/etc/passwd", ".", "."},
+		{"rsync", "--server", "--log-file=/home/victim/.ssh/authorized_keys", ".", "."},
+	} {
+		if bad := escapingPath(real, argv); bad == "" {
+			t.Errorf("%v: accepted an option pointing outside the site", argv)
+		}
+	}
+
+	// Confined paths and non-path values are still allowed — the check must not break a
+	// legitimate transfer.
+	for _, argv := range [][]string{
+		{"rsync", "--server", "--partial-dir=.rsync-partial", ".", "."},
+		{"rsync", "--server", "--temp-dir=public", ".", "."},
+		{"rsync", "--server", "--block-size=131072", ".", "."},
+		{"rsync", "--server", "--compress-level=6", ".", "."},
+		{"rsync", "--server", "--out-format=%i %n%L", ".", "."},
+	} {
+		if bad := escapingPath(real, argv); bad != "" {
+			t.Errorf("%v: rejected %q, which is inside the site or not a path", argv, bad)
+		}
+	}
+}
+
 func TestMatchesPreset(t *testing.T) {
 	cases := []struct {
 		program, preset string

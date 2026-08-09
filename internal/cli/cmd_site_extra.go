@@ -258,6 +258,14 @@ func newDeployKeyCreateCommand(g *Globals, rotate bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The deploy key lives in a directory the tenant owns, and everything below
+			// writes or chmods as root inside it. Prove the path from the root-owned /home
+			// boundary down has no symlink component a tenant swapped in to redirect a root
+			// write — the same guard site provisioning uses. The per-file O_NOFOLLOW chmods
+			// below cover the leaf files this cannot see.
+			if err := system.CheckNoSymlinks(filepath.Dir(g.Cfg.HomeDir(site.Owner)), dir); err != nil {
+				return err
+			}
 			if _, err := system.EnsureDir(dir, 0o700, id.UID, id.GID); err != nil {
 				return err
 			}
@@ -281,10 +289,14 @@ func newDeployKeyCreateCommand(g *Globals, rotate bool) *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			if err := system.Chmod(priv, 0o600); err != nil {
+			// ssh-keygen ran as the tenant, who owns .ssh and could swap deploy_key(.pub)
+			// for a symlink to another tenant's private key before root chmods it — turning
+			// the pub→0644 into a cross-tenant disclosure. ChmodNoFollow refuses a symlinked
+			// target rather than following it.
+			if err := system.ChmodNoFollow(priv, 0o600); err != nil {
 				return err
 			}
-			if err := system.Chmod(pub, 0o644); err != nil {
+			if err := system.ChmodNoFollow(pub, 0o644); err != nil {
 				return err
 			}
 

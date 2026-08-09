@@ -161,6 +161,62 @@ func TestEcosystemPassesTheSocketAndNeverALimit(t *testing.T) {
 	}
 }
 
+// The socket-permission chmod touches a path inside a directory the tenant owns, so it must
+// run as the tenant — not root via systemd's '+' prefix. Running it as root through a
+// tenant-controlled path lets a swapped symlink redirect the chmod onto a file outside the
+// site; running it as the tenant cannot, since a non-root chmod only touches inodes the
+// tenant already owns.
+func TestSocketChmodExecStartPostRunsAsTenantNotRoot(t *testing.T) {
+	check := func(name string, post []string) {
+		t.Helper()
+		found := false
+		for _, p := range post {
+			if !strings.Contains(p, "chmod 0660") {
+				continue
+			}
+			found = true
+			if strings.HasPrefix(strings.TrimSpace(p), "+") {
+				t.Errorf("%s: the socket chmod runs as root (+ prefix): %q", name, p)
+			}
+		}
+		if !found {
+			t.Errorf("%s: expected a socket-permission ExecStartPost, got %v", name, post)
+		}
+	}
+
+	// node defaults to the PM2 supervisor, so exercise both supervisors explicitly.
+	_, nodeOpts, err := (Node{}).StartCommand(context.Background(), nodeContext(t, func(s *state.Site) {
+		s.ProcessManager = "direct"
+	}))
+	if err != nil {
+		t.Fatalf("node(direct) StartCommand = %v", err)
+	}
+	check("node(direct)", nodeOpts.ExecStartPost)
+
+	_, pm2Opts, err := (Node{}).StartCommand(context.Background(), nodeContext(t, func(s *state.Site) {
+		s.ProcessManager = "pm2"
+	}))
+	if err != nil {
+		t.Fatalf("pm2 StartCommand = %v", err)
+	}
+	check("pm2", pm2Opts.ExecStartPost)
+
+	// python/uvicorn on a socket uses the same fix.
+	cfg := config.Default()
+	site := &state.Site{
+		Domain: "api.example.com", Owner: "alice", Runtime: "python",
+		Slug: "alice-api_example_com", Enabled: true, AppModule: "app.main:app",
+		AppServer: "uvicorn", Listen: "socket", Instances: 1,
+	}
+	id := &system.Identity{Name: "alice", UID: 1001, GID: 1001, Home: cfg.HomeDir("alice")}
+	_, pyOpts, err := (Python{}).StartCommand(context.Background(),
+		NewContext(cfg, log.Discard(), &stubRunner{}, site, id, true))
+	if err != nil {
+		t.Fatalf("uvicorn StartCommand = %v", err)
+	}
+	check("uvicorn", pyOpts.ExecStartPost)
+}
+
 func TestEcosystemUsesPortForAPortSite(t *testing.T) {
 	app := decodeEcosystem(t, nodeContext(t, func(s *state.Site) {
 		s.Listen, s.Port = "port", 20001

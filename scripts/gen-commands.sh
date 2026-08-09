@@ -168,19 +168,12 @@ Two commands exist but are hidden, so they do not appear in the reference below.
 reads `RENEWED_LINEAGE`, maps it back to sites through state, and reloads only
 those — never a blanket restart.
 
-`ratline db` is a stub. Database provisioning is out of scope for v1; the command
-exists so that typing it gives an answer rather than "unknown command", and so the
-intended shape is settled. It becomes visible when `features.db_provisioning` is
-on. Until it lands, provision by hand and set the connection string:
+`ratline site units` lists a site's scheduled jobs and workers in one result. It is
+what the MCP server's ratline_site_jobs tool runs, so an agent asking about a site's
+background work sees both kinds; the spellings people type are `ratline site cron
+list` and `ratline site worker list`.
 
-```bash
-ratline site env set example.com DATABASE_URL=postgres://…
-```
-
-That is deliberately the same interface the built-in version will use, so nothing
-about your application has to change later.
-
-There are also no PHP, Go or Ruby runtimes. `internal/runtime` is an interface
+There are no PHP, Go or Ruby runtimes. `internal/runtime` is an interface
 (`Provision`, `Install`, `Build`, `StartCommand`, `Reload`, `Teardown`), so each
 would be a new file rather than a refactor.
 

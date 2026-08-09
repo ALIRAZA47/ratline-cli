@@ -54,6 +54,13 @@ func (g *Globals) addSiteUnit(cmd *cobra.Command, kind, domain, name string, o s
 				"this itself, so it is not a shell line: anything needing a pipe belongs " +
 				"in a script")
 	}
+	// A newline in the command would not be part of the command at all: it would end the
+	// ExecStart line and start a new systemd directive in a root-installed unit. Rejected
+	// first, and again at the render boundary, because import and clone reach that without
+	// passing through here.
+	if err := validate.NoControlChars("--command", o.command); err != nil {
+		return err
+	}
 	// systemd's ExecStart is argv, not a shell line, and quietly accepting `a | b` would
 	// pass "|" and "b" to a as arguments. Saying so is better than the confusing failure.
 	for _, meta := range []string{"|", "&&", "||", ";", ">", "<", "$(", "`"} {
@@ -61,6 +68,12 @@ func (g *Globals) addSiteUnit(cmd *cobra.Command, kind, domain, name string, o s
 			return rlerr.Usagef("--command contains %q, which systemd will not interpret", meta).
 				WithHint("ExecStart is an argv, not a shell line. Put it in a script and " +
 					"run that: --command '/home/…/app/bin/nightly'")
+		}
+	}
+	if o.timeout != "" {
+		if _, err := validate.Duration(o.timeout); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeUsage, "--timeout %q is not a duration", o.timeout).
+				WithHint("something like 30s, 5m or 1h")
 		}
 	}
 
@@ -196,8 +209,11 @@ func (g *Globals) listSiteUnits(cmd *cobra.Command, kind, domain string) error {
 	}
 	if len(units) == 0 {
 		noun := "scheduled jobs"
-		if kind == state.UnitWorker {
+		switch kind {
+		case state.UnitWorker:
 			noun = "workers"
+		case "":
+			noun = "scheduled jobs or workers"
 		}
 		g.Printf("No %s on %s.\n", noun, domain)
 		return nil
@@ -212,7 +228,11 @@ func (g *Globals) listSiteUnits(cmd *cobra.Command, kind, domain string) error {
 				status += ", next " + s.NextRun
 			}
 		}
-		g.Printf("%-20s %-24s %s\n", u.Name, u.Schedule, status)
+		if kind == "" {
+			g.Printf("%-20s %-8s %-24s %s\n", u.Name, u.Kind, u.Schedule, status)
+		} else {
+			g.Printf("%-20s %-24s %s\n", u.Name, u.Schedule, status)
+		}
 		g.Printf("  %s\n", u.Command)
 	}
 	return nil
@@ -338,6 +358,24 @@ func newSiteWorkerAddCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&o.disabled, "disabled", false, "Create it without starting it")
 	Required(cmd, "command")
 	return Mutating(cmd)
+}
+
+// newSiteUnitsCommand lists a site's jobs and workers in one result. Hidden, like
+// cert deploy-hook: it exists to be invoked by machinery — the MCP server's
+// ratline_site_jobs tool promises "scheduled jobs and long-running workers" and must
+// not deliver half of that. The spellings people type are `site cron list` and
+// `site worker list`.
+func newSiteUnitsCommand(g *Globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "units <domain>",
+		Short:  "List a site's scheduled jobs and workers together",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return g.listSiteUnits(cmd, "", args[0])
+		},
+	}
+	return NonRoot(cmd)
 }
 
 func newSiteUnitListCommand(g *Globals, kind string) *cobra.Command {

@@ -55,6 +55,38 @@ func TestUnitInvariants(t *testing.T) {
 	}
 }
 
+// A newline in the start command would not extend the command: it would end the ExecStart
+// line and begin a directive of the attacker's choosing in a root-owned unit, with User=root
+// one line away. `systemd-analyze verify` accepts a second valid directive, so the render is
+// where this has to be caught — the same guard RenderSiteUnit carries for a job's command,
+// which the main service was missing.
+func TestRenderRefusesAControlCharInAUnitField(t *testing.T) {
+	m := testManager()
+	site := pythonSite()
+
+	bad := "/home/alice/api.example.com/venv/bin/gunicorn app:app\nUser=root\nExecStartPre=/bin/rm -rf /"
+	if _, err := m.Render(site, bad, RenderOptions{}); err == nil {
+		t.Error("a start command with a newline rendered; it injects a systemd directive as root")
+	}
+	// The same smuggled through a post-start hook or an environment entry, both of which are
+	// written verbatim into the unit.
+	if _, err := m.Render(site, "/venv/bin/gunicorn app:app", RenderOptions{
+		ExecStartPost: []string{"/bin/true\nUser=root"},
+	}); err == nil {
+		t.Error("an ExecStartPost with a newline rendered")
+	}
+	if _, err := m.Render(site, "/venv/bin/gunicorn app:app", RenderOptions{
+		Environment: []string{"NODE_ENV=production\nUser=root"},
+	}); err == nil {
+		t.Error("an Environment entry with a newline rendered")
+	}
+
+	// A legitimate start command with arguments still renders.
+	if _, err := m.Render(site, "/venv/bin/gunicorn app.main:app --workers 3", RenderOptions{}); err != nil {
+		t.Errorf("a legitimate start command was rejected: %v", err)
+	}
+}
+
 func TestUnitUsesTypeExecRatherThanNotify(t *testing.T) {
 	out := render(t, pythonSite(), "/venv/bin/gunicorn app:app", RenderOptions{})
 	// Neither gunicorn nor a plain Node server implements sd_notify, so

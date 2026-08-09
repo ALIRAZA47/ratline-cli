@@ -338,3 +338,57 @@ func TestRemovingAUnitMakesSystemdForgetItFailed(t *testing.T) {
 		t.Errorf("reset-failed ran before daemon-reload:\n%s", keys)
 	}
 }
+
+// A job command or timeout containing a newline would add a directive to a root-installed
+// systemd unit. `systemd-analyze verify` accepts a second ExecStart, so the render is where
+// this has to be caught — and it has to be caught here rather than only at the CLI, because
+// `import` and `clone` reach RenderSiteUnit without passing through the CLI's checks.
+func TestAJobCannotInjectSystemdDirectives(t *testing.T) {
+	m := testManager()
+	bad := aJob()
+	bad.Command = "/srv/bin/x\nExecStartPre=/bin/rm -rf /"
+	if _, _, err := m.RenderSiteUnit(pythonSite(), bad); err == nil {
+		t.Error("a command with a newline rendered; it injects a systemd directive as root")
+	}
+
+	badTimeout := aJob()
+	badTimeout.Timeout = "30m\nExecStartPost=/bin/sh -c evil"
+	if _, _, err := m.RenderSiteUnit(pythonSite(), badTimeout); err == nil {
+		t.Error("a timeout with a newline rendered; it injects a systemd directive")
+	}
+
+	// A timeout that is not a duration at all is refused too — a garbage value would make
+	// the unit fail to start, which is a worse way to find out.
+	notDuration := aJob()
+	notDuration.Timeout = "banana"
+	if _, _, err := m.RenderSiteUnit(pythonSite(), notDuration); err == nil {
+		t.Error("a non-duration timeout was accepted")
+	}
+
+	// And a legitimate job with a real timeout still renders.
+	good := aJob()
+	good.Timeout = "30m"
+	if _, _, err := m.RenderSiteUnit(pythonSite(), good); err != nil {
+		t.Errorf("a legitimate job was rejected: %v", err)
+	}
+}
+
+// A job's own MemoryMax reaches a Limits line in the unit. validate.Size accepts a trailing
+// newline, so a control character has to be refused at the render boundary — the same guard
+// the command and timeout already carry, made uniform across every render-bound unit field.
+func TestAJobMemoryMaxRejectsControlChars(t *testing.T) {
+	m := testManager()
+
+	bad := aJob()
+	// A value validate.Size accepts (trailing newline) but that must not reach a unit.
+	bad.MemoryMax = "512M\n"
+	if _, _, err := m.RenderSiteUnit(pythonSite(), bad); err == nil {
+		t.Error("a memory-max carrying a newline rendered")
+	}
+
+	good := aJob()
+	good.MemoryMax = "512M"
+	if _, _, err := m.RenderSiteUnit(pythonSite(), good); err != nil {
+		t.Errorf("a legitimate memory-max was rejected: %v", err)
+	}
+}

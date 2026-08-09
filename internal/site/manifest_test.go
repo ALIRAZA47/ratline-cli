@@ -38,6 +38,51 @@ func writeAndRead(t *testing.T, site *state.Site) *state.Site {
 	return got
 }
 
+// A restore renames a fresh tree into a directory the tenant owns and then writes the
+// manifest back as root — with an nginx reload and a systemd cycle in between, a window wide
+// enough for the tenant to replace the site directory with a symlink to somewhere else.
+// writeManifest walks the path from the root-owned home boundary down and refuses, rather
+// than following the link and landing a root-owned file wherever it points.
+func TestWriteManifestRefusesASymlinkedSiteTree(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Paths.HomeBase = root
+	mgr := &Manager{Cfg: cfg, Log: log.Discard()}
+
+	site := &state.Site{Domain: "app.example.com", Owner: "acme", Runtime: "static"}
+	id := &system.Identity{UID: os.Getuid(), GID: os.Getgid()}
+
+	// The home is real; the site directory is a symlink whose target already has the
+	// .ratline directory the write expects, so only the guard stands between the write and
+	// a root-owned file appearing outside the tenant's tree.
+	if err := os.MkdirAll(cfg.HomeDir(site.Owner), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(root, "elsewhere")
+	if err := os.MkdirAll(filepath.Join(elsewhere, ".ratline"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, cfg.SiteDir(site.Owner, site.Domain)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.writeManifest(site, id); err == nil {
+		t.Fatal("writeManifest wrote through a symlinked site directory")
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, ".ratline", "site.yaml")); err == nil {
+		t.Error("a manifest was written through the symlink as root")
+	}
+
+	// The ordinary case — a real site tree — still writes and reads back.
+	real := &state.Site{Domain: "shop.example.com", Owner: "acme", Runtime: "static"}
+	if err := os.MkdirAll(filepath.Join(cfg.SiteDir(real.Owner, real.Domain), ".ratline"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.writeManifest(real, id); err != nil {
+		t.Errorf("writeManifest refused a real site tree: %v", err)
+	}
+}
+
 func TestAFullyPopulatedSiteSurvivesTheRoundTrip(t *testing.T) {
 	want := &state.Site{
 		Domain: "app.example.com", Owner: "acme", Runtime: "python",
@@ -257,5 +302,50 @@ func TestAMissingManifestSaysWhatToDo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no manifest") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// Every field that becomes an nginx directive or a systemd line is untrusted in a manifest,
+// not just the domain and the owner. Before this, these values were parsed and stored and
+// rendered as root; `nginx -t` and `systemd-analyze verify` accept them because each one is
+// syntactically valid — which is the whole trick.
+func TestAManifestCannotInjectAConfigDirective(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		t.Helper()
+		p := filepath.Join(dir, "site.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	base := "domain: app.example.com\nowner: acme\nruntime: static\n"
+	for _, tc := range []struct{ name, extra string }{
+		// nginx: index, root, static location, body size.
+		{"an index file that ends the directive", "index_file: \"index.html; root /etc\"\n"},
+		{"a doc root with a space", "doc_root: \"public alias /etc\"\n"},
+		{"a static url that opens a location", "static_url: \"/x { } location / { root /etc; }\"\n"},
+		{"a body size that is not a size", "client_max_body_size: \"1m; add_header X 1\"\n"},
+		// systemd: the command and the limits.
+		{"a start command with a pipe", "start_command: \"a | b\"\n"},
+		{"a memory ceiling that is not a size", "memory_max: \"1G\\nExecStartPre=/bin/rm\"\n"},
+		{"a cpu quota that is not one", "cpu_quota: \"100%; evil\"\n"},
+		// git argv.
+		{"a repo that starts like a flag", "repo: \"--upload-pack=/bin/sh\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ReadManifest(write(base + tc.extra)); err == nil {
+				t.Errorf("%s was accepted; it reaches a root-owned config file", tc.name)
+			}
+		})
+	}
+
+	// And a legitimate, fully-specified manifest still parses — the gate must not reject
+	// the sites `site add` produces.
+	ok := "domain: shop.example.com\nowner: acme\nruntime: python\n" +
+		"app_module: app.main:app\nstatic_url: /static/\nstatic_dir: static\n" +
+		"index_file: index.html\nmemory_max: 512M\ncpu_quota: 100%\nbranch: main\n"
+	if _, err := ReadManifest(write(ok)); err != nil {
+		t.Errorf("a legitimate manifest was rejected: %v", err)
 	}
 }

@@ -113,6 +113,22 @@ var defaultRelaxed = map[string][]string{
 
 // Render produces the unit file.
 func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions) ([]byte, error) {
+	// Every value written verbatim into the unit is refused if it carries a control
+	// character. A newline in ExecStart would not extend the command: it would end the
+	// ExecStart line and begin a directive of the writer's choosing in a root-owned unit,
+	// and `User=root` is one line away. `systemd-analyze verify` accepts a second valid
+	// directive, so this has to be judged here, exactly as RenderSiteUnit does for a job's
+	// command. The site row is validated where it enters (site.validateSiteRow, from `site
+	// add` and from a restored manifest); this is the belt under that brace, and it is where
+	// the main service — as opposed to a job or worker — finally gets one.
+	renderFields := append([]string{execStart, opts.ExecReload, opts.ExecStop}, opts.ExecStartPost...)
+	renderFields = append(renderFields, opts.Environment...)
+	for _, v := range renderFields {
+		if err := validate.NoControlChars("unit field", v); err != nil {
+			return nil, err
+		}
+	}
+
 	siteDir := m.Cfg.SiteDir(site.Owner, site.Domain)
 	relaxed := append([]string(nil), site.Relaxed...)
 	relaxed = append(relaxed, defaultRelaxed[site.Runtime]...)

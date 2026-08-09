@@ -39,6 +39,41 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.11.5',
+    date: '2026-08-09',
+    summary:
+      'A security review closed three ways a value could become a directive, or a root write could be redirected, that the tool trusted it would not.',
+    assertions: 522,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'A manifest could inject nginx and systemd directives',
+        body:
+          '`restore` reads a site manifest — a file that lives in the tenant’s own directory and may have been edited or come from somewhere untrusted — and renders straight from it. It validated the domain, the owner and the aliases, on the argument that those reach a config, and trusted the rest. But the index file, the document root, the static location, the commands and the limits reach a config too: a value like `index.html; root /etc` becomes a real nginx directive that `nginx -t` accepts, because it is syntactically valid. Confirmed by rendering it — a poisoned index_file adds a `location` block serving /etc. Every render-bound field is now validated as if it had been typed, from one gate shared by `restore`, `site add`, `import` and `clone`.',
+        code: `# a manifest field, before:
+index_file: "index.html; root /etc"
+#   → index index.html; root /etc;   (a directive nginx accepts)`,
+      },
+      {
+        kind: 'fix',
+        title: 'A scheduled job’s command or timeout could inject systemd directives',
+        body:
+          '`site cron`/`site worker` checked the command for shell metacharacters but not for a newline, and did not check the timeout at all — and both are written verbatim into a systemd unit. A newline ends the `ExecStart` line and starts a directive of the operator’s choosing, which `systemd-analyze verify` accepts because a second `ExecStart` is valid. Reachable through a crafted `export` handed to `ratline import`, and through `site clone`. Control characters are refused now, at the render boundary as well as the CLI, and the timeout must parse as a duration.',
+      },
+      {
+        kind: 'fix',
+        title: 'A root write could be redirected through a tenant’s symlink',
+        body:
+          'ratline writes a site’s .env, logs and manifest as root into a directory the tenant owns. A tenant with shell access could replace one of those directories with a link to, say, /etc/cron.d between operations; the next write used `os.Stat`, which follows the link, and would land as root wherever it pointed. The writes now `Lstat` and refuse a symlinked directory, and site provisioning walks the whole path from the root-owned /home boundary so a link swapped higher up is caught too.',
+      },
+      {
+        title: 'What the review found solid',
+        body:
+          'No command is ever built as a shell string; SQL is parameterised throughout; environment values reject newlines; a repository URL cannot start like a git flag; restore’s archive extraction already refuses absolute and traversing paths; secrets are 0600, kept off argv, and never logged. Those held.',
+      },
+    ],
+  },
+  {
     version: 'v0.11.4',
     date: '2026-08-09',
     summary:

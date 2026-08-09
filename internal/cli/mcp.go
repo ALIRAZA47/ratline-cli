@@ -165,7 +165,10 @@ func mcpTools() []mcpTool {
 			InputSchema: object(map[string]any{"domain": domain}, "domain"),
 			argv: func(a map[string]any) ([]string, error) {
 				d, err := need(a, "domain")
-				return []string{"site", "cron", "list", d}, err
+				// `site units`, not `site cron list`: the description promises workers
+				// too, and the cron spelling filters to kind=job — a worker was invisible
+				// to exactly the audience this tool serves.
+				return []string{"site", "units", d}, err
 			},
 		},
 		{
@@ -361,7 +364,15 @@ func (g *Globals) runForMCP(ctx context.Context, argv []string) (string, bool) {
 		Start: g.Start, Argv: argv,
 	}
 	root := NewRootCommand(sub)
-	root.SetArgs(append(argv, "--json", "--no-input"))
+	args := append(argv, "--json", "--no-input")
+	// The server's --config must reach the tool call, or every tool would read the
+	// default path while the server the operator configured answers about nothing. As
+	// a flag rather than a field: parsing the sub-command's flags writes the flag's
+	// default over anything pre-set on sub.
+	if g.ConfigPath != "" {
+		args = append(args, "--config", g.ConfigPath)
+	}
+	root.SetArgs(args)
 	root.SetOut(&buf)
 	root.SetErr(g.Stderr)
 
