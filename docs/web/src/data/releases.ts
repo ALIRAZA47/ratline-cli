@@ -39,6 +39,43 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.12.0',
+    date: '2026-08-10',
+    summary:
+      'On a host with no MongoDB, one command now installs it, secures it, and attaches it — and its port opens only to addresses you allow, firewall first.',
+    assertions: 522,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'ratline db install — MongoDB on a fresh host, secured before it is useful',
+        body:
+          'ratline has never installed software, and still installs none as a side effect — but on a fresh VPS with no MongoDB anywhere, “point ratline at a server” is not actionable advice, and the manual path is long enough that people skip the one step that matters. So one explicit command now does the whole first day: MongoDB’s official apt repository (its signing key ships inside the ratline binary and is pinned with signed-by — nothing about the root of trust is downloaded), the packages, a root-role admin user with a password you choose at the prompt or via --stdin — never argv — and a managed mongod.conf that enables authorization and binds localhost only. There is no code path that renders that file without authorization enabled. The outcome is proven against the running server, not the config: it must enforce authorization and accept your credentials before the connection string is stored and provisioning turned on. If ratline is already attached to a MongoDB, the stored string is left alone. A failure unwinds everything except the downloaded packages, which stay inert — stopped and disabled — so a re-run continues. A mongod ratline did not set up is refused, not adopted.',
+        code: `ratline db install
+Choose a password for the MongoDB admin user (not echoed): `,
+      },
+      {
+        kind: 'feature',
+        title: 'ratline db access — the port opens only to addresses you allow',
+        body:
+          'Reachability is two facts that must agree — what mongod binds and what the firewall admits — and an operator changing one by hand gets either a server that is unreachable for no visible reason or one the whole internet can brute-force, and both look identical from the machine itself. `db access allow` owns both together, in the only safe order: the ufw rule first, and only then, on the first allowed address, the wider bind and its restart. Revoking the last address puts mongod back on localhost. Three refusals guard the door, each with its own fix: no ufw, ufw inactive, or a default incoming policy of allow — and ratline never runs `ufw enable` itself, because done in the wrong order it locks you out of SSH and only you know what else must stay reachable. Every transition is verified against the running server: still enforcing authorization, and actually bound where the config says — the bind check reads the listening socket via ss, because the first implementation trusted the config file and a test proved a restart that silently ignores it would have reported success.',
+        code: `ratline db access allow 203.0.113.19
+ratline db access allow 10.8.0.0/24 --note vpn
+ratline db access list
+ratline db access revoke 203.0.113.19`,
+      },
+      {
+        kind: 'feature',
+        title: 'doctor sees an exposed mongod, in the sweep and the walk',
+        body:
+          'A mongod listening on every interface behind a ufw somebody later disabled is a misconfiguration no command refuses, because it happens outside ratline. Both doctor surfaces now report it — answered from the listening socket and the firewall’s own status, never from what a config file says. One shared implementation behind both, because a check added to the walk and not the sweep is a mistake this project has already made twice and written down.',
+      },
+    ],
+    known: [
+      'The integration suite does not yet exercise the real apt-to-mongod path; db install’s flows are proven against a modeled host in unit tests.',
+      'db access manages the mongod that db install set up. For Atlas or another host, the access list lives with that server, and the commands say so rather than pretending a local firewall rule would help.',
+    ],
+  },
+  {
     version: 'v0.11.5',
     date: '2026-08-09',
     summary:
