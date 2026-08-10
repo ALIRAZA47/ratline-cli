@@ -144,6 +144,27 @@ try {
             break;
         }
 
+        // The first user on a freshly installed server, for `ratline db install`. Runs
+        // against a mongod that does not enforce authorization yet — the config that
+        // turns it on is written after this user exists, so a failure here leaves the
+        // server exactly as the package installed it. The role is root: this is the
+        // credential ratline itself will manage the server with, not a tenant's.
+        case 'createAdminUser': {
+            const admin = conn.getDB('admin');
+            const username = need('RATLINE_MONGO_USER');
+            const password = need('RATLINE_MONGO_PASSWORD');
+            const res = admin.runCommand({
+                createUser: username,
+                pwd: password,
+                roles: [{ role: 'root', db: 'admin' }],
+            });
+            if (!res.ok) {
+                fail('could not create the admin user', EJSON.stringify(res));
+            }
+            ok({ username: username, auth_db: 'admin', role: 'root' });
+            break;
+        }
+
         case 'createUser': {
             const db = target();
             const username = need('RATLINE_MONGO_USER');

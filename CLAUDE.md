@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `ratline` is a single static Go binary that runs **as root on a bare Ubuntu/Debian VPS** and
 provisions isolated system users and their web apps (static, node, python). It is the
 provisioning core of Ploi/RunCloud/Dokku without the web UI and without containers: it
-configures nginx, systemd, SSH, certbot and MongoDB rather than installing or replacing them.
+configures nginx, systemd, SSH, certbot and MongoDB rather than installing or replacing
+them. The one explicit exception is `db install` (`internal/mongod`), which installs and
+owns a MongoDB server on the host when asked to — and refuses one it did not set up.
 
 Because it runs as root on someone's server, the invariants below are not style preferences —
 they are the properties the tool promises.
@@ -91,6 +93,12 @@ environment. No script is built from user input and the admin URI never appears 
   nginx can serve. `.env` is 0600 and never inside a document root.
 - sshd's `PermitRootLogin`, `PasswordAuthentication`, `AllowUsers` and `Port` are never
   modified without an explicit flag and a typed confirmation.
+- **ratline never runs `ufw enable` or `ufw disable`.** `db access` adds and deletes
+  per-address rules for MongoDB's port only, and refuses to widen mongod's bind unless
+  ufw is already active with a default-deny incoming policy — enabling a firewall is how
+  an operator locks themselves out of SSH, and that decision stays with them. Bind
+  changes are verified against the listening socket (`ss`), not the config file, and
+  `security.authorization: enabled` has no render path that omits it.
 - **A value that reaches a generated config is validated where it enters, not where it is
   written.** `nginx -t` and `systemd-analyze verify` reject configuration that does not
   *parse*, not configuration that parses and says something nobody asked for — a newline, a

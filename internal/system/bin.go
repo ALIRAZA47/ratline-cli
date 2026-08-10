@@ -55,9 +55,13 @@ var defaultCandidates = map[string][]string{
 	"ssh":         {"/usr/bin/ssh", "/bin/ssh"},
 	"sftp-server": {"/usr/lib/openssh/sftp-server", "/usr/libexec/openssh/sftp-server", "/usr/lib/ssh/sftp-server"},
 
-	// databases. ratline provisions inside a MongoDB server; it does not install one,
-	// so an absent mongosh is a precondition to report rather than a bug.
+	// databases. `ratline db install` puts the server itself on this host; everything
+	// else provisions inside a MongoDB server it is pointed at, so an absent mongosh
+	// is a precondition to report rather than a bug.
 	"mongosh": {"/usr/bin/mongosh", "/usr/local/bin/mongosh", "/snap/bin/mongosh", "/opt/mongodb/bin/mongosh"},
+	// mongod is only ever run to validate a staged configuration file
+	// (--outputConfig); the real server is started through systemctl.
+	"mongod": {"/usr/bin/mongod", "/usr/local/bin/mongod", "/opt/mongodb/bin/mongod"},
 	// The database tools ship separately from mongosh — mongodb-database-tools, which is
 	// not a dependency of the shell — so these are absent on plenty of servers where
 	// mongosh works fine. `db dump` says which package to install rather than reporting a
@@ -75,13 +79,22 @@ var defaultCandidates = map[string][]string{
 	"rsync":   {"/usr/bin/rsync", "/bin/rsync"},
 	"python3": {"/usr/bin/python3"},
 
+	// firewall. Only `db access` touches it, and only for MongoDB's port: ratline
+	// does not otherwise manage the firewall, and it never enables or disables ufw —
+	// enabling a firewall is how an operator locks themselves out of SSH, and that
+	// decision stays with them.
+	"ufw": {"/usr/sbin/ufw", "/sbin/ufw"},
+
 	// quotas and host facts
 	"setquota": {"/usr/sbin/setquota", "/sbin/setquota"},
 	"repquota": {"/usr/sbin/repquota", "/sbin/repquota"},
 	"quotaon":  {"/usr/sbin/quotaon", "/sbin/quotaon"},
 	"du":       {"/usr/bin/du", "/bin/du"},
 	"ip":       {"/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip"},
-	"apt-get":  {"/usr/bin/apt-get"},
+	// Same package as ip (iproute2). Used to prove what mongod is actually bound to,
+	// because the config file saying so is not the same fact.
+	"ss":      {"/usr/bin/ss", "/bin/ss", "/usr/sbin/ss"},
+	"apt-get": {"/usr/bin/apt-get"},
 }
 
 // Binaries resolves logical binary names to verified absolute paths.

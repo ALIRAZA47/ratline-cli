@@ -345,4 +345,18 @@ var migrations = [][]string{
 		`ALTER TABLE sites ADD COLUMN pre_deploy_command TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sites ADD COLUMN post_deploy_command TEXT NOT NULL DEFAULT ''`,
 	},
+
+	// The MongoDB access list: which addresses `ratline db access allow` has admitted
+	// to the server's port. The address is stored in canonical CIDR form — the same
+	// string the ufw rule was created from — so a revoke deletes exactly the rule an
+	// allow created, and `db access list` shows what ratline believes without parsing
+	// ufw's output back into addresses.
+	{
+		`CREATE TABLE mongo_access (
+			address    TEXT NOT NULL PRIMARY KEY,
+			note       TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			created_by TEXT NOT NULL DEFAULT ''
+		)`,
+	},
 }

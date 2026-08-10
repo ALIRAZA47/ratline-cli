@@ -554,17 +554,20 @@ Examples:
 Creates databases and least-privilege users on a MongoDB server, and writes the
 connection string into a site's .env so the application picks it up on restart.
 
-ratline does not install MongoDB. It manages what lives inside a server you point
-it at — a local mongod or a managed cluster, the only difference being the admin
-connection string. That string lives in a file rather than in config.yaml, at
-paths.mongo_uri_file, mode 0600: it is the root password for every database on
-the server.
+It works against any MongoDB you point it at — a local mongod or a managed
+cluster, the only difference being the admin connection string. That string
+lives in a file rather than in config.yaml, at paths.mongo_uri_file, mode 0600:
+it is the root password for every database on the server.
 
     ratline db connect
 
 That prompts for the string — not echoed, never in argv, never in your shell
 history — creates the directory, writes the file, turns provisioning on, and
 proves the credentials work before keeping any of it.
+
+On a host with no MongoDB at all, 'ratline db install' installs one from
+MongoDB's official repository and leaves it enforcing authorization, reachable
+only from this machine until 'ratline db access allow' says otherwise.
 
 Every role ratline grants is scoped to a single database. The cluster-wide ones —
 root, readWriteAnyDatabase — are deliberately not offered: granting one to a
@@ -574,6 +577,7 @@ Usage:
   ratline db [command]
 
 Available Commands:
+  install     Install MongoDB on this host, secure it, and attach it
   connect     Point ratline at a MongoDB server and turn provisioning on
   enable      Turn database provisioning on
   disable     Turn database provisioning off
@@ -586,6 +590,7 @@ Available Commands:
   restore     Load an archive back into a database
   user        Add, inspect, re-role and remove MongoDB users
   roles       List the roles ratline will grant, and what each allows
+  access      Control which addresses can reach this host's MongoDB
 
 Flags:
   -h, --help   help for db
@@ -601,10 +606,11 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Examples:
+  ratline db install
   ratline db ping
   ratline db create shop --owner acme --attach shop.example.com
   ratline db user add reports --database shop --role read
-  ratline db user password shop_app --attach shop.example.com
+  ratline db access allow 203.0.113.19
   ratline db list --live
 
 Use "ratline db [command] --help" for more information about a command.
@@ -2904,6 +2910,69 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 ```
 
+#### `ratline db install`
+
+```
+Installs MongoDB Community from MongoDB's official apt repository and leaves it in
+the state the rest of `ratline db` assumes: enforcing authorization, reachable only
+from this machine, with a root-role admin user whose password you choose.
+
+This is the one ratline command that adds a package repository and installs
+software. The repository's signing key ships inside the ratline binary and is
+pinned into the apt source — nothing about the root of trust is downloaded.
+
+The password is asked for at the prompt, not taken as a flag: anything in argv is
+world-readable through /proc for as long as the command runs, and it would land in
+your shell history. For automation, pipe it in with --stdin.
+
+What happens, in order: the repository and key are written; mongodb-org is
+installed; the service is enabled and started; your admin user is created; the
+configuration is replaced with one that enables authorization and binds localhost
+only; mongod restarts; and ratline proves the running server enforces
+authorization with your credentials before storing the connection string and
+turning provisioning on. If any step fails, every change is undone — except the
+packages themselves, which are left installed but stopped and disabled, so a
+re-run continues where it left off.
+
+If a MongoDB server is already installed on this host and ratline did not set it
+up, this refuses and points at 'ratline db connect'. If ratline is already
+attached to a MongoDB — this one or any other — the stored connection string is
+left alone.
+
+The server listens only on localhost until 'ratline db access allow' opens it,
+firewall first.
+
+Usage:
+  ratline db install [flags]
+
+Flags:
+      --admin-user string        Name for the root-role admin user (default "admin")
+  -h, --help                     help for install
+      --mongodb-version string   Release series to install (default: newest this host supports)
+      --stdin                    Read the admin password from stdin (for automation; a terminal is prompted)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  # choose the password at the prompt: not echoed, not in argv
+  ratline db install
+
+  # for automation, where there is no terminal
+  ratline db install --stdin < /root/mongo-admin-password
+
+  # then
+  ratline db create shop --owner acme
+  ratline db access allow 203.0.113.19   # if another machine needs in
+```
+
 #### `ratline db connect`
 
 ```
@@ -3291,6 +3360,53 @@ Global Flags:
   -q, --quiet           Errors only
   -v, --verbose         Debug logging
   -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+#### `ratline db access`
+
+```
+Manages remote access to the MongoDB server `ratline db install` set up. By
+default that server listens only on localhost. Allowing an address adds a ufw rule
+admitting it to port 27017 and — on the first address — reconfigures mongod to
+listen on all interfaces, in that order: the firewall stands guard before the
+door opens. Revoking the last address puts mongod back on localhost only.
+
+ufw must already be active with a default-deny incoming policy. ratline never
+enables the firewall itself: done in the wrong order that locks you out of SSH,
+and only you know what else this machine must keep serving.
+
+For a MongoDB ratline did not install — Atlas, another host — the access list
+lives with that server, not with this machine's firewall, and these commands
+refuse.
+
+Usage:
+  ratline db access [command]
+
+Available Commands:
+  allow       Let an address or network reach MongoDB
+  revoke      Stop an address reaching MongoDB
+  list        Show who can reach this host's MongoDB
+
+Flags:
+  -h, --help   help for access
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db access allow 203.0.113.19          # one machine
+  ratline db access allow 10.8.0.0/24 --note vpn # a network
+  ratline db access list
+  ratline db access revoke 203.0.113.19
+
+Use "ratline db access [command] --help" for more information about a command.
 ```
 
 #### `ratline config show`
@@ -4427,6 +4543,99 @@ Flags:
       --auth-db string   Authentication database, when the username is ambiguous
       --force            Do not ask, even when a site depends on it
   -h, --help             help for delete
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+```
+
+##### `ratline db access allow`
+
+```
+Adds a ufw rule admitting the address to port 27017. The first allowed address
+also reconfigures mongod to listen beyond localhost and restarts it — firewall
+rule first, wider bind second, and the outcome is verified against the running
+server: it must still enforce authorization, and it must actually be listening
+where the config says.
+
+The address can be one machine (203.0.113.19) or a network in CIDR notation
+(10.8.0.0/24). Prefer the narrowest thing that works: this port now stands
+behind a password alone for everyone the rule admits.
+
+Usage:
+  ratline db access allow <address> [flags]
+
+Flags:
+  -h, --help          help for allow
+      --note string   A word on whose address this is, shown in the list
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db access allow 203.0.113.19
+  ratline db access allow 10.8.0.0/24 --note "office vpn"
+```
+
+##### `ratline db access revoke`
+
+```
+Deletes the ufw rule an allow created. Revoking the last allowed address also
+puts mongod back to listening on localhost only, restarts it, and verifies both
+facts against the running server.
+
+Connections that address already holds open are not cut — the firewall stops new
+ones. Restarting mongod cuts everything; revoking the last address does that
+anyway, as a side effect of the rebind.
+
+Revoking an address that was never allowed reports as much and changes nothing:
+it is already the state you asked for.
+
+Usage:
+  ratline db access revoke <address> [flags]
+
+Flags:
+  -h, --help   help for revoke
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db access revoke 203.0.113.19
+```
+
+##### `ratline db access list`
+
+```
+Shows the allowed addresses, what mongod is bound to, and whether the firewall
+is still standing guard — together, because each is meaningless without the
+others.
+
+Usage:
+  ratline db access list [flags]
+
+Flags:
+  -h, --help   help for list
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)

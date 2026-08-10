@@ -1,0 +1,36 @@
+# managed-by: ratline
+#
+# The MongoDB server configuration, written by `ratline db install` and rewritten by
+# `ratline db access allow` and `ratline db access revoke`. Hand edits survive only
+# until the next of those commands runs; put anything permanent in a change request
+# to ratline instead, or stop using `db access` and take the file over — ratline
+# refuses to touch it once this header is gone.
+
+storage:
+  dbPath: /var/lib/mongodb
+
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+
+net:
+  port: 27017
+{{- if .BindRemote}}
+  # `ratline db access allow` has admitted remote addresses, so mongod listens on
+  # every interface and the firewall decides who gets in. `ratline db access list`
+  # shows who that is.
+  bindIpAll: true
+{{- else}}
+  # Only this machine can connect. `ratline db access allow <address>` opens the
+  # port to a remote address, firewall first.
+  bindIp: 127.0.0.1
+{{- end}}
+
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+
+security:
+  # Never turned off: a mongod without authorization answers every command from
+  # anyone who can reach the port.
+  authorization: enabled

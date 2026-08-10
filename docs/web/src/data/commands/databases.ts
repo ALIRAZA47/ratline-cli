@@ -6,12 +6,68 @@ export const databases: CommandGroup = {
   path: '/reference/db',
   blurb: 'MongoDB databases and least-privilege users, one per tenant.',
   intro: [
-    'ratline does not install MongoDB. It manages what lives inside a server you point it at — a local mongod or a managed cluster, the only difference being the connection string. A database server is a stateful thing with backups and a replication topology, and a tool that silently apt-gets one has made a decision belonging to whoever owns the data. The same reasoning has ratline configure nginx and drive certbot without installing either.',
+    'ratline never installs MongoDB as a side effect. It manages what lives inside a server you point it at — a local mongod or a managed cluster, the only difference being the connection string. The one explicit exception is `db install`, whose entire job is to put MongoDB on this host, secured, and it refuses a server somebody else set up. Nothing else will ever apt-get a database server because you asked for something adjacent.',
     'The admin connection string lives in a file at paths.mongo_uri_file, mode 0600, not in config.yaml: it is the root password for every database on the server, and config.yaml is a file operators paste into support tickets. ratline refuses to read it at any mode another account could see.',
     'Every role it grants is scoped to a single database. The cluster-wide ones — root, readWriteAnyDatabase, userAdminAnyDatabase — are deliberately absent, because granting one to a tenant’s application hands it every other tenant’s data, and it would be one flag away if the list were open.',
     'A password is generated, shown once, and never stored. MongoDB keeps a hash and will not return it, so ratline could not display it later even if it wanted to — which is the right shape rather than a limitation: there is no credential store here to be stolen, and a lost password is rotated rather than recovered.',
   ],
   commands: [
+    {
+      id: 'db-install',
+      name: 'ratline db install',
+      status: 'built',
+      summary: 'Install MongoDB on this host, secure it, and attach it.',
+      description: [
+        'Adds MongoDB’s official apt repository, installs mongodb-org, creates a root-role admin user with the password you choose, replaces /etc/mongod.conf with a managed configuration that enables authorization and binds localhost only, restarts the server, and proves the outcome — the running server must enforce authorization and accept those credentials — before storing the connection string and turning provisioning on.',
+        'This is the one ratline command that adds a package repository and installs software. The repository’s signing key ships inside the ratline binary and is pinned into the apt source with signed-by; nothing about the root of trust is downloaded at install time.',
+        'A failure at any step is unwound — config restored, user removed, service stopped and disabled. Only the downloaded packages stay, inert, so a re-run continues where it left off. Re-running after success verifies and reports; it does not bounce a serving database.',
+        'The server listens only on localhost until `db access allow` opens it, firewall first.',
+      ],
+      flags: [
+        {
+          name: '--stdin',
+          type: 'bool',
+          description: 'Read the admin password from stdin, for automation.',
+          note: 'On a terminal the command prompts twice instead, and what you type is not echoed. The password is never a flag value: anything in argv is world-readable through /proc for as long as the command runs, and it would land in your shell history.',
+        },
+        {
+          name: '--admin-user',
+          arg: '<name>',
+          type: 'string',
+          default: 'admin',
+          description: 'Name for the root-role admin user.',
+        },
+        {
+          name: '--mongodb-version',
+          arg: '<series>',
+          type: 'string',
+          description: 'Release series to install, such as 8.0. Default: the newest MongoDB publishes for this distribution release.',
+        },
+      ],
+      refuses: [
+        'A MongoDB server already installed on this host that ratline did not set up — enable authorization yourself and attach it with db connect.',
+        'A host whose distribution release MongoDB’s repository does not publish packages for.',
+        'A password shorter than 8 characters, or one containing control characters.',
+      ],
+      examples: [
+        {
+          title: 'Choose the password at the prompt: not echoed, not in argv',
+          lang: 'shell',
+          code: `ratline db install
+ratline db create shop --owner acme`,
+        },
+        {
+          title: 'For automation, where there is no terminal',
+          lang: 'shell',
+          code: 'ratline db install --stdin < /root/mongo-admin-password',
+        },
+      ],
+      seeAlso: [
+        { label: 'db connect', to: '/reference/db/connect' },
+        { label: 'db access allow', to: '/reference/db/access-allow' },
+      ],
+      keywords: ['install mongodb', 'apt repository', 'mongod', 'authorization', 'root user'],
+    },
     {
       id: 'db-connect',
       name: 'ratline db connect',
@@ -344,6 +400,65 @@ ratline site restart shop.example.com`,
         'If you genuinely need a cluster-wide role, use mongosh directly. ratline will not be the thing that made it easy.',
       ],
       examples: [{ lang: 'shell', code: 'ratline db roles' }],
+    },
+    {
+      id: 'db-access-allow',
+      name: 'ratline db access allow',
+      args: '<address>',
+      status: 'built',
+      summary: 'Let an address or network reach MongoDB.',
+      description: [
+        'Adds a ufw rule admitting the address to port 27017. The first allowed address also reconfigures mongod to listen beyond localhost and restarts it — firewall rule first, wider bind second, so the guard is standing before the door opens. The outcome is verified against the running server: still enforcing authorization, and actually listening where the config says.',
+        'The address can be one machine (203.0.113.19) or a network in CIDR notation (10.8.0.0/24). Prefer the narrowest thing that works: everyone the rule admits faces only the password from then on.',
+        'This manages the mongod that db install set up. For a server elsewhere — Atlas, another host — the access list lives with that server, and this refuses.',
+      ],
+      flags: [
+        { name: '--note', arg: '<text>', type: 'string', description: 'A word on whose address this is, shown in the list.' },
+      ],
+      refuses: [
+        'ufw not installed — without a firewall, an allowed-addresses list is fiction.',
+        'ufw inactive — ratline never runs ufw enable for you: done in the wrong order it locks you out of SSH. Allow SSH first, then enable it yourself.',
+        'A default incoming policy of allow — an allow-list on an allow-by-default firewall restricts nobody.',
+        'A mongod whose configuration ratline does not manage.',
+      ],
+      examples: [
+        {
+          lang: 'shell',
+          code: `ratline db access allow 203.0.113.19
+ratline db access allow 10.8.0.0/24 --note "office vpn"`,
+        },
+      ],
+      seeAlso: [
+        { label: 'db access list', to: '/reference/db/access-list' },
+        { label: 'db access revoke', to: '/reference/db/access-revoke' },
+      ],
+      keywords: ['whitelist', 'allowlist', 'firewall', 'ufw', 'bindIp', 'remote access', 'expose'],
+    },
+    {
+      id: 'db-access-revoke',
+      name: 'ratline db access revoke',
+      args: '<address>',
+      status: 'built',
+      summary: 'Stop an address reaching MongoDB.',
+      description: [
+        'Deletes the ufw rule an allow created. Revoking the last allowed address also puts mongod back to listening on localhost only, restarts it, and verifies both facts against the running server.',
+        'Connections the address already holds open are not cut — the firewall stops new ones. Revoking the last address cuts everything anyway, as a side effect of the rebind.',
+        'Revoking an address that was never allowed reports as much and changes nothing: it is already the state you asked for.',
+      ],
+      examples: [{ lang: 'shell', code: 'ratline db access revoke 203.0.113.19' }],
+      keywords: ['whitelist', 'firewall', 'ufw', 'close port'],
+    },
+    {
+      id: 'db-access-list',
+      name: 'ratline db access list',
+      status: 'built',
+      summary: 'Show who can reach this host’s MongoDB.',
+      description: [
+        'The allowed addresses, what mongod is bound to, and whether the firewall is still standing guard — together, because each is meaningless without the others.',
+        'If mongod listens beyond localhost while ufw is inactive or defaulting to allow, this says so in as many words. doctor reports the same condition.',
+      ],
+      examples: [{ lang: 'shell', code: 'ratline db access list' }],
+      keywords: ['whitelist', 'allowed addresses', 'firewall status'],
     },
   ],
 };

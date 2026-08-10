@@ -17,12 +17,12 @@ import (
 
 // `ratline db` provisions MongoDB databases and users.
 //
-// Two things shape the whole surface. First, ratline provisions inside a MongoDB server
-// rather than installing one — a database server is stateful, with backups and a
-// replication topology, and a tool that silently apt-gets one has decided something that
-// belongs to whoever owns the data. Second, a password is shown once and never stored:
-// MongoDB keeps a hash and will not give it back, so a lost password is rotated rather
-// than recovered, and there is no credential store here to be stolen.
+// Two things shape the whole surface. First, ratline manages what lives inside a
+// MongoDB server — the one place it will put a server there itself is `db install`,
+// which is explicit, verified, and refuses a mongod somebody else set up. Second, a
+// password is shown once and never stored: MongoDB keeps a hash and will not give it
+// back, so a lost password is rotated rather than recovered, and there is no
+// credential store here to be stolen.
 
 func newDBCommand(g *Globals) *cobra.Command {
 	cmd := &cobra.Command{
@@ -31,25 +31,29 @@ func newDBCommand(g *Globals) *cobra.Command {
 		GroupID: GroupOps,
 		Long: "Creates databases and least-privilege users on a MongoDB server, and writes the\n" +
 			"connection string into a site's .env so the application picks it up on restart.\n\n" +
-			"ratline does not install MongoDB. It manages what lives inside a server you point\n" +
-			"it at — a local mongod or a managed cluster, the only difference being the admin\n" +
-			"connection string. That string lives in a file rather than in config.yaml, at\n" +
-			"paths.mongo_uri_file, mode 0600: it is the root password for every database on\n" +
-			"the server.\n\n" +
+			"It works against any MongoDB you point it at — a local mongod or a managed\n" +
+			"cluster, the only difference being the admin connection string. That string\n" +
+			"lives in a file rather than in config.yaml, at paths.mongo_uri_file, mode 0600:\n" +
+			"it is the root password for every database on the server.\n\n" +
 			"    ratline db connect\n\n" +
 			"That prompts for the string — not echoed, never in argv, never in your shell\n" +
 			"history — creates the directory, writes the file, turns provisioning on, and\n" +
 			"proves the credentials work before keeping any of it.\n\n" +
+			"On a host with no MongoDB at all, 'ratline db install' installs one from\n" +
+			"MongoDB's official repository and leaves it enforcing authorization, reachable\n" +
+			"only from this machine until 'ratline db access allow' says otherwise.\n\n" +
 			"Every role ratline grants is scoped to a single database. The cluster-wide ones —\n" +
 			"root, readWriteAnyDatabase — are deliberately not offered: granting one to a\n" +
 			"tenant's application hands it every other tenant's data.",
-		Example: "  ratline db ping\n" +
+		Example: "  ratline db install\n" +
+			"  ratline db ping\n" +
 			"  ratline db create shop --owner acme --attach shop.example.com\n" +
 			"  ratline db user add reports --database shop --role read\n" +
-			"  ratline db user password shop_app --attach shop.example.com\n" +
+			"  ratline db access allow 203.0.113.19\n" +
 			"  ratline db list --live",
 	}
 	cmd.AddCommand(
+		newDBInstallCommand(g),
 		newDBConnectCommand(g),
 		newDBEnableCommand(g),
 		newDBDisableCommand(g),
@@ -62,6 +66,7 @@ func newDBCommand(g *Globals) *cobra.Command {
 		newDBRestoreCommand(g),
 		newDBUserCommand(g),
 		newDBRolesCommand(g),
+		newDBAccessCommand(g),
 	)
 	return cmd
 }

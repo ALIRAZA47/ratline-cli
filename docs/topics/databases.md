@@ -3,15 +3,89 @@
 > MongoDB databases and users, one per tenant, with roles that cannot reach past their
 > own database.
 
-## ratline does not install MongoDB
+## ratline never installs MongoDB as a side effect
 
 It manages what lives inside a server you point it at. A database server is a stateful
 thing with backups and a replication topology, and a tool that silently `apt-get`s one has
 made a decision belonging to whoever owns the data — the same reasoning that has ratline
 configure nginx and drive certbot without installing either.
 
+The one exception is explicit: `ratline db install`, below, whose entire job is to put
+MongoDB on this host. Nothing else — not `site add`, not `db create`, not a wizard —
+will ever install a database server because you asked for something adjacent.
+
 A local `mongod` and a managed cluster work identically. The only difference is the
 connection string.
+
+## Installing MongoDB on this host
+
+On a fresh VPS with no MongoDB anywhere, "point ratline at a server" is not actionable
+advice. So:
+
+    ratline db install
+    Choose a password for the MongoDB admin user (not echoed): ▏
+
+That adds MongoDB's official apt repository, installs `mongodb-org`, creates a
+root-role admin user with the password you chose, replaces `/etc/mongod.conf` with a
+managed one that **enables authorization** and binds **localhost only**, restarts the
+server, and proves the outcome — the running server must enforce authorization and
+accept those credentials — before storing the connection string and turning
+provisioning on. If ratline is already attached to a MongoDB, the stored string is left
+alone and says so.
+
+Details that are easy to get wrong by hand, handled:
+
+- The repository's signing key ships **inside the ratline binary** and is pinned into
+  the apt source with `signed-by`. Nothing about the root of trust is downloaded at
+  install time.
+- The password is prompted for, or piped with `--stdin` — never a flag, for the same
+  `/proc` and shell-history reasons as the connection string below.
+- The manual path's classic mistake — everything works, authorization never gets
+  turned on — cannot happen: there is no code path that writes a config without
+  `security.authorization: enabled`, and the result is verified against the running
+  server, not the file.
+- A failure at any step is unwound: config restored, user removed, service stopped and
+  disabled. Only the downloaded packages stay, inert, so a re-run continues instead of
+  re-downloading.
+
+A MongoDB that is already on the host but was not set up by ratline is refused, not
+adopted — enable authorization yourself and attach it with `ratline db connect`.
+
+`--mongodb-version` picks a release series; the default is the newest one MongoDB
+publishes for this distribution release. `--dry-run` prints the resolved plan without
+touching anything.
+
+## Who can reach the port
+
+After `db install`, mongod listens on `127.0.0.1` only. Applications on this machine
+connect; nothing else can. When another machine genuinely needs in:
+
+    ratline db access allow 203.0.113.19
+    ratline db access allow 10.8.0.0/24 --note vpn
+    ratline db access list
+    ratline db access revoke 203.0.113.19
+
+Reachability is two facts that must agree — what mongod binds, and what the firewall
+admits — and `db access` owns both together. The first allowed address adds the ufw
+rule **before** widening the bind to all interfaces, so the guard is standing before
+the door opens; revoking the last one puts mongod back on localhost only. Both
+transitions restart mongod and verify the outcome against the running server: still
+enforcing authorization, and actually bound where the config says.
+
+Three refusals, each with a different fix:
+
+- **ufw not installed** — without a firewall, an allowed-addresses list is fiction.
+- **ufw inactive** — ratline never runs `ufw enable` for you: done in the wrong order
+  it locks you out of SSH, and only you know what else must stay reachable. Allow SSH
+  first, then enable it yourself.
+- **default incoming policy is allow** — an allow-list on an allow-by-default firewall
+  restricts nobody.
+
+Prefer the narrowest address that works. Every address you allow faces only the
+password from then on.
+
+For a MongoDB ratline did not install — Atlas, another host — the access list lives
+with that server, not with this machine's firewall, and these commands refuse.
 
 ## Setting it up
 
@@ -219,3 +293,8 @@ It reports an unreachable server, an admin file at the wrong mode, a server that
 enforcing authentication, a database recorded here but missing there, and — the one that
 matters most — a user a site still holds credentials for but which the server no longer has.
 That last case is an application failing to authenticate right now.
+
+It also checks the port's exposure: a mongod listening beyond localhost while ufw is
+inactive, or missing, or defaulting to allow. Nothing refuses that combination when it
+happens by hand outside ratline, so `doctor` is where it surfaces — answered from the
+listening socket and the firewall's own status, not from what any config file says.

@@ -1,11 +1,11 @@
 // Package mongo provisions MongoDB databases and users.
 //
-// What it does not do: install or configure a MongoDB server. ratline configures nginx
-// and drives certbot without installing either, and the same reasoning applies here —
-// a database server is a stateful thing with backups and a replication topology, and a
-// provisioning tool that silently apt-gets one has made a decision that belongs to
-// whoever owns the data. So this connects to a MongoDB it is given and manages what
-// lives inside it, which works identically for a local mongod and for Atlas.
+// What it does not do: install or configure a MongoDB server — that is
+// internal/mongod's job, and it happens only when an operator explicitly asks with
+// `ratline db install`. This package connects to a MongoDB it is given and manages
+// what lives inside it, which works identically for a local mongod and for Atlas; a
+// database server is a stateful thing with backups and a replication topology, and
+// nothing here will ever apt-get one as a side effect.
 //
 // Every operation goes through one static JavaScript file, embedded in the binary, run
 // as `mongosh --nodb --quiet --file`. Two things follow from that, both deliberate:
@@ -141,20 +141,28 @@ func (m *Manager) AdminURI() (string, error) {
 	return uri, nil
 }
 
-// run executes one operation and decodes its JSON result.
+// run executes one operation against the attached server and decodes its JSON result.
 //
 // env carries the parameters. Nothing is formatted into a command line, and the caller
 // never sees the URI in an error: a failure message that quotes the connection string
 // puts the admin password into the audit log.
 func (m *Manager) run(ctx context.Context, op string, env map[string]string) (json.RawMessage, error) {
+	uri, err := m.AdminURI()
+	if err != nil {
+		return nil, err
+	}
+	return m.runWithURI(ctx, uri, op, env)
+}
+
+// runWithURI is run against an explicit connection string, for the moments when the
+// server ratline must talk to is not the attached one: `db install` bootstraps a mongod
+// that has no stored URI yet, and has to reach it both before and after credentials
+// exist.
+func (m *Manager) runWithURI(ctx context.Context, uri, op string, env map[string]string) (json.RawMessage, error) {
 	if m.Bins != nil && !m.Bins.Available("mongosh") {
 		return nil, rlerr.Preconditionf("mongosh is not installed, so ratline cannot talk to MongoDB").
 			WithHint("apt-get install mongodb-mongosh, or see " +
 				"https://www.mongodb.com/docs/mongodb-shell/install/")
-	}
-	uri, err := m.AdminURI()
-	if err != nil {
-		return nil, err
 	}
 
 	script, err := m.stageScript()
@@ -287,6 +295,52 @@ func (m *Manager) Ping(ctx context.Context) (*ServerInfo, error) {
 		return nil, rlerr.Wrap(err, rlerr.CodeExternal, "reading the server's answer")
 	}
 	return &info, nil
+}
+
+// PingURI is Ping against an explicit connection string, for a server that is not (or
+// not yet) the attached one.
+func (m *Manager) PingURI(ctx context.Context, uri string) (*ServerInfo, error) {
+	raw, err := m.runWithURI(ctx, uri, "ping", nil)
+	if err != nil {
+		return nil, err
+	}
+	var info ServerInfo
+	if err := json.Unmarshal(raw, &info); err != nil {
+		return nil, rlerr.Wrap(err, rlerr.CodeExternal, "reading the server's answer")
+	}
+	return &info, nil
+}
+
+// CreateAdminUser creates the first user on a freshly installed server: a root-role
+// user in the admin database, which is the credential ratline will manage the server
+// with from then on. The connection string is explicit because at this point there is
+// nothing attached to read one from.
+func (m *Manager) CreateAdminUser(ctx context.Context, uri, username, password string) error {
+	if err := validate.DatabaseUsername(username); err != nil {
+		return err
+	}
+	if password == "" {
+		return rlerr.Usagef("the admin user needs a password")
+	}
+	_, err := m.runWithURI(ctx, uri, "createAdminUser", map[string]string{
+		"RATLINE_MONGO_USER":     username,
+		"RATLINE_MONGO_PASSWORD": password,
+	})
+	return err
+}
+
+// DropAdminUser removes a user from the admin database through an explicit connection
+// string. It exists for one caller: `db install` unwinding the user it just created,
+// at a moment when there is no attached URI to read.
+func (m *Manager) DropAdminUser(ctx context.Context, uri, username string) error {
+	if err := validate.DatabaseUsername(username); err != nil {
+		return err
+	}
+	_, err := m.runWithURI(ctx, uri, "dropUser", map[string]string{
+		"RATLINE_MONGO_DB":   "admin",
+		"RATLINE_MONGO_USER": username,
+	})
+	return err
 }
 
 // LiveDatabases asks the server what exists, as opposed to what ratline recorded.
@@ -509,6 +563,21 @@ func (m *Manager) ConnectionURI(adminURI, database, username, password string) (
 	// credentials problem.
 	out.RawQuery = q.Encode()
 	return out.String(), nil
+}
+
+// LocalAdminURI builds the connection string for a mongod on this host.
+//
+// url.URL percent-encodes the userinfo on String(), so a password holding @ or / — the
+// characters that silently truncate a hand-assembled URI — arrives intact.
+func LocalAdminURI(username, password string) string {
+	u := &url.URL{
+		Scheme:   "mongodb",
+		Host:     "127.0.0.1:27017",
+		User:     url.UserPassword(username, password),
+		Path:     "/admin",
+		RawQuery: "authSource=admin",
+	}
+	return u.String()
 }
 
 // Redact returns a connection string safe to print or log.

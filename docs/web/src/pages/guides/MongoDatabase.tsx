@@ -29,16 +29,25 @@ export function GuideMongoDatabase() {
           four commands, two of which are once per server.
         </p>
 
-        <H2 id="server">1 · ratline does not install MongoDB</H2>
+        <H2 id="server">1 · A MongoDB server, secured</H2>
         <p>
-          It manages what lives inside a server you point it at. A local <code>mongod</code>{' '}
-          and a managed cluster are the same to it; the only difference is the connection
-          string. A database server is a stateful thing with backups and a replication
-          topology, and a tool that silently apt-gets one has made a decision that belongs
-          to whoever owns the data — the same reason ratline configures nginx and drives
-          certbot without installing either.
+          ratline never installs MongoDB as a side effect — it manages what lives inside a
+          server you point it at, and a local <code>mongod</code> and a managed cluster are
+          the same to it. But on a fresh VPS with no MongoDB anywhere, one explicit command
+          does the whole first-day job: repository (signing key pinned inside the ratline
+          binary), packages, a root-role admin user with a password you choose, authorization
+          enforced, localhost only — and it proves each of those against the running server
+          before storing the connection string.
         </p>
-        <p>So install it however your organisation installs databases, then check one thing:</p>
+      </div>
+
+      <CodeBlock lang="shell" prompt code="ratline db install" />
+
+      <div className="prose">
+        <p>
+          If the server already exists — installed by you, or a managed cluster — skip
+          straight to attaching it in step 2, then check one thing:
+        </p>
       </div>
 
       <CodeBlock lang="shell" prompt code="ratline db ping" />

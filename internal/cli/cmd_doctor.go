@@ -13,6 +13,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/buildinfo"
 	"github.com/ALIRAZA47/ratline-cli/internal/diag"
 	"github.com/ALIRAZA47/ratline-cli/internal/mongo"
+	"github.com/ALIRAZA47/ratline-cli/internal/mongod"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/sshkey"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
@@ -729,6 +730,19 @@ func newExportCommand(g *Globals) *cobra.Command {
 // a cron job page somebody for something that fixed itself. A missing admin file, or one
 // that other accounts can read, is a different matter.
 func (g *Globals) diagnoseMongo(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
+	// The port's exposure comes first, and before the mongosh gate: it is decided by
+	// the socket and the firewall, needs no shell, and matters even when nothing else
+	// about the database is configured. Same implementation as the server walk's
+	// check, so the sweep and the walk cannot drift apart.
+	mm := &mongod.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, State: st, OS: g.OS}
+	if exp, err := mm.CheckExposure(ctx); err == nil && exp.Present && exp.Remote && !exp.Guarded {
+		add("problem", "mongodb", "port "+mongod.Port,
+			"mongod listens beyond localhost and no firewall is standing guard, so anyone "+
+				"who can reach the port faces only a password",
+			"activate ufw with a default-deny incoming policy (allow SSH first), or revoke "+
+				"every address: ratline db access list")
+	}
+
 	if !g.Bins.Available("mongosh") {
 		add("warning", "mongodb", "mongosh", "not installed, so ratline cannot manage databases",
 			"apt-get install mongodb-mongosh")

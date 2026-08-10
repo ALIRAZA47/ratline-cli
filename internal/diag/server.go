@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/ALIRAZA47/ratline-cli/internal/mongod"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 )
@@ -204,6 +205,38 @@ func ServerChecks(env *Env) []Check {
 						WithFix("ratline troubleshoot ssh")
 				}
 				return Pass("")
+			},
+		},
+		{
+			ID:    "mongodb-exposure",
+			Title: "mongod is not exposed without a firewall standing guard",
+			Run: func(ctx context.Context) Result {
+				// Asked of the socket and the firewall, not the config file: the
+				// finding that matters is who can actually connect. One shared
+				// implementation with the bare `doctor` sweep, so the two cannot
+				// drift the way walk-only fixes have here before.
+				mgr := &mongod.Manager{
+					Cfg: env.Cfg, Log: env.Log, Runner: env.Runner,
+					Bins: env.Bins, State: env.State, OS: env.OS,
+				}
+				exp, err := mgr.CheckExposure(ctx)
+				if err != nil {
+					return Warn("could not determine what mongod is bound to: %v", err)
+				}
+				switch {
+				case !exp.Present:
+					return Skip("no MongoDB server on this host")
+				case !exp.Remote:
+					return Pass("mongod listens on localhost only")
+				case exp.Guarded:
+					return Pass("mongod listens beyond localhost; ufw admits %s",
+						plural(exp.Allowed, "allowed address"))
+				default:
+					return Fail("mongod listens beyond localhost and no firewall is standing " +
+						"guard, so anyone who can reach port " + mongod.Port + " faces only a password").
+						WithFix("activate ufw with a default-deny incoming policy (allow SSH first), " +
+							"or revoke every address: ratline db access list")
+				}
 			},
 		},
 		{

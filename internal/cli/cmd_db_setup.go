@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -123,62 +124,8 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 				return nil
 			}
 
-			// Undone by hand rather than through the rollback stack: what has to be put
-			// back depends on what was there before — a previous URI is restored, and the
-			// feature flag reverts only if this command is what set it.
-			var err error
-
-			// 0700, because the directory listing alone tells anyone that a database
-			// credential lives here.
-			if _, err = system.EnsureDir(filepath.Dir(path), 0o700, 0, 0); err != nil {
-				return err
-			}
-			var previous []byte
-			existed := system.Exists(path)
-			if existed {
-				if previous, err = os.ReadFile(path); err != nil {
-					return rlerr.Wrap(err, rlerr.CodeGeneric, "reading the existing %s", path)
-				}
-			}
-			// Written with a header, because the next person to find this file will be
-			// somebody auditing /etc who does not know what it is. Comments and blank
-			// lines are skipped on the way back in, so the note costs nothing.
-			body := "# " + system.ManagedHeader + "\n" +
-				"# MongoDB admin connection string. This is the root credential for every\n" +
-				"# database on that server, which is why this file is 0600 and root-owned\n" +
-				"# and why it is not in config.yaml.\n" +
-				"#\n" +
-				"# Replace it with:  ratline db connect --force\n" +
-				"# Check it with:    ratline db ping\n\n" +
-				uri + "\n"
-			if err = system.WriteFileAtomic(path, []byte(body), 0o600, 0, 0); err != nil {
-				return err
-			}
-			// Turned on before the check, because the check goes through the same code
-			// path an operator will use and that path refuses when the feature is off.
-			wasEnabled := g.Cfg.Features.DBProvisioning
-			if !wasEnabled {
-				if err = g.setConfigValue("features.db_provisioning", "true"); err != nil {
-					return err
-				}
-			}
-			g.Cfg.Features.DBProvisioning = true
-
-			mgr := &mongo.Manager{
-				Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, DryRun: false,
-			}
-			info, perr := mgr.Ping(ctx)
-			if perr != nil {
-				if existed {
-					_ = system.WriteFileAtomic(path, previous, 0o600, 0, 0)
-				} else {
-					_ = os.Remove(path)
-				}
-				if !wasEnabled {
-					_ = g.setConfigValue("features.db_provisioning", "false")
-				}
-				err = rlerr.Wrap(perr, rlerr.CodePrecondition,
-					"those credentials did not work, so nothing was stored")
+			info, err := g.storeAdminURIAndEnable(ctx, uri)
+			if err != nil {
 				return err
 			}
 
@@ -324,6 +271,74 @@ func newDBDisableCommand(g *Globals) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&forget, "forget", false, "Also remove the stored admin connection string")
 	return Mutating(cmd)
+}
+
+// storeAdminURIAndEnable writes the admin connection string where AdminURI reads it,
+// turns database provisioning on, and proves the credentials work before committing to
+// either. Shared by `db connect` and `db install`: attaching a server is one operation
+// with one set of guarantees, however the connection string came to exist.
+//
+// Undone by hand rather than through the rollback stack: what has to be put back
+// depends on what was there before — a previous URI is restored, and the feature flag
+// reverts only if this call is what set it.
+func (g *Globals) storeAdminURIAndEnable(ctx context.Context, uri string) (*mongo.ServerInfo, error) {
+	path := g.Cfg.Paths.MongoURIFile
+	var err error
+
+	// 0700, because the directory listing alone tells anyone that a database
+	// credential lives here.
+	if _, err = system.EnsureDir(filepath.Dir(path), 0o700, 0, 0); err != nil {
+		return nil, err
+	}
+	var previous []byte
+	existed := system.Exists(path)
+	if existed {
+		if previous, err = os.ReadFile(path); err != nil {
+			return nil, rlerr.Wrap(err, rlerr.CodeGeneric, "reading the existing %s", path)
+		}
+	}
+	// Written with a header, because the next person to find this file will be
+	// somebody auditing /etc who does not know what it is. Comments and blank
+	// lines are skipped on the way back in, so the note costs nothing.
+	body := "# " + system.ManagedHeader + "\n" +
+		"# MongoDB admin connection string. This is the root credential for every\n" +
+		"# database on that server, which is why this file is 0600 and root-owned\n" +
+		"# and why it is not in config.yaml.\n" +
+		"#\n" +
+		"# Replace it with:  ratline db connect --force\n" +
+		"# Check it with:    ratline db ping\n\n" +
+		uri + "\n"
+	if err = system.WriteFileAtomic(path, []byte(body), 0o600, 0, 0); err != nil {
+		return nil, err
+	}
+	// Turned on before the check, because the check goes through the same code
+	// path an operator will use and that path refuses when the feature is off.
+	wasEnabled := g.Cfg.Features.DBProvisioning
+	if !wasEnabled {
+		if err = g.setConfigValue("features.db_provisioning", "true"); err != nil {
+			return nil, err
+		}
+	}
+	g.Cfg.Features.DBProvisioning = true
+
+	mgr := &mongo.Manager{
+		Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, DryRun: false,
+	}
+	info, perr := mgr.Ping(ctx)
+	if perr != nil {
+		if existed {
+			_ = system.WriteFileAtomic(path, previous, 0o600, 0, 0)
+		} else {
+			_ = os.Remove(path)
+		}
+		if !wasEnabled {
+			_ = g.setConfigValue("features.db_provisioning", "false")
+			g.Cfg.Features.DBProvisioning = false
+		}
+		return nil, rlerr.Wrap(perr, rlerr.CodePrecondition,
+			"those credentials did not work, so nothing was stored")
+	}
+	return info, nil
 }
 
 // setConfigValue changes one setting and writes the file, preserving its comments.

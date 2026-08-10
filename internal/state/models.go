@@ -330,3 +330,13 @@ type DatabaseAttachment struct {
 	EnvKey     string    `json:"env_key"`
 	AttachedAt time.Time `json:"attached_at"`
 }
+
+// MongoAccess is one address `db access allow` admitted to the MongoDB port. The
+// address is a canonical CIDR — the exact string the ufw rule was written with, so a
+// revoke deletes the rule an allow created rather than a near-miss of it.
+type MongoAccess struct {
+	Address   string    `json:"address"`
+	Note      string    `json:"note,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by,omitempty"`
+}

@@ -81,6 +81,9 @@ func TestDryRunLeavesTheDatabaseUntouched(t *testing.T) {
 		{"site", "add", "node.example.com", "--user", "acme", "--runtime", "node",
 			"--entry", "server.js", "--listen", "port"},
 		{"user", "add", "beta"},
+		{"db", "install"},
+		{"db", "access", "allow", "203.0.113.19"},
+		{"db", "access", "revoke", "203.0.113.19"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			configPath, hashDB := dryRunFixture(t)
