@@ -22,11 +22,16 @@ ENV container=docker
 # this one do nothing at all. The comment is above the instruction rather than inside
 # it, because a # within a line continuation is handed to the shell and would comment
 # out the rest of the command — installing fewer packages and still exiting 0.
+#
+# ufw and iproute2 are for the `db access` section: ratline verifies what mongod is
+# bound to with ss, and refuses to open the port unless ufw stands in front of it.
+# A minimal container has neither, where a real server has both.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd systemd-sysv dbus \
         nginx openssh-server openssl ca-certificates curl \
         python3 python3-venv python3-pip \
         git rsync sudo procps xz-utils jq sqlite3 \
+        ufw iproute2 \
         certbot \
     && rm -rf /var/lib/apt/lists/*
 

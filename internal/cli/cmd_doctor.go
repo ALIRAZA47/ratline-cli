@@ -456,10 +456,17 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		}
 	}
 
-	// MongoDB, when provisioning is on. A database server that has become unreachable
-	// is invisible otherwise: the sites keep serving, their connection strings keep
-	// looking correct, and the first sign is an application error nobody attributes to
-	// the database until they read its logs.
+	// The MongoDB port's exposure, unconditionally: a mongod listening on every
+	// interface with no firewall in front of it is a host problem whether or not
+	// ratline's provisioning is turned on, and `db disable` must not make it
+	// invisible. Same implementation as the server walk's check, so the sweep and
+	// the walk cannot drift apart.
+	g.diagnoseMongoExposure(ctx, st, add)
+
+	// The rest of MongoDB, when provisioning is on. A database server that has become
+	// unreachable is invisible otherwise: the sites keep serving, their connection
+	// strings keep looking correct, and the first sign is an application error nobody
+	// attributes to the database until they read its logs.
 	if g.Cfg.Features.DBProvisioning {
 		g.diagnoseMongo(ctx, st, add)
 	}
@@ -729,11 +736,11 @@ func newExportCommand(g *Globals) *cobra.Command {
 // that may be a network blip, and `doctor` exits non-zero on problems, which would make
 // a cron job page somebody for something that fixed itself. A missing admin file, or one
 // that other accounts can read, is a different matter.
-func (g *Globals) diagnoseMongo(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
-	// The port's exposure comes first, and before the mongosh gate: it is decided by
-	// the socket and the firewall, needs no shell, and matters even when nothing else
-	// about the database is configured. Same implementation as the server walk's
-	// check, so the sweep and the walk cannot drift apart.
+// diagnoseMongoExposure reports a mongod reachable beyond localhost with no firewall
+// standing guard. It runs outside the provisioning gate: the finding is decided by the
+// socket and the firewall, needs no mongosh and no credentials, and matters even when
+// nothing else about the database is configured.
+func (g *Globals) diagnoseMongoExposure(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
 	mm := &mongod.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, State: st, OS: g.OS}
 	if exp, err := mm.CheckExposure(ctx); err == nil && exp.Present && exp.Remote && !exp.Guarded {
 		add("problem", "mongodb", "port "+mongod.Port,
@@ -742,7 +749,9 @@ func (g *Globals) diagnoseMongo(ctx context.Context, st *state.Store, add func(s
 			"activate ufw with a default-deny incoming policy (allow SSH first), or revoke "+
 				"every address: ratline db access list")
 	}
+}
 
+func (g *Globals) diagnoseMongo(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
 	if !g.Bins.Available("mongosh") {
 		add("warning", "mongodb", "mongosh", "not installed, so ratline cannot manage databases",
 			"apt-get install mongodb-mongosh")

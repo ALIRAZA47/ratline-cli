@@ -137,19 +137,21 @@ func TestAccessAllowRefusalsComeBeforeChanges(t *testing.T) {
 		}
 	})
 
-	t.Run("nothing attached", func(t *testing.T) {
-		// Opening the bind ends in a verification that needs the admin credentials;
-		// their absence must refuse before the firewall changes, not after.
-		m, fake, _ := accessManager(t)
+	t.Run("no attachment needed", func(t *testing.T) {
+		// The command's promises are about the local server, so its verification uses
+		// the plain local URI — an operator who re-attached ratline to a managed
+		// cluster can still steer this host's port, and the verification cannot be
+		// fooled into pinging whatever happens to be attached.
+		m, _, mf := accessManager(t)
 		if err := os.Remove(m.Cfg.Paths.MongoURIFile); err != nil {
 			t.Fatal(err)
 		}
-		_, err := m.AccessAllow(ctx, "203.0.113.19", "", "test")
-		if err == nil {
-			t.Fatal("an unattached host opened its database port")
+		res, err := m.AccessAllow(ctx, "203.0.113.19", "", "test")
+		if err != nil {
+			t.Fatalf("an unattached host could not manage its own port: %v", err)
 		}
-		if fake.Called("ufw allow") {
-			t.Error("the firewall changed before the refusal")
+		if !res.OpenedNetwork || !mf.authEnforced {
+			t.Errorf("result = %+v, authEnforced = %v", res, mf.authEnforced)
 		}
 	})
 }

@@ -1272,6 +1272,150 @@ else
     fi
 fi
 
+# ---------------------------------------------------------------- database server
+#
+# `ratline db install` puts MongoDB on this host — the real apt path, against the same
+# repository the image already pulls mongosh from, so this adds no new external
+# dependency, only a new consumer of it. Everything the command promises is asserted
+# from outside: the running service, the enforced authorization, the localhost-only
+# socket, and the attachment it must not touch.
+
+info "database server (db install)"
+
+if ! command -v apt-get >/dev/null 2>&1; then
+    printf '  skip  no apt on this host\n'
+else
+    refute "db install refuses a short password" \
+        bash -c "printf short | '$RATLINE' db install --stdin"
+    check "no mongod is installed yet" bash -c '! command -v mongod'
+
+    DBPW='integration-dbserver-pw'
+    installout=$(printf '%s' "$DBPW" | "$RATLINE" db install --stdin 2>&1)
+    case "$installout" in
+        *"installed and secured"*) ok "db install completed" ;;
+        *) bad "db install failed" "$(printf '%s' "$installout" | tail -5)" ;;
+    esac
+    case "$installout" in
+        *"$DBPW"*) bad "db install echoed the admin password" "it appears in its output" ;;
+        *) ok "db install does not echo the password" ;;
+    esac
+
+    check "mongod is running"      systemctl is-active --quiet mongod
+    check "mongod.conf carries the managed header" \
+        bash -c 'head -1 /etc/mongod.conf | grep -q "^# managed-by: ratline"'
+    # The admin credentials open the server — which also proves it answers, so the
+    # refusal check after it cannot pass vacuously against a dead socket.
+    check "the admin credentials work" \
+        mongosh "mongodb://admin:$DBPW@127.0.0.1:27017/admin?authSource=admin" \
+            --quiet --eval 'db.adminCommand({ping:1})'
+    refute "authorization is enforced: unauthenticated admin commands are refused" \
+        mongosh "mongodb://127.0.0.1:27017" --quiet \
+            --eval 'db.getSiblingDB("admin").runCommand({getCmdLineOpts:1})'
+    check "mongod listens on localhost" \
+        bash -c 'ss -Hltn | grep -q "127\.0\.0\.1:27017"'
+    refute "and nowhere else" \
+        bash -c 'ss -Hltn | grep -E "(\*|0\.0\.0\.0|\[::\]):27017"'
+
+    # The suite attached the compose MongoDB long before this section; install must
+    # leave that attachment exactly as it found it.
+    check "the stored connection string still points at the other server" \
+        grep -q "mongo:27017" /etc/ratline/db/mongodb.uri
+    contains "and install said it left it alone" "left alone" "$installout"
+
+    # Safe to run twice: same password, nothing to do, and no restart of a server
+    # that may be holding live connections.
+    mongod_pid=$(systemctl show -p MainPID --value mongod)
+    rerun=$(printf '%s' "$DBPW" | "$RATLINE" db install --stdin 2>&1)
+    case "$rerun" in
+        *"installed and secured"*) ok "db install again reports what exists" ;;
+        *) bad "a re-run failed" "$(printf '%s' "$rerun" | tail -3)" ;;
+    esac
+    check "a re-run does not restart mongod" \
+        bash -c "[ \"\$(systemctl show -p MainPID --value mongod)\" = '$mongod_pid' ]"
+    refute "a re-run with a different password is refused" \
+        bash -c "printf 'some-other-password' | '$RATLINE' db install --stdin"
+
+    # A mongod ratline did not set up is attached, not adopted. Stripping the header
+    # is what a hand-takeover looks like from the outside.
+    sed -i '1s|.*|# a hand-edited configuration|' /etc/mongod.conf
+    foreignout=$(printf '%s' "$DBPW" | "$RATLINE" db install --stdin 2>&1) \
+        && bad "db install adopted a mongod it did not set up" \
+        || contains "a foreign mongod is refused, pointing at db connect" "db connect" "$foreignout"
+    check "and the foreign config was not touched" \
+        bash -c 'head -1 /etc/mongod.conf | grep -q "hand-edited"'
+    sed -i '1s|.*|# managed-by: ratline|' /etc/mongod.conf
+fi
+
+info "database server (db access)"
+
+if ! command -v ufw >/dev/null 2>&1; then
+    printf '  skip  ufw is not installed\n'
+elif ! systemctl is-active --quiet mongod 2>/dev/null; then
+    printf '  skip  no local mongod, so there is no port to steer\n'
+else
+    # ufw is installed but inactive: the refusal that keeps a password-only mongod
+    # off the open internet.
+    refute "access allow refuses while ufw is inactive" \
+        "$RATLINE" db access allow 203.0.113.19
+    check "and the bind stayed closed" \
+        bash -c 'grep -q "bindIp: 127.0.0.1" /etc/mongod.conf'
+
+    if ! ufw --force enable >/dev/null 2>&1; then
+        printf '  skip  ufw cannot enable in this container\n'
+    else
+        refute "access allow refuses a garbage address" "$RATLINE" db access allow banana
+
+        check "the first address is allowed" \
+            "$RATLINE" db access allow 203.0.113.19 --note integration
+        check "the ufw rule exists" bash -c 'ufw status | grep -q "203\.0\.113\.19"'
+        check "mongod now listens beyond localhost" \
+            bash -c 'ss -Hltn | grep -E -q "(\*|0\.0\.0\.0|\[::\]):27017"'
+        refute "and still refuses unauthenticated admin commands" \
+            mongosh "mongodb://127.0.0.1:27017" --quiet \
+                --eval 'db.getSiblingDB("admin").runCommand({getCmdLineOpts:1})'
+
+        mongod_pid=$(systemctl show -p MainPID --value mongod)
+        check "a second address is a rule, not a restart" \
+            bash -c "'$RATLINE' db access allow 198.51.100.7 && \
+                [ \"\$(systemctl show -p MainPID --value mongod)\" = '$mongod_pid' ]"
+        check "access list shows both addresses" \
+            bash -c "'$RATLINE' db access list --json | \
+                jq -e '[.. | objects | select(has(\"address\"))] | length == 2'"
+
+        # doctor and the exposed port: quiet while ufw guards it, loud the moment the
+        # guard is gone. Both halves, because a check that never fires is not a check.
+        check "doctor is quiet while the firewall stands guard" \
+            bash -c "out=\$('$RATLINE' doctor --json 2>/dev/null || true); \
+                printf '%s' \"\$out\" | \
+                jq -e '[.. | objects | select(.subject? == \"port 27017\")] | length == 0'"
+        ufw --force disable >/dev/null 2>&1
+        check "doctor flags the port once the firewall is off" \
+            bash -c "out=\$('$RATLINE' doctor --json 2>/dev/null || true); \
+                printf '%s' \"\$out\" | \
+                jq -e '[.. | objects | select(.subject? == \"port 27017\" and .severity? == \"problem\")] | length > 0'"
+        ufw --force enable >/dev/null 2>&1
+
+        check "revoking one address keeps the port open for the other" \
+            bash -c "'$RATLINE' db access revoke 198.51.100.7 && \
+                ss -Hltn | grep -E -q '(\*|0\.0\.0\.0|\[::\]):27017'"
+        check "revoking the last address closes the network" \
+            "$RATLINE" db access revoke 203.0.113.19
+        check "mongod is back on localhost" \
+            bash -c 'ss -Hltn | grep -q "127\.0\.0\.1:27017" && ! ss -Hltn | grep -E "(\*|0\.0\.0\.0|\[::\]):27017"'
+        check "the ufw rules are gone" \
+            bash -c '! ufw status | grep -E -q "203\.0\.113\.19|198\.51\.100\.7"'
+        revokeout=$("$RATLINE" db access revoke 192.0.2.1 2>&1)
+        case "$revokeout" in
+            *"was not on the allowed list"*) ok "revoking an address that was never allowed reports as much" ;;
+            *) bad "revoke of an absent address" "$(printf '%s' "$revokeout" | tail -3)" ;;
+        esac
+
+        # The container's firewall goes back to how the image built it, so nothing
+        # after this section inherits a live ufw it does not expect.
+        ufw --force disable >/dev/null 2>&1
+    fi
+fi
+
 # ---------------------------------------------------------------- config
 #
 # The file every other command reads. A change that leaves it unparseable takes the whole
@@ -2244,7 +2388,12 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-EXPECTED_MINIMUM=512
+# Raised for the `db install` section, which needs only apt and so always runs. The
+# `db access` section is deliberately not counted in: it gates on `ufw --force enable`,
+# which can legitimately fail inside a container where netfilter is not loadable, and a
+# floor that assumed it ran would fail the suite for an environment limitation rather
+# than a regression — the very thing this floor must not do.
+EXPECTED_MINIMUM=528
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

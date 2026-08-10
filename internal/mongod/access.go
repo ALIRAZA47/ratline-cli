@@ -88,15 +88,6 @@ func (m *Manager) AccessAllow(ctx context.Context, address, note, invoker string
 	}
 
 	opening := len(existing) == 0
-	adminURI := ""
-	if opening {
-		// Widening the bind needs a restart, and the restart is verified with the
-		// admin credentials — resolved before anything changes, so a missing
-		// attachment refuses here rather than failing halfway.
-		if adminURI, err = m.db().AdminURI(); err != nil {
-			return nil, err
-		}
-	}
 
 	rb := system.NewRollback(m.Log)
 	defer rb.UnwindOn(ctx, &err)
@@ -118,7 +109,13 @@ func (m *Manager) AccessAllow(ctx context.Context, address, note, invoker string
 		if _, err = m.writeConf(ctx, rb, true, false); err != nil {
 			return nil, err
 		}
-		if _, err = m.restartAndVerify(ctx, adminURI); err != nil {
+		// Verified against the local server's plain URI, not the attached one. They
+		// are usually the same server, but nothing forces that — an operator can
+		// re-attach ratline to a managed cluster while this mongod keeps serving —
+		// and a ping to whatever is attached would then "verify" a restart it never
+		// touched. The plain local ping needs no credentials and proves both facts
+		// that matter here: the server answers, and it still enforces authorization.
+		if _, err = m.restartAndVerify(ctx, PlainLocalURI); err != nil {
 			return nil, err
 		}
 		// The whole command exists to change who can reach the port, so the proof is
@@ -154,12 +151,6 @@ func (m *Manager) AccessRevoke(ctx context.Context, address string) (result *Rev
 		return nil, err
 	}
 	closing := len(remaining) == 1
-	adminURI := ""
-	if closing {
-		if adminURI, err = m.db().AdminURI(); err != nil {
-			return nil, err
-		}
-	}
 
 	rb := system.NewRollback(m.Log)
 	defer rb.UnwindOn(ctx, &err)
@@ -178,7 +169,9 @@ func (m *Manager) AccessRevoke(ctx context.Context, address string) (result *Rev
 		if _, err = m.writeConf(ctx, rb, false, false); err != nil {
 			return nil, err
 		}
-		if _, err = m.restartAndVerify(ctx, adminURI); err != nil {
+		// Plain local URI for the same reason as the allow path: this command's
+		// promises are about the local server, whatever happens to be attached.
+		if _, err = m.restartAndVerify(ctx, PlainLocalURI); err != nil {
 			return nil, err
 		}
 		// Closing the network is the promise this command makes; a server still
