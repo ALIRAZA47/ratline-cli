@@ -39,6 +39,32 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.12.1',
+    date: '2026-08-10',
+    summary:
+      'The integration suite now installs MongoDB for real and steers its port; writing that test found two fixes worth having.',
+    assertions: 555,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'db access verified its restarts against whatever was attached',
+        body:
+          'Opening or closing the bind restarts mongod and then proves the outcome against a running server. That verification read the attached connection string — usually this host, but nothing forces that: an operator can re-attach ratline to Atlas while the local mongod keeps serving, and the ping would then “verify” a restart against a server the restart never touched. It also meant an unattached host could not open or close its own port at all. The verification now uses the local server’s plain URI: no credentials needed, and it proves the two facts the command promises — the server answers, and it still enforces authorization. Found by the integration harness, whose attached MongoDB really is a different server from the one db install puts on the host.',
+      },
+      {
+        kind: 'fix',
+        title: 'The bare doctor sweep hid an exposed port when provisioning was off',
+        body:
+          'v0.12.0 said both doctor surfaces report a mongod reachable beyond localhost with no firewall standing guard. The subject walk did; the bare sweep ran the check only when features.db_provisioning was on, so `db disable` — or never enabling provisioning — made the one finding that matters to every host invisible in the sweep. The exposure check now runs unconditionally on both surfaces: it is decided by the socket and the firewall, needs no credentials, and matters whether or not this host provisions databases.',
+      },
+      {
+        title: 'The apt-to-mongod path is now proven, not modeled',
+        body:
+          'v0.12.0 shipped with a known gap: db install’s flows were checked against a modeled host. The integration suite now runs the real thing inside its Ubuntu container — the repository and pinned key, the packages, the admin user, the managed config — and asserts every promise from outside: the service running, the credentials opening it, unauthenticated commands refused, a socket bound to localhost and nowhere else, an existing attachment left alone, and a mongod ratline did not set up refused rather than adopted. The db access round trip runs against a real ufw: allow opens the bind only behind the firewall, revoke closes it again, and both halves of the doctor check fire — quiet while ufw stands guard, loud the moment it is disabled.',
+      },
+    ],
+  },
+  {
     version: 'v0.12.0',
     date: '2026-08-10',
     summary:
