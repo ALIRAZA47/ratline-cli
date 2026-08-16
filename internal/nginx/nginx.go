@@ -9,6 +9,8 @@ package nginx
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +43,11 @@ type Manager struct {
 	versionOnce sync.Once
 	version     [3]int
 	versionOK   bool
+
+	// ocspProbe overrides how OCSP-responder presence is detected. nil means the
+	// real implementation, which reads the certificate off disk; tests set it to
+	// exercise both outcomes without a certificate file.
+	ocspProbe func(certPath string) bool
 }
 
 // StaticLocation is one directory served from disk, bypassing the application.
@@ -61,12 +68,13 @@ type VhostData struct {
 
 	Disabled bool
 
-	TLS        bool
-	CertPath   string
-	KeyPath    string
-	ChainPath  string
-	HSTS       bool
-	HSTSMaxAge int
+	TLS          bool
+	CertPath     string
+	KeyPath      string
+	ChainPath    string
+	OCSPStapling bool
+	HSTS         bool
+	HSTSMaxAge   int
 
 	DocRoot   string
 	IndexFile string
@@ -93,6 +101,58 @@ type VhostData struct {
 
 	WWWRedirectFrom string
 	WWWRedirectTo   string
+}
+
+// stapleOCSP decides whether a vhost should emit ssl_stapling for the certificate at
+// certPath. Injectable through ocspProbe so tests exercise both outcomes without a
+// certificate on disk; production reads the certificate's AIA extension.
+func (m *Manager) stapleOCSP(certPath string) bool {
+	if m.ocspProbe != nil {
+		return m.ocspProbe(certPath)
+	}
+	return leafAdvertisesOCSP(certPath)
+}
+
+// leafAdvertisesOCSP reports whether the leaf certificate at certPath carries an OCSP
+// responder URL in its Authority Information Access extension.
+//
+// This is the whole basis for stapling: Let's Encrypt certificates stopped naming an
+// OCSP responder in 2026, so `ssl_stapling on` against one makes nginx log
+// "ssl_stapling ignored, no OCSP responder URL" on every configuration test and
+// reload — noise that trains operators to skim past `nginx -t`, the one command
+// standing between them and taking every site on the box down. The responder is read
+// off the certificate rather than inferred from its source, so an imported or
+// private-CA certificate that still names one keeps stapling, and the decision follows
+// the certificate as CA policy changes rather than being frozen at issue time.
+//
+// Any failure to read or parse is reported as "no responder". The safe direction is to
+// omit stapling — nginx then serves unstapled and silent — rather than to emit a
+// directive it will only warn about.
+func leafAdvertisesOCSP(certPath string) bool {
+	if certPath == "" {
+		return false
+	}
+	raw, err := os.ReadFile(certPath)
+	if err != nil {
+		return false
+	}
+	// The leaf is the first certificate in a fullchain, and the only one whose OCSP
+	// responder nginx would staple.
+	for {
+		var block *pem.Block
+		block, raw = pem.Decode(raw)
+		if block == nil {
+			return false
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return false
+		}
+		return len(cert.OCSPServer) > 0
+	}
 }
 
 // BuildVhostData assembles the template input for a site.
@@ -142,6 +202,13 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 		d.CertPath = cert.CertPath
 		d.KeyPath = cert.KeyPath
 		d.ChainPath = cert.ChainPath
+		// ssl_stapling only when this certificate actually names an OCSP responder.
+		// Let's Encrypt stopped advertising one in 2026, and stapling a certificate
+		// without a responder makes nginx warn on every test and reload — noise on
+		// the one command standing between an operator and a broken reload. Read off
+		// the certificate rather than inferred from its source, so an imported or
+		// private-CA certificate that does carry a responder still staples.
+		d.OCSPStapling = m.stapleOCSP(cert.CertPath)
 		d.HTTP2Directive, d.HTTP2OnListen = m.http2Support()
 		// HSTS on an untrusted certificate would pin a browser to a host it
 		// cannot verify, so the combination is refused rather than rendered.

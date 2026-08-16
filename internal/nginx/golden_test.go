@@ -22,10 +22,16 @@ var update = flag.Bool("update", false, "rewrite the golden files")
 // runtime, crossed with TLS, SPA fallback and multi-instance. These are the
 // files an operator will actually find in /etc/nginx, so they are reviewable as
 // text in the repository and diffable across versions.
-func goldenCases() map[string]struct {
+// goldenCase is one rendered vhost the suite pins.
+type goldenCase struct {
 	site *state.Site
 	cert *state.Certificate
-} {
+	// ocsp is what the OCSP probe returns for this case's certificate — whether it
+	// names an OCSP responder — which is what drives ssl_stapling.
+	ocsp bool
+}
+
+func goldenCases() map[string]goldenCase {
 	tlsCert := func(source string) *state.Certificate {
 		return &state.Certificate{
 			Name: "example.com", Source: source,
@@ -65,63 +71,55 @@ func goldenCases() map[string]struct {
 		return s
 	}
 
-	cases := map[string]struct {
-		site *state.Site
-		cert *state.Certificate
-	}{
-		"static-http": {staticSite(), nil},
-		"static-tls":  {staticSite(), tlsCert(state.CertSourceLetsEncrypt)},
-		"python-http": {pySite(), nil},
-		"python-tls":  {pySite(), tlsCert(state.CertSourceLetsEncrypt)},
-		"node-http":   {nodeSite(), nil},
-		"node-tls":    {nodeSite(), tlsCert(state.CertSourceLetsEncrypt)},
+	cases := map[string]goldenCase{
+		"static-http": {site: staticSite()},
+		// A modern Let's Encrypt certificate names no OCSP responder, so no
+		// ssl_stapling is emitted — this is the fix for the per-reload warning.
+		"static-tls":  {site: staticSite(), cert: tlsCert(state.CertSourceLetsEncrypt)},
+		"python-http": {site: pySite()},
+		"python-tls":  {site: pySite(), cert: tlsCert(state.CertSourceLetsEncrypt)},
+		"node-http":   {site: nodeSite()},
+		"node-tls":    {site: nodeSite(), cert: tlsCert(state.CertSourceLetsEncrypt)},
 	}
 
 	spa := staticSite()
 	spa.SPA = true
-	cases["static-spa-tls"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{spa, tlsCert(state.CertSourceLetsEncrypt)}
+	cases["static-spa-tls"] = goldenCase{site: spa, cert: tlsCert(state.CertSourceLetsEncrypt)}
 
 	port := nodeSite()
 	port.Listen = "port"
 	port.Port = 20001
-	cases["node-port-http"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{port, nil}
+	cases["node-port-http"] = goldenCase{site: port}
 
 	hsts := staticSite()
 	hsts.HSTS = true
-	cases["static-hsts-tls"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{hsts, tlsCert(state.CertSourceLetsEncrypt)}
+	cases["static-hsts-tls"] = goldenCase{site: hsts, cert: tlsCert(state.CertSourceLetsEncrypt)}
 
 	// HSTS asked for but refused, because the certificate is not trusted. The
 	// golden file is what proves the header is genuinely absent.
 	hstsSelf := staticSite()
 	hstsSelf.HSTS = true
-	cases["static-hsts-refused-selfsigned"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{hstsSelf, tlsCert(state.CertSourceSelfSigned)}
+	cases["static-hsts-refused-selfsigned"] = goldenCase{site: hstsSelf, cert: tlsCert(state.CertSourceSelfSigned)}
 
 	redirect := staticSite()
 	redirect.Aliases = []string{"www.example.com"}
 	redirect.WWWRedirect = "apex"
-	cases["static-www-redirect-tls"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{redirect, tlsCert(state.CertSourceLetsEncrypt)}
+	cases["static-www-redirect-tls"] = goldenCase{site: redirect, cert: tlsCert(state.CertSourceLetsEncrypt)}
 
 	disabled := staticSite()
 	disabled.Enabled = false
-	cases["static-disabled"] = struct {
-		site *state.Site
-		cert *state.Certificate
-	}{disabled, nil}
+	cases["static-disabled"] = goldenCase{site: disabled}
+
+	// A certificate that DOES name an OCSP responder — an imported or private-CA
+	// cert — still staples. This proves the directive is emitted when the cert
+	// warrants it rather than being blanket-disabled by source, and the www-redirect
+	// makes it cover both TLS server blocks (the redirect one and the main one).
+	stapled := staticSite()
+	stapled.Aliases = []string{"www.example.com"}
+	stapled.WWWRedirect = "apex"
+	cases["static-tls-ocsp-stapled"] = goldenCase{
+		site: stapled, cert: tlsCert(state.CertSourceImported), ocsp: true,
+	}
 
 	return cases
 }
@@ -129,7 +127,12 @@ func goldenCases() map[string]struct {
 func TestVhostGoldenFiles(t *testing.T) {
 	for name, tc := range goldenCases() {
 		t.Run(name, func(t *testing.T) {
-			body, err := testManager().RenderVhost(tc.site, tc.cert)
+			mgr := testManager()
+			// The certificate files in these fixtures do not exist on disk, so the
+			// OCSP probe is injected: each case declares whether its certificate
+			// names a responder, and the render must follow that.
+			mgr.ocspProbe = func(string) bool { return tc.ocsp }
+			body, err := mgr.RenderVhost(tc.site, tc.cert)
 			if err != nil {
 				t.Fatalf("RenderVhost = %v", err)
 			}

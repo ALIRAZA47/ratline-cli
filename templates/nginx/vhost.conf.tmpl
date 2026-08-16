@@ -30,6 +30,10 @@ server {
     ssl_trusted_certificate {{ .ChainPath }};
 {{- end }}
     include {{ .SnippetDir }}/ssl-params.conf;
+{{- if .OCSPStapling }}
+    ssl_stapling on;
+    ssl_stapling_verify on;
+{{- end }}
 {{- end }}
     server_name {{ .WWWRedirectFrom }};
 
@@ -74,6 +78,10 @@ server {
     ssl_trusted_certificate {{ .ChainPath }};
 {{- end }}
     include {{ .SnippetDir }}/ssl-params.conf;
+{{- if .OCSPStapling }}
+    ssl_stapling on;
+    ssl_stapling_verify on;
+{{- end }}
 {{- if .HSTS }}
     # Opt-in only, and never on a self-signed or staging certificate: a browser
     # that has seen this header will refuse plain HTTP for this host, and for
