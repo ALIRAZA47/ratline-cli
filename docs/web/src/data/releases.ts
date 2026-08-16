@@ -39,6 +39,23 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.12.2',
+    date: '2026-08-16',
+    summary:
+      'nginx stops warning about OCSP stapling on every reload: the directive is now emitted only for certificates that actually name a responder.',
+    assertions: 555,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'ssl_stapling warned on every reload for Let’s Encrypt certificates',
+        body:
+          'Generated vhosts stapled unconditionally — ssl_stapling on / ssl_stapling_verify on lived in the shared TLS snippet that every vhost includes. Let’s Encrypt stopped advertising an OCSP responder in its certificates in 2026 (the AIA carries only CA Issuers, no OCSP URI), so nginx logged “ssl_stapling ignored, no OCSP responder URL in the certificate …” once per site on every `nginx -t` and every reload. Nothing broke — the handshake just carried no stapled response — but it was noise on the one command standing between an operator and a reload that takes every site on the box down, and it fired for every LE certificate issued from then on. Stapling now comes from the vhost, emitted only when the attached certificate actually names a responder, read off its AIA extension at generation time. It is deliberately not keyed on source: an imported or private-CA certificate that still names a responder keeps stapling, and the decision follows the certificate as CA policy changes rather than being frozen at issue time. `reconcile` regenerates existing vhosts, so deployed sites pick this up without being re-added; and a renewal re-renders with the fresh certificate, so a certificate renewed into a different profile flips the directive rather than keeping the issue-time choice.',
+        code: `# before — once per site, on every reload:
+# [warn] "ssl_stapling" ignored, no OCSP responder URL in the certificate ...`,
+      },
+    ],
+  },
+  {
     version: 'v0.12.1',
     date: '2026-08-10',
     summary:
