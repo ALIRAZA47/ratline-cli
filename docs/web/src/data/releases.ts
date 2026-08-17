@@ -39,6 +39,35 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.13.0',
+    date: '2026-08-16',
+    summary:
+      'ratline db now provisions MySQL and MariaDB alongside MongoDB, under one --engine flag — and bun joins node and python as a site runtime.',
+    assertions: 555,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'MySQL and MariaDB, under `db --engine mysql`',
+        body:
+          'The whole `ratline db` surface — install, connect, ping, create, list, show, drop, roles, user add/list/password/grant/delete, access allow/revoke/list, dump, restore — now takes `--engine mysql`. MongoDB stays the default, so every existing invocation and script is unchanged. `db install --engine mysql` installs the distribution’s own package (mysql-server on Ubuntu, mariadb-server on Debian — no third-party repository), reaches the fresh server as root over the local socket to create the admin account whose password you choose, writes a managed drop-in that binds localhost only, and proves the credentials work over TCP before storing anything. `db create shop --engine mysql --owner acme --attach shop.example.com` creates the database, a user with a database-scoped GRANT, and writes a mysql:// DATABASE_URL into the site’s .env. The invariants are MongoDB’s: the admin password never touches argv (the client reads a 0600 defaults-file; statements go on stdin), names are validated then quoted because a SQL identifier cannot be a bound parameter, `db access` opens port 3306 firewall-first and verifies the bind against the listening socket, and `doctor` reports an exposed MySQL port.',
+        code: `ratline db install --engine mysql
+ratline db create shop --engine mysql --owner acme --attach shop.example.com
+ratline db access allow 203.0.113.19 --engine mysql`,
+      },
+      {
+        kind: 'feature',
+        title: 'bun as a site runtime',
+        body:
+          'Alongside node and python, a site can now run on bun. `ratline runtime install bun 1.2` then `ratline site add app.example.com --user acme --runtime bun --entry server.ts --bun 1.2`. Bun transpiles on the way in, so a TypeScript entry point — .ts, .tsx, .jsx, .mts — starts directly, without a build step or a build-output directory. One process supervised by systemd behind a Unix socket, referenced by absolute path like every other runtime, so a tenant upgrading their own bun cannot change the interpreter their service executes.',
+        code: `ratline runtime install bun 1.2
+ratline site add app.example.com --user acme --runtime bun --entry server.ts --bun 1.2`,
+      },
+    ],
+    known: [
+      'MySQL’s apt-to-server path is proven against a modeled server in unit tests, not yet in the integration suite — the same way MongoDB shipped in v0.12.0 before v0.12.1 added its integration coverage.',
+    ],
+  },
+  {
     version: 'v0.12.2',
     date: '2026-08-16',
     summary:
