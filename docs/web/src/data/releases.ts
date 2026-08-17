@@ -39,6 +39,27 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.14.0',
+    date: '2026-08-16',
+    summary:
+      'Redis joins MongoDB and MySQL under `db --engine`, modelled as an ACL user confined to a key-prefix keyspace.',
+    assertions: 555,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'Redis, under `db --engine redis`',
+        body:
+          'The `ratline db` surface now provisions Redis too. Redis has no named databases and no per-database users, so a ratline “database” is an ACL user confined to a key-prefix keyspace: `db create shop --engine redis --owner acme` makes an ACL user allowed only `~shop:*` keys and `&shop:*` channels, with the role’s command categories and never `@dangerous` — so one tenant cannot `FLUSHALL` across another’s keys. `db install --engine redis` installs redis-server from the distribution, writes an aclfile holding the admin (the default user) with the password you choose, points the stock redis.conf at ratline’s include, and verifies the running server requires the password and refuses an unauthenticated PING. The invariants match the other engines: the admin password rides REDISCLI_AUTH and a new user’s password travels on stdin — never argv; keyspace and user names are validated to a conservative charset because an ACL rule is space- and glob-sensitive; `db access --engine redis` opens port 6379 firewall-first and verifies the bind against the listening socket; and `doctor` reports an exposed Redis port. Roles are command categories: read → +@read, readWrite adds +@write, dbOwner → +@all, each within the keyspace. `db dump`/`db restore` are declined for Redis, whose backups are server-level (RDB/AOF).',
+        code: `ratline db install --engine redis
+ratline db create shop --engine redis --owner acme --attach shop.example.com
+ratline db access allow 203.0.113.19 --engine redis`,
+      },
+    ],
+    known: [
+      'As with MySQL, Redis’s apt-to-server path is proven against a modeled server in unit tests, not yet in the integration suite.',
+    ],
+  },
+  {
     version: 'v0.13.0',
     date: '2026-08-16',
     summary:
