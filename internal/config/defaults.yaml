@@ -48,6 +48,9 @@ paths:
   # control of every database on the server — and handed to the mysql client as
   # --defaults-extra-file so the password never lands in argv.
   mysql_defaults_file: /etc/ratline/db/mysql.cnf
+  # The Redis admin connection string (redis://:password@host:port), 0600 — the
+  # credential that manages every ACL user on the server.
+  redis_uri_file: /etc/ratline/db/redis.uri
   ssh_dir: /etc/ratline/ssh
   sshd_dropin: /etc/ssh/sshd_config.d/60-ratline.conf
   runtimes_dir: /opt/ratline/runtimes
@@ -246,6 +249,14 @@ databases:
     env_key: DATABASE_URL
     # One mysql-client invocation, so a server that hangs behind an access list becomes
     # an error naming the cause rather than a command that never returns.
+    timeout: 30s
+  redis:
+    # Granted to an ACL user created without --role, for `db --engine redis`. readWrite
+    # maps to the read and write command categories within the user's keyspace.
+    default_role: readWrite
+    # The variable a connection string is written to in a site's .env.
+    env_key: REDIS_URL
+    # One redis-cli invocation.
     timeout: 30s
 
 features:

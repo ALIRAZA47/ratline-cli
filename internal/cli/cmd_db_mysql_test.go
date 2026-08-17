@@ -19,11 +19,11 @@ func TestDBEngineChoice(t *testing.T) {
 	if got, err := g.dbEngineChoice(cmd); err != nil || got != engineMySQL {
 		t.Errorf("mysql = %q, %v", got, err)
 	}
-	// Redis is named but not built yet — a clear refusal, not a silent mongo run.
 	_ = cmd.Flags().Set("engine", "redis")
-	if _, err := g.dbEngineChoice(cmd); err == nil {
-		t.Error("redis was accepted")
+	if got, err := g.dbEngineChoice(cmd); err != nil || got != engineRedis {
+		t.Errorf("redis = %q, %v", got, err)
 	}
+	// An engine ratline does not support is a clear refusal, not a silent mongo run.
 	_ = cmd.Flags().Set("engine", "postgres")
 	if _, err := g.dbEngineChoice(cmd); err == nil {
 		t.Error("an unknown engine was accepted")

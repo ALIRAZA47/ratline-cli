@@ -64,6 +64,8 @@ func newDBAccessAllowCommand(g *Globals) *cobra.Command {
 				return eerr
 			} else if engine == engineMySQL {
 				return g.mysqlAccessAllow(cmd, args[0], note)
+			} else if engine == engineRedis {
+				return g.redisAccessAllow(cmd, args[0], note)
 			}
 			mgr, err := g.mongodManager(ctx)
 			if err != nil {
@@ -123,6 +125,8 @@ func newDBAccessRevokeCommand(g *Globals) *cobra.Command {
 				return eerr
 			} else if engine == engineMySQL {
 				return g.mysqlAccessRevoke(cmd, args[0])
+			} else if engine == engineRedis {
+				return g.redisAccessRevoke(cmd, args[0])
 			}
 			mgr, err := g.mongodManager(ctx)
 			if err != nil {
@@ -174,6 +178,8 @@ func newDBAccessListCommand(g *Globals) *cobra.Command {
 				return eerr
 			} else if engine == engineMySQL {
 				return g.mysqlAccessList(cmd)
+			} else if engine == engineRedis {
+				return g.redisAccessList(cmd)
 			}
 			mgr, err := g.mongodManager(ctx)
 			if err != nil {

@@ -36,6 +36,8 @@ func newDBDumpCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlDump(cmd, args[0], outDir)
+			} else if engine == engineRedis {
+				return g.redisNoDump("dump")
 			}
 			ctx := cmd.Context()
 			name := args[0]
@@ -100,6 +102,8 @@ func newDBRestoreCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlRestore(cmd, args[0], into)
+			} else if engine == engineRedis {
+				return g.redisNoDump("restore")
 			}
 			ctx := cmd.Context()
 			archive := args[0]

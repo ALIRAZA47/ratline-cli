@@ -101,6 +101,29 @@ func newDBInstallCommand(g *Globals) *cobra.Command {
 				}
 				return g.mysqlInstall(cmd, adminUser, password)
 			}
+			if engine == engineRedis {
+				if g.DryRun {
+					return g.redisInstall(cmd, "")
+				}
+				if password == "" {
+					pw, err := g.readSecret("Choose a password for the Redis admin (not echoed): ")
+					if err != nil {
+						return err
+					}
+					again, err := g.readSecret("Type it again: ")
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(pw) != strings.TrimSpace(again) {
+						return rlerr.Usagef("the two passwords do not match, so nothing was done")
+					}
+					password = strings.TrimSpace(pw)
+				}
+				if err := checkAdminPassword(password); err != nil {
+					return err
+				}
+				return g.redisInstall(cmd, password)
+			}
 
 			if err := validate.DatabaseUsername(adminUser); err != nil {
 				return rlerr.Wrap(err, rlerr.CodeUsage, "the admin username is not usable")

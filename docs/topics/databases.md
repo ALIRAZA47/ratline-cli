@@ -333,3 +333,35 @@ exposed MySQL port on the same terms.
 
 The connection string ratline writes into a site's `.env` is a `mysql://` URL under
 `DATABASE_URL` by default (set `databases.mysql.env_key` to change it).
+
+## Redis
+
+Redis is the third engine, behind `--engine redis`, and it is modelled differently because
+Redis is different: it has no named databases and no per-database users. A ratline
+"database" is an **ACL user confined to a key-prefix keyspace**. Creating one creates that
+user; the connection string authenticates as it, and the server's ACL rules keep it to keys
+and pub/sub channels under its own prefix.
+
+    ratline db install --engine redis
+    ratline db create shop --engine redis --owner acme --attach shop.example.com
+
+`db create shop` makes an ACL user `shop_app` allowed only `~shop:*` keys and `&shop:*`
+channels, with the role's command categories and never `@dangerous` — so it cannot
+`FLUSHALL` across tenants. The `redis://` URL goes into the site's `.env` under `REDIS_URL`.
+Roles are command categories, not table privileges: `read` is `+@read`, `readWrite` adds
+`+@write`, `dbOwner` is `+@all` — each within the keyspace, each minus `@dangerous`.
+
+`db install --engine redis` installs `redis-server` from the distribution, writes an aclfile
+holding the admin (the `default` user) with the password you choose, points the stock
+`redis.conf` at ratline's include, restarts, and verifies the server requires the password
+and refuses an unauthenticated `PING`. ACL users created later are persisted with `ACL SAVE`
+so they survive a restart.
+
+The rest is the shared story. The admin password never reaches argv — `redis-cli` reads it
+from `REDISCLI_AUTH`, and a new user's password travels on stdin inside the `ACL SETUSER`
+command. Keyspace and user names are validated to a conservative charset because an ACL rule
+is space- and glob-sensitive. `db access --engine redis` opens port 6379 firewall-first and
+verifies the bind against the listening socket. `doctor` reports an exposed Redis port.
+
+`db dump`/`db restore` are not offered for Redis: its backups are server-level (RDB
+snapshots or AOF), not per-keyspace.

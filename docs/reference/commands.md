@@ -141,7 +141,7 @@ OPERATIONS
   init         Set up this server: configuration, directories and defaults
   backup       Archive a user's home or a single site
   restore      Put a backup archive back, and rebuild what serves it
-  db           Provision MongoDB or MySQL databases and users
+  db           Provision MongoDB, MySQL or Redis databases and users
   config       Read and change ratline's own configuration
   doctor       Check the server, or diagnose one thing on it
   status       Show everything on this server on one screen

@@ -34,13 +34,10 @@ func (g *Globals) dbEngineChoice(cmd *cobra.Command) (string, error) {
 		e = engineMongo
 	}
 	switch e {
-	case engineMongo, engineMySQL:
+	case engineMongo, engineMySQL, engineRedis:
 		return e, nil
-	case engineRedis:
-		return "", rlerr.Usagef("the redis engine is not available yet").
-			WithHint("mongo and mysql are supported")
 	default:
-		return "", rlerr.Usagef("unknown engine %q", e).WithHint("one of: mongo, mysql")
+		return "", rlerr.Usagef("unknown engine %q", e).WithHint("one of: mongo, mysql, redis")
 	}
 }
 

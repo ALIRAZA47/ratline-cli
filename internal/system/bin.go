@@ -69,6 +69,10 @@ var defaultCandidates = map[string][]string{
 	"mysql":     {"/usr/bin/mysql", "/usr/local/bin/mysql", "/usr/bin/mariadb"},
 	"mysqld":    {"/usr/sbin/mysqld", "/usr/bin/mysqld", "/usr/sbin/mariadbd", "/usr/bin/mariadbd"},
 	"mysqldump": {"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/bin/mariadb-dump"},
+	// Redis / Valkey. `db install --engine redis` uses the distro package; the client
+	// runs ACL commands over stdin with the admin password in REDISCLI_AUTH, never argv.
+	"redis-cli":    {"/usr/bin/redis-cli", "/usr/local/bin/redis-cli", "/usr/bin/valkey-cli"},
+	"redis-server": {"/usr/bin/redis-server", "/usr/local/bin/redis-server", "/usr/bin/valkey-server"},
 	// The database tools ship separately from mongosh — mongodb-database-tools, which is
 	// not a dependency of the shell — so these are absent on plenty of servers where
 	// mongosh works fine. `db dump` says which package to install rather than reporting a

@@ -60,6 +60,8 @@ func newDBUserAddCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlUserAdd(cmd, args[0], database, role, attach, envKey)
+			} else if engine == engineRedis {
+				return g.redisUserAdd(cmd, args[0], database, role, attach, envKey)
 			}
 			username := args[0]
 			if err := validate.DatabaseUsername(username); err != nil {
@@ -158,6 +160,8 @@ func newDBUserListCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlUserList(cmd, database, live)
+			} else if engine == engineRedis {
+				return g.redisUserList(cmd, database, live)
 			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
@@ -251,6 +255,8 @@ func newDBUserPasswordCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlUserPassword(cmd, args[0], authDB, attach, envKey, all)
+			} else if engine == engineRedis {
+				return g.redisUserPassword(cmd, args[0], attach, envKey, all)
 			}
 			username := args[0]
 			mgr, st, err := g.dbManager(cmd.Context())
@@ -371,6 +377,8 @@ func newDBUserGrantCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlUserGrant(cmd, args[0], authDB, role)
+			} else if engine == engineRedis {
+				return g.redisUserGrant(cmd, args[0], role)
 			}
 			username := args[0]
 			if role == "" {
@@ -444,6 +452,8 @@ func newDBUserDeleteCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlUserDelete(cmd, args[0], authDB, force)
+			} else if engine == engineRedis {
+				return g.redisUserDelete(cmd, args[0], force)
 			}
 			username := args[0]
 			mgr, st, err := g.dbManager(cmd.Context())

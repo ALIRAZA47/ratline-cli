@@ -16,6 +16,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/mongod"
 	"github.com/ALIRAZA47/ratline-cli/internal/mysqld"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
+	"github.com/ALIRAZA47/ratline-cli/internal/redisd"
 	"github.com/ALIRAZA47/ratline-cli/internal/sshkey"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -464,6 +465,7 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 	// the walk cannot drift apart.
 	g.diagnoseMongoExposure(ctx, st, add)
 	g.diagnoseMySQLExposure(ctx, st, add)
+	g.diagnoseRedisExposure(ctx, st, add)
 
 	// The rest of MongoDB, when provisioning is on. A database server that has become
 	// unreachable is invisible otherwise: the sites keep serving, their connection
@@ -764,6 +766,19 @@ func (g *Globals) diagnoseMySQLExposure(ctx context.Context, st *state.Store, ad
 				"who can reach the port faces only a password",
 			"activate ufw with a default-deny incoming policy (allow SSH first), or revoke "+
 				"every address: ratline db access list --engine mysql")
+	}
+}
+
+// diagnoseRedisExposure is the Redis parallel: a server reachable beyond localhost with no
+// firewall standing guard.
+func (g *Globals) diagnoseRedisExposure(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
+	mm := &redisd.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, State: st, OS: g.OS}
+	if exp, err := mm.CheckExposure(ctx); err == nil && exp.Present && exp.Remote && !exp.Guarded {
+		add("problem", "redis", "port "+redisd.Port,
+			"Redis listens beyond localhost and no firewall is standing guard, so anyone "+
+				"who can reach the port faces only a password",
+			"activate ufw with a default-deny incoming policy (allow SSH first), or revoke "+
+				"every address: ratline db access list --engine redis")
 	}
 }
 

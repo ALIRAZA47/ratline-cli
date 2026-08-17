@@ -27,7 +27,7 @@ import (
 func newDBCommand(g *Globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "db",
-		Short:   "Provision MongoDB or MySQL databases and users",
+		Short:   "Provision MongoDB, MySQL or Redis databases and users",
 		GroupID: GroupOps,
 		Long: "Creates databases and least-privilege users on a MongoDB server, and writes the\n" +
 			"connection string into a site's .env so the application picks it up on restart.\n\n" +
@@ -115,6 +115,9 @@ func newDBPingCommand(g *Globals) *cobra.Command {
 			if engine == engineMySQL {
 				return g.mysqlPing(cmd)
 			}
+			if engine == engineRedis {
+				return g.redisPing(cmd)
+			}
 			mgr, _, err := g.dbManager(cmd.Context())
 			if err != nil {
 				return err
@@ -189,6 +192,12 @@ func newDBCreateCommand(g *Globals) *cobra.Command {
 					return rlerr.Usagef("--collection is a MongoDB option; MySQL has no initial collection")
 				}
 				return g.mysqlCreate(cmd, name, owner, username, role, attach, envKey, noUser)
+			}
+			if engine == engineRedis {
+				if collection != "" {
+					return rlerr.Usagef("--collection is a MongoDB option; Redis has no initial collection")
+				}
+				return g.redisCreate(cmd, name, owner, username, role, attach, envKey, noUser)
 			}
 			if err := validate.DatabaseName(name); err != nil {
 				return err
@@ -382,6 +391,8 @@ func newDBListCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlList(cmd, owner, live)
+			} else if engine == engineRedis {
+				return g.redisList(cmd, owner, live)
 			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
@@ -489,6 +500,8 @@ func newDBShowCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlShow(cmd, args[0])
+			} else if engine == engineRedis {
+				return g.redisShow(cmd, args[0])
 			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
@@ -618,6 +631,15 @@ func newDBDropCommand(g *Globals) *cobra.Command {
 					}
 				}
 				return g.mysqlDrop(cmd, name, keepDB)
+			} else if engine == engineRedis {
+				if !force && !g.DryRun {
+					if err := g.ConfirmTyped(name,
+						"This removes the Redis keyspace "+name+"'s users"+
+							map[bool]string{true: "", false: " and flushes its keys"}[keepDB]+", and cannot be undone."); err != nil {
+						return err
+					}
+				}
+				return g.redisDrop(cmd, name, keepDB)
 			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
@@ -721,6 +743,8 @@ func newDBRolesCommand(g *Globals) *cobra.Command {
 				return err
 			} else if engine == engineMySQL {
 				return g.mysqlRoles()
+			} else if engine == engineRedis {
+				return g.redisRoles()
 			}
 			roles := validate.DatabaseRoles()
 			if g.JSON {

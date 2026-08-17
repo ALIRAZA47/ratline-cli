@@ -104,11 +104,15 @@ type Paths struct {
 	// server. It doubles as the exact argument ratline hands the mysql client
 	// (--defaults-extra-file), which keeps the password off argv.
 	MySQLDefaultsFile string `yaml:"mysql_defaults_file"`
-	SSHDir            string `yaml:"ssh_dir"`
-	SSHDDropIn        string `yaml:"sshd_dropin"`
-	RuntimesDir       string `yaml:"runtimes_dir"`
-	ShellWrapper      string `yaml:"shell_wrapper"`
-	BackupDir         string `yaml:"backup_dir"`
+	// RedisURIFile holds the Redis admin connection string (redis://:password@host:port),
+	// held to the same 0600 rule as the others — it is the credential that manages every
+	// ACL user on the server.
+	RedisURIFile string `yaml:"redis_uri_file"`
+	SSHDir       string `yaml:"ssh_dir"`
+	SSHDDropIn   string `yaml:"sshd_dropin"`
+	RuntimesDir  string `yaml:"runtimes_dir"`
+	ShellWrapper string `yaml:"shell_wrapper"`
+	BackupDir    string `yaml:"backup_dir"`
 }
 
 // Defaults are the per-site values `site add` starts from and `site scale`
@@ -255,6 +259,7 @@ type Logging struct {
 type Databases struct {
 	MongoDB MongoDB `yaml:"mongodb"`
 	MySQL   MySQL   `yaml:"mysql"`
+	Redis   Redis   `yaml:"redis"`
 }
 
 // MongoDB is how ratline reaches the MongoDB server it manages.
@@ -294,6 +299,22 @@ type MySQL struct {
 	// Timeout bounds one mysql-client invocation, so a server that hangs behind an
 	// access list becomes an error naming the cause rather than a command that never
 	// returns.
+	Timeout Duration `yaml:"timeout"`
+}
+
+// Redis is how ratline reaches the Redis server it manages. Redis has no named
+// databases: a "database" is an ACL user confined to a key-prefix keyspace, so its
+// roles are command categories rather than table privileges. The admin connection
+// string lives in paths.redis_uri_file, 0600.
+type Redis struct {
+	// DefaultRole is granted to a user created without --role. readWrite maps to the
+	// read and write command categories within the user's keyspace.
+	DefaultRole string `yaml:"default_role"`
+
+	// EnvKey is the variable a connection string is written to in a site's .env.
+	EnvKey string `yaml:"env_key"`
+
+	// Timeout bounds one redis-cli invocation.
 	Timeout Duration `yaml:"timeout"`
 }
 

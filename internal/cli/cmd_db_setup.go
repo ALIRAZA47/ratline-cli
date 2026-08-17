@@ -87,6 +87,29 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 				}
 				return g.mysqlConnect(cmd, adminUser, password)
 			}
+			if engine == engineRedis {
+				// Redis stores a full redis:// admin connection string, like MongoDB.
+				u := strings.TrimSpace(uri)
+				if u == "" && fromFile != "" {
+					body, err := os.ReadFile(fromFile)
+					if err != nil {
+						return rlerr.Wrap(err, rlerr.CodePrecondition, "reading %s", fromFile)
+					}
+					u = strings.TrimSpace(string(body))
+				}
+				if u == "" && g.CanPrompt() {
+					var err error
+					if u, err = g.readSecret("Redis admin connection string (redis://:password@host:port, not echoed): "); err != nil {
+						return err
+					}
+					u = strings.TrimSpace(u)
+				}
+				if u == "" {
+					return rlerr.InputRequiredf("no connection string was given").
+						WithHint("paste it at the prompt, or pipe it in with --stdin")
+				}
+				return g.redisConnect(cmd, u)
+			}
 
 			switch {
 			case fromFile != "":
