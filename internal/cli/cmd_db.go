@@ -27,7 +27,7 @@ import (
 func newDBCommand(g *Globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "db",
-		Short:   "Provision MongoDB databases and users",
+		Short:   "Provision MongoDB or MySQL databases and users",
 		GroupID: GroupOps,
 		Long: "Creates databases and least-privilege users on a MongoDB server, and writes the\n" +
 			"connection string into a site's .env so the application picks it up on restart.\n\n" +
@@ -50,8 +50,14 @@ func newDBCommand(g *Globals) *cobra.Command {
 			"  ratline db create shop --owner acme --attach shop.example.com\n" +
 			"  ratline db user add reports --database shop --role read\n" +
 			"  ratline db access allow 203.0.113.19\n" +
-			"  ratline db list --live",
+			"  ratline db list --live\n\n" +
+			"  # the same surface against MySQL/MariaDB:\n" +
+			"  ratline db install --engine mysql\n" +
+			"  ratline db create shop --engine mysql --owner acme --attach shop.example.com",
 	}
+	// The engine selector. mongo is the default, so every existing invocation and script
+	// behaves exactly as before; --engine mysql routes each verb to the MySQL manager.
+	cmd.PersistentFlags().String("engine", "mongo", "Database engine: mongo or mysql")
 	cmd.AddCommand(
 		newDBInstallCommand(g),
 		newDBConnectCommand(g),
@@ -102,6 +108,13 @@ func newDBPingCommand(g *Globals) *cobra.Command {
 			"a mongod started without it answers every command from anyone who can reach the\n" +
 			"port, so the users ratline creates would be decoration.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			engine, err := g.dbEngineChoice(cmd)
+			if err != nil {
+				return err
+			}
+			if engine == engineMySQL {
+				return g.mysqlPing(cmd)
+			}
 			mgr, _, err := g.dbManager(cmd.Context())
 			if err != nil {
 				return err
@@ -167,6 +180,16 @@ func newDBCreateCommand(g *Globals) *cobra.Command {
 			"  ratline db create legacy --owner acme --no-user   # adopt an existing schema",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			engine, err := g.dbEngineChoice(cmd)
+			if err != nil {
+				return err
+			}
+			if engine == engineMySQL {
+				if collection != "" {
+					return rlerr.Usagef("--collection is a MongoDB option; MySQL has no initial collection")
+				}
+				return g.mysqlCreate(cmd, name, owner, username, role, attach, envKey, noUser)
+			}
 			if err := validate.DatabaseName(name); err != nil {
 				return err
 			}
@@ -355,6 +378,11 @@ func newDBListCommand(g *Globals) *cobra.Command {
 			"difference is the useful part: a database on the server with no row was created\n" +
 			"outside ratline, and nothing will revoke its users when the tenant is deleted.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlList(cmd, owner, live)
+			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
 				return err
@@ -457,6 +485,11 @@ func newDBShowCommand(g *Globals) *cobra.Command {
 		Short: "Show a database, its users and what it holds",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlShow(cmd, args[0])
+			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
 				return err
@@ -575,6 +608,17 @@ func newDBDropCommand(g *Globals) *cobra.Command {
 			"is what you want when handing a database over to someone else's tooling.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				if !force && !g.DryRun {
+					if err := g.ConfirmTyped(name,
+						"This drops the MySQL database "+name+" and its users, and cannot be undone."); err != nil {
+						return err
+					}
+				}
+				return g.mysqlDrop(cmd, name, keepDB)
+			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
 				return err
@@ -673,6 +717,11 @@ func newDBRolesCommand(g *Globals) *cobra.Command {
 			"other tenant's data, which is the thing ratline exists to prevent, and it would\n" +
 			"be one flag away if the list were open.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlRoles()
+			}
 			roles := validate.DatabaseRoles()
 			if g.JSON {
 				out := make([]map[string]string, 0, len(roles))

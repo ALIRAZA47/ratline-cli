@@ -80,6 +80,8 @@ func TestDryRunLeavesTheDatabaseUntouched(t *testing.T) {
 			"--app-module", "app.main:app"},
 		{"site", "add", "node.example.com", "--user", "acme", "--runtime", "node",
 			"--entry", "server.js", "--listen", "port"},
+		{"site", "add", "bun.example.com", "--user", "acme", "--runtime", "bun",
+			"--entry", "src/index.tsx", "--bun", "1.2"},
 		{"user", "add", "beta"},
 		{"db", "install"},
 		{"db", "access", "allow", "203.0.113.19"},

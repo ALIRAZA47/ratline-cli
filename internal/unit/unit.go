@@ -105,6 +105,11 @@ var HardeningDirectives = []struct {
 var defaultRelaxed = map[string][]string{
 	// V8 needs writable-executable memory for its JIT.
 	"node": {"MemoryDenyWriteExecute"},
+	// JavaScriptCore JITs too, so bun needs the same exemption as node for the same
+	// reason. Not inherited from the entry above: which directives a runtime needs
+	// relaxed is a property of the engine, and a shared entry would silently apply a
+	// future node-only exemption to bun as well.
+	"bun": {"MemoryDenyWriteExecute"},
 	// CPython does not JIT, so the default sandbox holds. Native wheels that
 	// mmap executable pages are the exception, and the install-time check
 	// catches them.

@@ -83,16 +83,18 @@ func For(name string) (Runtime, error) {
 		return &Static{}, nil
 	case "node":
 		return &Node{}, nil
+	case "bun":
+		return &Bun{}, nil
 	case "python":
 		return &Python{}, nil
 	default:
 		return nil, rlerr.Usagef("unknown runtime %q", name).
-			WithHint("choose static, node or python")
+			WithHint("choose static, node, bun or python")
 	}
 }
 
 // Names lists the available runtimes.
-func Names() []string { return []string{"static", "node", "python"} }
+func Names() []string { return []string{"static", "node", "bun", "python"} }
 
 // runAsOwner runs a command as the site user, never as root.
 //
@@ -149,6 +151,14 @@ func (c *Context) RuntimeBinDirs() []string {
 		}
 		if version != "" {
 			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", version, "bin"))
+		}
+	case "bun":
+		version := c.Site.BunVersion
+		if version == "" {
+			version = c.Cfg.Runtimes.BunDefault
+		}
+		if version != "" {
+			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "bun", version, "bin"))
 		}
 	case "python":
 		version := c.Site.PythonVersion

@@ -11,7 +11,7 @@ import (
 
 const siteColumns = `domain, owner, runtime, slug, enabled,
 	doc_root, spa, index_file,
-	entry, node_version, package_manager, listen, process_manager, port, instances,
+	entry, node_version, bun_version, package_manager, listen, process_manager, port, instances,
 	app_module, python_version, asgi, app_server, workers, requirements, manage_py, static_url, static_dir,
 	start_command, install_command, build_command, build_output, public_dir, repo, branch,
 	pre_deploy_command, post_deploy_command,
@@ -26,7 +26,8 @@ func scanSite(row interface{ Scan(...any) error }) (*Site, error) {
 	)
 	err := row.Scan(&s.Domain, &s.Owner, &s.Runtime, &s.Slug, &enabled,
 		&s.DocRoot, &spa, &s.IndexFile,
-		&s.Entry, &s.NodeVersion, &s.PackageManager, &s.Listen, &s.ProcessManager, &s.Port, &s.Instances,
+		&s.Entry, &s.NodeVersion, &s.BunVersion, &s.PackageManager, &s.Listen, &s.ProcessManager,
+		&s.Port, &s.Instances,
 		&s.AppModule, &s.PythonVersion, &asgi, &s.AppServer, &s.Workers, &s.Requirements,
 		&s.ManagePy, &s.StaticURL, &s.StaticDir,
 		&s.StartCommand, &s.InstallCommand, &s.BuildCommand, &s.BuildOutput, &s.PublicDir, &s.Repo, &s.Branch,
@@ -52,11 +53,12 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 	return s.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO sites (`+siteColumns+`)
-			VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?, ?,?,?,?)
+			VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?, ?,?,?,?)
 			ON CONFLICT(domain) DO UPDATE SET
 				owner=excluded.owner, runtime=excluded.runtime, slug=excluded.slug, enabled=excluded.enabled,
 				doc_root=excluded.doc_root, spa=excluded.spa, index_file=excluded.index_file,
 				entry=excluded.entry, node_version=excluded.node_version,
+				bun_version=excluded.bun_version,
 				package_manager=excluded.package_manager, listen=excluded.listen,
 				process_manager=excluded.process_manager,
 				port=excluded.port, instances=excluded.instances,
@@ -75,7 +77,8 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 				updated_at=excluded.updated_at, last_deploy_at=excluded.last_deploy_at`,
 			site.Domain, site.Owner, site.Runtime, site.Slug, boolToInt(site.Enabled),
 			site.DocRoot, boolToInt(site.SPA), site.IndexFile,
-			site.Entry, site.NodeVersion, site.PackageManager, site.Listen, site.ProcessManager, site.Port, site.Instances,
+			site.Entry, site.NodeVersion, site.BunVersion, site.PackageManager, site.Listen,
+			site.ProcessManager, site.Port, site.Instances,
 			site.AppModule, site.PythonVersion, boolToInt(site.ASGI), site.AppServer, site.Workers,
 			site.Requirements, site.ManagePy, site.StaticURL, site.StaticDir,
 			site.StartCommand, site.InstallCommand, site.BuildCommand, site.BuildOutput,

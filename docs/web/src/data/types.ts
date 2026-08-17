@@ -52,7 +52,7 @@ export interface Example {
    * The same example in several forms, behind a tab bar.
    *
    * For a command whose shape genuinely differs by case rather than by one flag — `site
-   * add` for static, node and python — where showing three separate examples buries the
+   * add` for static, node, bun and python — where showing separate examples buries the
    * one the reader wants.
    */
   variants?: ExampleVariant[];

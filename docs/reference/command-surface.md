@@ -201,7 +201,7 @@ Bricking SSH on a remote VPS has no recovery path, so:
 ### Common flags
 
 ```
-ratline site add <domain> --user <username> --runtime static|node|python
+ratline site add <domain> --user <username> --runtime static|node|bun|python
     [--alias www.example.com]    Repeatable
     [--ssl letsencrypt|selfsigned|none]
                                  Convenience only: runs `cert issue` (or
@@ -247,6 +247,27 @@ runs under `ratline-<slug>.service`.
 login shells are never involved. `--start-command` is resolved to an argv slice;
 anything needing a shell is refused.
 
+### `--runtime bun`
+
+bun straight under systemd, behind a Unix socket (default) or an allocated port.
+There is no PM2 here, so `--daemon` and `--instances` are refused rather than
+ignored, and `site reload` on a bun site is a restart.
+
+```
+    --entry server.ts            OR --start-command "bun run start"
+    [--bun 1.2]                  Must be installed; see `ratline runtime`
+    [--package-manager npm|pnpm|yarn|bun]   Default bun
+    [--listen socket|port]       Default socket; port auto-allocated 20000-29999
+    [--install-command "bun install --frozen-lockfile"]
+    [--build-command "bun run build"]   Often unnecessary: TS and JSX run unbuilt
+    [--public public]            Static dir served by nginx, bypassing the app
+```
+
+`--entry` takes everything the node runtime does plus `.jsx` and `.tsx`, because
+bun transpiles on the way in. `ExecStart` invokes the managed binary by absolute
+path (`/opt/ratline/runtimes/bun/1.2/bin/bun server.ts`), which is what stops
+`bun upgrade` in a tenant's home from changing the interpreter a unit executes.
+
 ### `--runtime python`
 
 Gunicorn (WSGI) or Gunicorn with a Uvicorn worker (ASGI), in a per-site
@@ -283,7 +304,7 @@ ratline site env get|unset <domain> KEY
 ratline site env list <domain> [--reveal]     Values masked unless --reveal
 ratline site env import <domain> --file .env
 ratline site alias add|remove <domain> <alias>
-ratline site runtime <domain> --node 22 | --python 3.12
+ratline site runtime <domain> --node 22 | --bun 1.2 | --python 3.12
 ```
 
 After `start`, `restart` or `deploy`, ratline **waits for health**: it polls the
@@ -385,12 +406,20 @@ is marked `degraded` in state, and `doctor` surfaces it.
 ## RUNTIMES
 
 ```
-ratline runtime list             Installed Node and Python versions, and which
-                                 sites use each
-ratline runtime install node 22
+ratline runtime list             Installed Node, Bun and Python versions, and
+                                 which sites use each
+ratline runtime install node 22 [--with-pm2]
+ratline runtime install bun 1.2 [--baseline]
 ratline runtime install python 3.12
-ratline runtime default node 22
+ratline runtime default node 22 | bun 1.2 | python 3.12
 ```
+
+Bun is a GitHub release asset verified against the `SHASUMS256.txt` beside it,
+extracted in-process rather than through `unzip`, and landed root-owned so
+`bun upgrade` cannot move the binary a unit executes. `--baseline` forces the
+build for x86-64 CPUs without AVX2; without it `/proc/cpuinfo` decides, because
+getting that wrong kills the process on an illegal instruction with no message
+of its own.
 
 ## OPERATIONS
 
@@ -470,6 +499,7 @@ System paths:
 /var/log/ratline/audit.log
 /etc/logrotate.d/ratline-<domain>
 /opt/ratline/runtimes/node/<ver>/
+/opt/ratline/runtimes/bun/<ver>/
 /opt/ratline/runtimes/python/<ver>/
 ```
 

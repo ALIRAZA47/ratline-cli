@@ -32,6 +32,11 @@ func newDBDumpCommand(g *Globals) *cobra.Command {
 		Example: "  ratline db dump app_example_com\n" +
 			"  ratline db dump app_example_com --out /mnt/backups",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlDump(cmd, args[0], outDir)
+			}
 			ctx := cmd.Context()
 			name := args[0]
 			if err := validate.DatabaseName(name); err != nil {
@@ -91,6 +96,11 @@ func newDBRestoreCommand(g *Globals) *cobra.Command {
 			"  ratline db restore app.archive.gz --into app_staging\n" +
 			"  ratline db restore app.archive.gz --drop     # replace what is there",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlRestore(cmd, args[0], into)
+			}
 			ctx := cmd.Context()
 			archive := args[0]
 

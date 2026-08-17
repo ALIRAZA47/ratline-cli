@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/mongod"
+	"github.com/ALIRAZA47/ratline-cli/internal/mysqld"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 )
@@ -236,6 +237,34 @@ func ServerChecks(env *Env) []Check {
 						"guard, so anyone who can reach port " + mongod.Port + " faces only a password").
 						WithFix("activate ufw with a default-deny incoming policy (allow SSH first), " +
 							"or revoke every address: ratline db access list")
+				}
+			},
+		},
+		{
+			ID:    "mysql-exposure",
+			Title: "the MySQL server is not exposed without a firewall standing guard",
+			Run: func(ctx context.Context) Result {
+				mgr := &mysqld.Manager{
+					Cfg: env.Cfg, Log: env.Log, Runner: env.Runner,
+					Bins: env.Bins, State: env.State, OS: env.OS,
+				}
+				exp, err := mgr.CheckExposure(ctx)
+				if err != nil {
+					return Warn("could not determine what MySQL is bound to: %v", err)
+				}
+				switch {
+				case !exp.Present:
+					return Skip("no MySQL server on this host")
+				case !exp.Remote:
+					return Pass("MySQL listens on localhost only")
+				case exp.Guarded:
+					return Pass("MySQL listens beyond localhost; ufw admits %s",
+						plural(exp.Allowed, "allowed address"))
+				default:
+					return Fail("MySQL listens beyond localhost and no firewall is standing " +
+						"guard, so anyone who can reach port " + mysqld.Port + " faces only a password").
+						WithFix("activate ufw with a default-deny incoming policy (allow SSH first), " +
+							"or revoke every address: ratline db access list --engine mysql")
 				}
 			},
 		},

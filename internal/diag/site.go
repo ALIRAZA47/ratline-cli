@@ -189,8 +189,11 @@ func dynamicChecks(env *Env, s *state.Site, socket string) []Check {
 			Run: func(ctx context.Context) Result {
 				report, err := env.Site.ProcessReport(ctx, s)
 				if err != nil || report == nil {
-					if s.Runtime == "node" {
+					switch s.Runtime {
+					case "node":
 						return Skip("this site runs node directly under systemd")
+					case "bun":
+						return Skip("bun runs directly under systemd; there is no supervisor to ask")
 					}
 					return Skip("gunicorn workers live inside the unit above")
 				}

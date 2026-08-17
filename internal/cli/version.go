@@ -31,6 +31,7 @@ type VersionInfo struct {
 	OpenSSH   string   `json:"openssh,omitempty"`
 	Systemd   string   `json:"systemd,omitempty"`
 	Node      []string `json:"node_runtimes,omitempty"`
+	Bun       []string `json:"bun_runtimes,omitempty"`
 	Python    []string `json:"python_runtimes,omitempty"`
 	Config    string   `json:"config"`
 	ConfigOK  bool     `json:"config_loaded"`
@@ -61,6 +62,7 @@ func newVersionCommand(g *Globals) *cobra.Command {
 				[2]string{"openssh", orNotInstalled(info.OpenSSH)},
 				[2]string{"systemd", orNotInstalled(info.Systemd)},
 				[2]string{"node runtimes", orNone(info.Node)},
+				[2]string{"bun runtimes", orNone(info.Bun)},
 				[2]string{"python runtimes", orNone(info.Python)},
 			)
 			return g.Fields(pairs...)
@@ -86,6 +88,7 @@ func (g *Globals) versionInfo(ctx context.Context) VersionInfo {
 	if g.Cfg != nil {
 		info.ConfigOK = g.Cfg.Loaded
 		info.Node = listRuntimeVersions(filepath.Join(g.Cfg.Paths.RuntimesDir, "node"))
+		info.Bun = listRuntimeVersions(filepath.Join(g.Cfg.Paths.RuntimesDir, "bun"))
 		info.Python = listRuntimeVersions(filepath.Join(g.Cfg.Paths.RuntimesDir, "python"))
 	}
 	// Version probes are best-effort: a server without certbot yet is a normal

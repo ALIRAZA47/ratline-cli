@@ -71,7 +71,7 @@ export const topicGroups: { title: string; blurb: string; names: string[] }[] = 
   {
     title: 'Runtimes',
     blurb: 'How each kind of site is served and supervised.',
-    names: ['static', 'node', 'python'],
+    names: ['static', 'node', 'bun', 'python'],
   },
   {
     title: 'Resources a site needs',

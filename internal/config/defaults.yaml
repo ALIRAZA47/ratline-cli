@@ -43,6 +43,11 @@ paths:
   # file: it is the root password for every database on the server, and config.yaml
   # is a file operators paste into support tickets.
   mongo_uri_file: /etc/ratline/db/mongodb.uri
+  # The MySQL/MariaDB admin credentials, as a 0600 defaults-file ([client]
+  # user/password/host/port). Held to the same rule as mongo_uri_file — it grants full
+  # control of every database on the server — and handed to the mysql client as
+  # --defaults-extra-file so the password never lands in argv.
+  mysql_defaults_file: /etc/ratline/db/mysql.cnf
   ssh_dir: /etc/ratline/ssh
   sshd_dropin: /etc/ssh/sshd_config.d/60-ratline.conf
   runtimes_dir: /opt/ratline/runtimes
@@ -147,6 +152,7 @@ runtimes:
   # Empty until `ratline runtime install` or `ratline init` has run.
   node_default: ""
   python_default: ""
+  bun_default: ""
   # How a node site is supervised.
   #
   #   pm2     PM2 in cluster mode under the site's systemd unit. The default,
@@ -160,6 +166,12 @@ runtimes:
   # kernel-enforced across PM2 and all of its workers.
   node_process_manager: pm2
   node_mirror: https://nodejs.org/dist
+  # Where `ratline runtime install bun` downloads from. Bun ships as a GitHub release
+  # asset, so this is the release host and the tag is appended: the URL built from it is
+  # <bun_mirror>/download/bun-v<version>/bun-linux-<arch>.zip, verified against the
+  # SHASUMS256.txt published beside it. A bun site has no process-manager choice — bun
+  # runs directly under systemd, and `site reload` on one is a restart.
+  bun_mirror: https://github.com/oven-sh/bun/releases
   install_timeout: 30m
   build_timeout: 20m
 
@@ -225,6 +237,16 @@ databases:
     # Created so a new database is visible to `db list`. MongoDB has no
     # createDatabase; a database exists once something is written into it.
     initial_collection: ratline
+  mysql:
+    # Granted to a user created without --role, for `db --engine mysql`. readWrite maps
+    # to SELECT,INSERT,UPDATE,DELETE on the user's own database — enough for an
+    # application, without the right to create users or drop the schema.
+    default_role: readWrite
+    # The variable a connection string is written to in a site's .env.
+    env_key: DATABASE_URL
+    # One mysql-client invocation, so a server that hangs behind an access list becomes
+    # an error naming the cause rather than a command that never returns.
+    timeout: 30s
 
 features:
   # Turns `ratline db` on. Off by default because it needs a MongoDB server and an

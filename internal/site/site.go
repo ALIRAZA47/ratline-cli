@@ -53,9 +53,10 @@ type AddOptions struct {
 	SPA       bool
 	IndexFile string
 
-	// node
+	// node and bun
 	Entry          string
 	NodeVersion    string
+	BunVersion     string
 	PackageManager string
 	Listen         string
 	ProcessManager string
@@ -306,6 +307,7 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 		IndexFile:         orDefault(opts.IndexFile, "index.html"),
 		Entry:             opts.Entry,
 		NodeVersion:       opts.NodeVersion,
+		BunVersion:        opts.BunVersion,
 		PackageManager:    opts.PackageManager,
 		Listen:            orDefault(opts.Listen, "socket"),
 		ProcessManager:    opts.ProcessManager,
@@ -374,6 +376,49 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 		default:
 			return nil, rlerr.Usagef("--daemon must be pm2 or direct, got %q", site.ProcessManager).
 				WithHint("pm2 reloads without dropping requests; direct is one fewer moving part")
+		}
+	case "bun":
+		if opts.Entry == "" && opts.StartCommand == "" {
+			return nil, rlerr.Usagef("a bun site needs --entry or --start-command").
+				WithHint("--entry server.ts is the usual answer; --start-command adds a process between systemd and your server")
+		}
+		if opts.Entry != "" && opts.StartCommand != "" {
+			return nil, rlerr.Usagef("--entry and --start-command contradict each other")
+		}
+		if opts.Entry != "" {
+			if err := validate.BunEntry(opts.Entry); err != nil {
+				return nil, err
+			}
+		}
+		if opts.PackageManager != "" {
+			if err := validate.PackageManager(opts.PackageManager); err != nil {
+				return nil, err
+			}
+		}
+		if opts.BunVersion != "" {
+			if err := validate.BunVersion(opts.BunVersion); err != nil {
+				return nil, err
+			}
+		}
+		// --node on a bun site is refused rather than ignored: it reads as "run this on
+		// Node 22", and a site that silently ran on bun anyway would be a lie that only
+		// surfaces when something engine-specific breaks.
+		if opts.NodeVersion != "" {
+			return nil, rlerr.Usagef("--node does not apply to a bun site").
+				WithHint("pin the engine with --bun %s, or create the site with --runtime node",
+					opts.NodeVersion)
+		}
+		switch site.Listen {
+		case "socket", "port":
+		default:
+			return nil, rlerr.Usagef("--listen must be socket or port, got %q", site.Listen)
+		}
+		// Bun runs directly under systemd. There is no supervisor to choose, so the
+		// flag is refused rather than accepted and dropped.
+		if site.ProcessManager != "" {
+			return nil, rlerr.Usagef("--daemon does not apply to a bun site").
+				WithHint("bun runs directly under systemd; PM2 is a node supervisor, " +
+					"and it is what a site needing zero-downtime reloads should use")
 		}
 	case "python":
 		if opts.AppModule == "" {
@@ -488,6 +533,8 @@ func validateInstances(site *state.Site, configuredManager string) error {
 	if site.Instances <= 1 {
 		return nil
 	}
+	// node and python, not bun: a bun site is refused below for a reason of its own,
+	// and naming it here as somewhere --instances applies would contradict that.
 	if !site.Dynamic() {
 		return rlerr.Usagef("--instances only applies to node and python sites")
 	}
@@ -495,6 +542,15 @@ func validateInstances(site *state.Site, configuredManager string) error {
 		return rlerr.Usagef("a python site scales with workers, not instances").
 			WithHint("gunicorn workers share the one socket: ratline site scale %s --workers %d",
 				site.Domain, site.Instances)
+	}
+	// --instances means PM2 cluster workers, and PM2 is a node supervisor. A bun site is
+	// one process under systemd, so the flag has nothing to act on and is refused rather
+	// than accepted and silently ignored.
+	if site.Runtime == "bun" {
+		return rlerr.Usagef("a bun site is a single process under systemd").
+			WithHint("--instances is PM2 cluster mode, which is node-only; " +
+				"scale a bun site horizontally with more sites behind a load balancer, " +
+				"or use --runtime node for PM2")
 	}
 	manager := site.ProcessManager
 	if manager == "" {
@@ -674,7 +730,8 @@ func (m *Manager) writeManifest(site *state.Site, id *system.Identity) error {
 	}
 	for _, kv := range [][2]string{
 		{"doc_root", site.DocRoot}, {"entry", site.Entry}, {"app_module", site.AppModule},
-		{"node_version", site.NodeVersion}, {"python_version", site.PythonVersion},
+		{"node_version", site.NodeVersion}, {"bun_version", site.BunVersion},
+		{"python_version", site.PythonVersion},
 		{"listen", site.Listen}, {"app_server", site.AppServer},
 		{"start_command", site.StartCommand}, {"build_command", site.BuildCommand},
 		{"build_output", site.BuildOutput}, {"public_dir", site.PublicDir},

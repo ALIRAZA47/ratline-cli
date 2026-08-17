@@ -15,6 +15,7 @@ ratline explain node | less
 | [layout](layout.md) | Where everything lives on disk |
 | [sockets](sockets.md) | Unix sockets, ports, and the silent 502 |
 | [node](node.md) | Node supervision, PM2, and when to turn it off |
+| [bun](bun.md) | TypeScript unbuilt, and what having no PM2 costs |
 | [python](python.md) | Gunicorn, virtualenvs, WSGI vs ASGI |
 | [static](static.md) | nginx serving files directly |
 | [tls](tls.md) | Certificates as a separate resource |

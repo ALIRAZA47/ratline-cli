@@ -26,7 +26,7 @@ sudo ratline doctor        # validates it
 | `users` | Reserved names, whether sudo may be granted at all, quota support, home modes |
 | `ssh` | Key algorithm policy, minimum RSA bits, scope behaviour, verification, expiry pruning |
 | `nginx` | Reload timeout, gzip and brotli, `server_tokens`, asset cache lifetime |
-| `runtimes` | Default node and python versions, the node process manager, mirrors, timeouts |
+| `runtimes` | Default node, bun and python versions, the node process manager, mirrors, timeouts |
 | `acme` | Contact address, directory URLs, key type, renewal window, the CA's rate limits |
 | `ports` | The allocation window for sites that listen on TCP |
 | `databases` | The MongoDB server `ratline db` provisions inside |
@@ -44,6 +44,7 @@ defaults:
 runtimes:
   node_process_manager: pm2     # or: direct
   node_default: "22"
+  bun_default: "1.2"
   python_default: "3.12"
 
 acme:

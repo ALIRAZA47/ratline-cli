@@ -74,6 +74,34 @@ func newDBInstallCommand(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 
+			engine, eerr := g.dbEngineChoice(cmd)
+			if eerr != nil {
+				return eerr
+			}
+			if engine == engineMySQL {
+				if g.DryRun {
+					return g.mysqlInstall(cmd, adminUser, "")
+				}
+				if password == "" {
+					pw, err := g.readSecret("Choose a password for the MySQL admin user (not echoed): ")
+					if err != nil {
+						return err
+					}
+					again, err := g.readSecret("Type it again: ")
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(pw) != strings.TrimSpace(again) {
+						return rlerr.Usagef("the two passwords do not match, so nothing was done")
+					}
+					password = strings.TrimSpace(pw)
+				}
+				if err := checkAdminPassword(password); err != nil {
+					return err
+				}
+				return g.mysqlInstall(cmd, adminUser, password)
+			}
+
 			if err := validate.DatabaseUsername(adminUser); err != nil {
 				return rlerr.Wrap(err, rlerr.CodeUsage, "the admin username is not usable")
 			}

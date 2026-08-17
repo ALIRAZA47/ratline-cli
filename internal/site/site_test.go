@@ -27,6 +27,67 @@ func nodeOptions() AddOptions {
 	}
 }
 
+func bunOptions() AddOptions {
+	return AddOptions{
+		Domain: "edge.example.com", Owner: "alice", Runtime: "bun",
+		Entry: "server.ts", Listen: "socket",
+	}
+}
+
+// A bun site has no supervisor to choose and no cluster to fan out into. Both flags
+// have to be refused rather than accepted and dropped: an operator who passed
+// --instances 4 and saw the site created would believe four workers were serving.
+func TestBunRefusesTheNodeOnlySupervisionFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*AddOptions)
+		wantHas string
+	}{
+		{"a supervisor", func(o *AddOptions) { o.ProcessManager = "pm2" }, "--daemon"},
+		{"cluster workers", func(o *AddOptions) { o.Instances = 4 }, "single process"},
+		{"a node version", func(o *AddOptions) { o.NodeVersion = "22" }, "--node"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := bunOptions()
+			tc.mutate(&opts)
+			_, err := testManager().buildSite(context.Background(), &opts)
+			if err == nil {
+				t.Fatal("the flag should have been refused on a bun site")
+			}
+			combined := err.Error() + " " + rlerr.Hint(err)
+			if !strings.Contains(combined, tc.wantHas) {
+				t.Errorf("the refusal should mention %q, got: %s", tc.wantHas, combined)
+			}
+		})
+	}
+}
+
+// Bun's whole selling point is running TypeScript and JSX unbuilt, so buildSite has to
+// accept an entry point the node branch would refuse — and still refuse a bad one.
+func TestBunEntryPointsAreJudgedAgainstBun(t *testing.T) {
+	for _, entry := range []string{"server.ts", "src/index.tsx", "app.jsx", "dist/server.js"} {
+		opts := bunOptions()
+		opts.Entry = entry
+		if _, err := testManager().buildSite(context.Background(), &opts); err != nil {
+			t.Errorf("entry %q was refused on a bun site: %v", entry, err)
+		}
+	}
+	for _, entry := range []string{"server.py", "../server.ts", "server.ts;reboot"} {
+		opts := bunOptions()
+		opts.Entry = entry
+		if _, err := testManager().buildSite(context.Background(), &opts); err == nil {
+			t.Errorf("entry %q should have been refused", entry)
+		}
+	}
+	// And the wider set stays on bun's side of the fence: a node site given a .tsx
+	// entry point would write a unit that dies on first start.
+	opts := nodeOptions()
+	opts.Entry = "src/index.tsx"
+	if _, err := testManager().buildSite(context.Background(), &opts); err == nil {
+		t.Error("a .tsx entry point should be refused on a node site")
+	}
+}
+
 func TestDaemonFlagAcceptsBothSupervisorsAndNothingElse(t *testing.T) {
 	for _, tc := range []struct {
 		value  string

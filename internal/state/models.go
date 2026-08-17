@@ -37,9 +37,14 @@ type Site struct {
 	SPA       bool   `json:"spa,omitempty"`
 	IndexFile string `json:"index_file,omitempty"`
 
-	// node
+	// node and bun
+	//
+	// The two runtimes share Entry, Listen and Port because they are the same shape
+	// behind nginx: one process, one socket or one localhost port. Only the pinned
+	// version differs, and ProcessManager belongs to node alone — PM2 supervises node.
 	Entry          string `json:"entry,omitempty"`
 	NodeVersion    string `json:"node_version,omitempty"`
+	BunVersion     string `json:"bun_version,omitempty"`
 	PackageManager string `json:"package_manager,omitempty"`
 	Listen         string `json:"listen,omitempty"`
 	ProcessManager string `json:"process_manager,omitempty"`
@@ -85,7 +90,17 @@ type Site struct {
 }
 
 // Dynamic reports whether the site has an application process behind nginx.
-func (s *Site) Dynamic() bool { return s.Runtime == "node" || s.Runtime == "python" }
+func (s *Site) Dynamic() bool {
+	return s.Runtime == "node" || s.Runtime == "bun" || s.Runtime == "python"
+}
+
+// JavaScript reports whether the site is served by a JavaScript engine.
+//
+// The two share a package.json, a node_modules and a lockfile, so everything that reasons
+// about a project's dependencies rather than about which binary executes it — the nginx
+// asset shortcuts, the deploy summary, the lockfile sniffing — asks this rather than
+// naming one runtime and quietly excluding the other.
+func (s *Site) JavaScript() bool { return s.Runtime == "node" || s.Runtime == "bun" }
 
 // ServerNames is the domain plus every alias, which is what nginx needs.
 func (s *Site) ServerNames() []string {

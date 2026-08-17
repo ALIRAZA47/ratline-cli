@@ -82,7 +82,7 @@ command and flag. The same content as [docs/](docs/), which is the source.
 | | |
 |---|---|
 | [Getting started](docs/getting-started/) | Bare server to HTTPS, in four pages |
-| [Guides](docs/guides/) | Task-shaped: static, node, python, deploys, secrets, scaling |
+| [Guides](docs/guides/) | Task-shaped: static, node, bun, python, deploys, secrets, scaling |
 | [Operations](docs/operations/) | Monitoring, troubleshooting, backups, drift, upgrades |
 | [Reference](docs/reference/) | Every command, setting, exit code and path |
 | [Security](docs/security/) | What is enforced, and where the isolation ends |

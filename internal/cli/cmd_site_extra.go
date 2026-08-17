@@ -21,6 +21,7 @@ import (
 func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 	var (
 		nodeVersion   string
+		bunVersion    string
 		pythonVersion string
 		daemon        string
 		relax         []string
@@ -30,11 +31,13 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 		Short: "Change a site's interpreter version, then rebuild and restart",
 		Args:  cobra.ExactArgs(1),
 		Example: "  ratline site runtime app.example.com --node 22\n" +
+			"  ratline site runtime edge.example.com --bun 1.2\n" +
 			"  ratline site runtime api.example.com --python 3.12",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeVersion == "" && pythonVersion == "" && daemon == "" && len(relax) == 0 {
+			if nodeVersion == "" && bunVersion == "" && pythonVersion == "" &&
+				daemon == "" && len(relax) == 0 {
 				return rlerr.Usagef("nothing to change").
-					WithHint("pass --node, --python, --daemon, or --relax <directive>")
+					WithHint("pass --node, --bun, --python, --daemon, or --relax <directive>")
 			}
 			st, err := g.Store(cmd.Context())
 			if err != nil {
@@ -60,6 +63,19 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 						WithHint("ratline runtime install node %s", nodeVersion)
 				}
 				site.NodeVersion = nodeVersion
+			case bunVersion != "":
+				if site.Runtime != "bun" {
+					return rlerr.Usagef("%s is a %s site, so --bun does not apply", site.Domain, site.Runtime)
+				}
+				if err := validate.BunVersion(bunVersion); err != nil {
+					return err
+				}
+				bin := filepath.Join(g.Cfg.Paths.RuntimesDir, "bun", bunVersion, "bin", "bun")
+				if !system.Exists(bin) && !g.DryRun {
+					return rlerr.Preconditionf("Bun %s is not installed", bunVersion).
+						WithHint("ratline runtime install bun %s", bunVersion)
+				}
+				site.BunVersion = bunVersion
 			case pythonVersion != "":
 				if site.Runtime != "python" {
 					return rlerr.Usagef("%s is a %s site, so --python does not apply", site.Domain, site.Runtime)
@@ -169,6 +185,7 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&nodeVersion, "node", "", "Node version to move to")
+	f.StringVar(&bunVersion, "bun", "", "Bun version to move to")
 	f.StringVar(&pythonVersion, "python", "", "Python version to move to")
 	f.StringVar(&daemon, "daemon", "", "node: move this site to pm2 or direct supervision")
 	f.StringSliceVar(&relax, "relax", nil, "Turn off a named systemd hardening directive for this site")
@@ -176,10 +193,14 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 }
 
 func versionOf(s *state.Site) string {
-	if s.Runtime == "node" {
+	switch s.Runtime {
+	case "node":
 		return "Node " + orDash(s.NodeVersion)
+	case "bun":
+		return "Bun " + orDash(s.BunVersion)
+	default:
+		return "Python " + orDash(s.PythonVersion)
 	}
-	return "Python " + orDash(s.PythonVersion)
 }
 
 func mergeUnique(existing, added []string) []string {

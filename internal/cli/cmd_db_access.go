@@ -60,6 +60,11 @@ func newDBAccessAllowCommand(g *Globals) *cobra.Command {
 			"  ratline db access allow 10.8.0.0/24 --note \"office vpn\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if engine, eerr := g.dbEngineChoice(cmd); eerr != nil {
+				return eerr
+			} else if engine == engineMySQL {
+				return g.mysqlAccessAllow(cmd, args[0], note)
+			}
 			mgr, err := g.mongodManager(ctx)
 			if err != nil {
 				return err
@@ -114,6 +119,11 @@ func newDBAccessRevokeCommand(g *Globals) *cobra.Command {
 		Example: "  ratline db access revoke 203.0.113.19",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if engine, eerr := g.dbEngineChoice(cmd); eerr != nil {
+				return eerr
+			} else if engine == engineMySQL {
+				return g.mysqlAccessRevoke(cmd, args[0])
+			}
 			mgr, err := g.mongodManager(ctx)
 			if err != nil {
 				return err
@@ -160,6 +170,11 @@ func newDBAccessListCommand(g *Globals) *cobra.Command {
 			"others.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			if engine, eerr := g.dbEngineChoice(cmd); eerr != nil {
+				return eerr
+			} else if engine == engineMySQL {
+				return g.mysqlAccessList(cmd)
+			}
 			mgr, err := g.mongodManager(ctx)
 			if err != nil {
 				return err

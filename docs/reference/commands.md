@@ -135,13 +135,13 @@ CERTIFICATES
   cert         Issue, attach, renew and import TLS certificates
 
 RUNTIMES
-  runtime      Install and select managed Node and Python versions
+  runtime      Install and select managed Node, Bun and Python versions
 
 OPERATIONS
   init         Set up this server: configuration, directories and defaults
   backup       Archive a user's home or a single site
   restore      Put a backup archive back, and rebuild what serves it
-  db           Provision MongoDB databases and users
+  db           Provision MongoDB or MySQL databases and users
   config       Read and change ratline's own configuration
   doctor       Check the server, or diagnose one thing on it
   status       Show everything on this server on one screen
@@ -341,6 +341,7 @@ Usage:
 
 Available Commands:
   node        A tenant, a Node site and optionally a database, in one command
+  bun         A tenant, a Bun site and optionally a database, in one command
   python      A tenant, a Python site and optionally a database, in one command
   static      A tenant and a static site, in one command
 
@@ -414,9 +415,9 @@ Use "ratline cert [command] --help" for more information about a command.
 Managed interpreters live under /opt/ratline/runtimes and are invoked by absolute
 path from each unit's ExecStart.
 
-That is the point: nvm, pyenv and shell profiles are never involved, because
-systemd does not read them. A unit that depended on them would work when you
-tested it by hand and fail on the next boot.
+That is the point: nvm, pyenv, `bun upgrade` and shell profiles are never
+involved, because systemd does not read them. A unit that depended on them
+would work when you tested it by hand and fail on the next boot.
 
 Usage:
   ratline runtime [command]
@@ -593,7 +594,8 @@ Available Commands:
   access      Control which addresses can reach this host's MongoDB
 
 Flags:
-  -h, --help   help for db
+      --engine string   Database engine: mongo or mysql (default "mongo")
+  -h, --help            help for db
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
@@ -612,6 +614,10 @@ Examples:
   ratline db user add reports --database shop --role read
   ratline db access allow 203.0.113.19
   ratline db list --live
+
+  # the same surface against MySQL/MariaDB:
+  ratline db install --engine mysql
+  ratline db create shop --engine mysql --owner acme --attach shop.example.com
 
 Use "ratline db [command] --help" for more information about a command.
 ```
@@ -1582,29 +1588,30 @@ Flags:
       --branch string                 Branch to clone (default "main")
       --build-command string          Build command
       --build-output string           Directory the build writes, published as the document root
+      --bun string                    bun: managed Bun version, e.g. 1.2
       --client-max-body-size string   Upload limit, e.g. 20M
       --cpu-quota string              CPU ceiling, e.g. 100%
       --daemon string                 node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)
       --email string                  ACME contact address
-      --entry string                  node: the file that starts the server
+      --entry string                  node, bun: the file that starts the server
   -h, --help                          help for add
       --hsts                          Send Strict-Transport-Security (only with a trusted certificate)
       --index string                  static: index document (default "index.html")
       --install-command string        Dependency install command
       --instances int                 node: PM2 cluster workers, all sharing the one socket inside the one unit (default 1)
-      --listen string                 node: socket or port (default "socket")
+      --listen string                 node, bun: socket or port (default "socket")
       --manage-py string              python: Django manage.py, enabling --migrate and --collectstatic
       --memory-max string             Memory ceiling, e.g. 512M
       --no-enable                     Write the configuration without enabling or starting it
       --node string                   node: managed Node version, e.g. 22
-      --package-manager string        node: npm, pnpm, yarn or bun (detected from the lockfile)
+      --package-manager string        node, bun: npm, pnpm, yarn or bun (detected from the lockfile)
       --public string                 Directory nginx serves directly, bypassing the application
       --python string                 python: managed Python version, e.g. 3.12
       --relax strings                 Turn off a named systemd hardening directive for this site
       --repo string                   Clone this repository into the application directory
       --requirements string           python: requirements file (detected by default)
       --root string                   static: document root under the site directory (default public)
-      --runtime string                static, node or python (required)
+      --runtime string                static, node, bun or python (required)
       --server string                 python: gunicorn or uvicorn (default gunicorn)
       --spa                           static: serve the index document for unmatched paths
       --ssl string                    letsencrypt, selfsigned or none (default "letsencrypt")
@@ -1634,6 +1641,9 @@ Examples:
 
   ratline site add app.example.com --user acme --runtime node \
       --entry server.js --node 22
+
+  ratline site add edge.example.com --user acme --runtime bun \
+      --entry server.ts --bun 1.2
 ```
 
 #### `ratline site list`
@@ -2246,6 +2256,7 @@ Usage:
   ratline site runtime <domain> [flags]
 
 Flags:
+      --bun string      Bun version to move to
       --daemon string   node: move this site to pm2 or direct supervision
   -h, --help            help for runtime
       --node string     Node version to move to
@@ -2264,6 +2275,7 @@ Global Flags:
 
 Examples:
   ratline site runtime app.example.com --node 22
+  ratline site runtime edge.example.com --bun 1.2
   ratline site runtime api.example.com --python 3.12
 ```
 
@@ -2371,6 +2383,52 @@ Examples:
   # Next.js standalone
   ratline new node app.example.com --user acme --listen port \
       --entry .next/standalone/server.js --build-command ./bin/build
+```
+
+#### `ratline new bun`
+
+```
+Defaults suited to a Bun application: bun straight under systemd, a Unix socket,
+and a TypeScript entry point run without a build step.
+
+There is no --instances and no --daemon here. PM2 is a Node supervisor, so a bun
+site is one process and `site reload` on it is a restart — pick `new node` when
+zero-downtime reloads matter more than the engine does.
+
+Usage:
+  ratline new bun <domain> [flags]
+
+Flags:
+      --build-command string     Build command; a multi-step build belongs in a script
+      --bun string               Managed Bun version, e.g. 1.2
+      --db-env-key string        Variable the connection string is written to (default MONGODB_URI)
+      --db-name string           Name for that database (default: derived from the domain)
+      --email string             ACME contact address, for --tls
+      --entry string             The file that starts the server (default "server.ts")
+  -h, --help                     help for bun
+      --install-command string   Dependency install command
+      --listen string            socket (default) or port
+      --package-manager string   npm, pnpm, yarn or bun (bun by default)
+      --public string            Directory nginx serves directly, bypassing the application
+      --ssh-key string           Public key for the tenant: the key itself, a path, or an https URL
+      --tls                      Also issue a certificate; DNS must already point here
+      --user string              Tenant that owns this site; created if it does not exist (required)
+      --with-db                  Also create a MongoDB database and attach it to the site
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline new bun app.example.com --user acme --with-db
+
+  ratline new bun api.example.com --user acme --entry src/index.ts --bun 1.2
 ```
 
 #### `ratline new python`
@@ -2866,9 +2924,10 @@ Global Flags:
 Install a managed interpreter into /opt/ratline/runtimes
 
 Usage:
-  ratline runtime install <node|python> <version> [flags]
+  ratline runtime install <node|bun|python> <version> [flags]
 
 Flags:
+      --baseline             bun: force the build for x86-64 CPUs without AVX2 (detected from /proc/cpuinfo by default)
   -h, --help                 help for install
       --pm2-version string   node: pin PM2 to this version rather than the latest
       --with-pm2             node: also install PM2, which is what a node site is supervised by unless --daemon direct is used
@@ -2885,6 +2944,7 @@ Global Flags:
 
 Examples:
   ratline runtime install node 22 --with-pm2
+  ratline runtime install bun 1.2
   ratline runtime install python 3.12
 ```
 
@@ -2894,7 +2954,7 @@ Examples:
 Set the version new sites use when they do not pin one
 
 Usage:
-  ratline runtime default <node|python> <version> [flags]
+  ratline runtime default <node|bun|python> <version> [flags]
 
 Flags:
   -h, --help   help for default
@@ -2954,6 +3014,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -2994,14 +3055,16 @@ Usage:
   ratline db connect [flags]
 
 Flags:
-      --force              Replace an existing connection string
-      --from-file string   Read the connection string from a file
-  -h, --help               help for connect
-      --stdin              Read the connection string from stdin (for automation; a terminal is prompted)
+      --admin-user string   MySQL admin account name (with --engine mysql) (default "admin")
+      --force               Replace an existing connection string
+      --from-file string    Read the connection string from a file
+  -h, --help                help for connect
+      --stdin               Read the connection string (or, with --engine mysql, the password) from stdin
 
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3039,6 +3102,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3070,6 +3134,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3097,6 +3162,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3137,6 +3203,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3171,6 +3238,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3194,6 +3262,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3223,6 +3292,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3253,6 +3323,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3289,6 +3360,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3325,6 +3397,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3354,6 +3427,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3393,6 +3467,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4414,6 +4489,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4448,6 +4524,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4480,6 +4557,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4512,6 +4590,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4547,6 +4626,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4578,6 +4658,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4613,6 +4694,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4640,6 +4722,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo or mysql (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)

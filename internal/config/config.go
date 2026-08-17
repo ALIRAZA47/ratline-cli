@@ -98,11 +98,17 @@ type Paths struct {
 	// root password for every database on the server, and config.yaml is a file
 	// operators paste into support tickets.
 	MongoURIFile string `yaml:"mongo_uri_file"`
-	SSHDir       string `yaml:"ssh_dir"`
-	SSHDDropIn   string `yaml:"sshd_dropin"`
-	RuntimesDir  string `yaml:"runtimes_dir"`
-	ShellWrapper string `yaml:"shell_wrapper"`
-	BackupDir    string `yaml:"backup_dir"`
+	// MySQLDefaultsFile holds the admin credentials as a mysql defaults-file
+	// ([client] user/password/host/port). A file rather than a setting, and held to the
+	// same 0600 rule as MongoURIFile: it grants full control of every database on the
+	// server. It doubles as the exact argument ratline hands the mysql client
+	// (--defaults-extra-file), which keeps the password off argv.
+	MySQLDefaultsFile string `yaml:"mysql_defaults_file"`
+	SSHDir            string `yaml:"ssh_dir"`
+	SSHDDropIn        string `yaml:"sshd_dropin"`
+	RuntimesDir       string `yaml:"runtimes_dir"`
+	ShellWrapper      string `yaml:"shell_wrapper"`
+	BackupDir         string `yaml:"backup_dir"`
 }
 
 // Defaults are the per-site values `site add` starts from and `site scale`
@@ -173,11 +179,16 @@ type Runtimes struct {
 	NodeDefault string `yaml:"node_default"`
 	// NodeProcessManager is pm2 or direct. PM2 is the default because it is the
 	// only way a Node site reloads without dropping requests.
-	NodeProcessManager string   `yaml:"node_process_manager"`
-	PythonDefault      string   `yaml:"python_default"`
-	NodeMirror         string   `yaml:"node_mirror"`
-	InstallTimeout     Duration `yaml:"install_timeout"`
-	BuildTimeout       Duration `yaml:"build_timeout"`
+	NodeProcessManager string `yaml:"node_process_manager"`
+	PythonDefault      string `yaml:"python_default"`
+	NodeMirror         string `yaml:"node_mirror"`
+	BunDefault         string `yaml:"bun_default"`
+	// BunMirror is the release host, not a directory index like NodeMirror: Bun
+	// publishes its binaries as GitHub release assets, so the per-version path is
+	// /download/bun-v<version>/ rather than /v<version>/.
+	BunMirror      string   `yaml:"bun_mirror"`
+	InstallTimeout Duration `yaml:"install_timeout"`
+	BuildTimeout   Duration `yaml:"build_timeout"`
 }
 
 // ACME is the certificate policy, including the rate-limit budget.
@@ -243,6 +254,7 @@ type Logging struct {
 // configure nginx and drive certbot without installing either.
 type Databases struct {
 	MongoDB MongoDB `yaml:"mongodb"`
+	MySQL   MySQL   `yaml:"mysql"`
 }
 
 // MongoDB is how ratline reaches the MongoDB server it manages.
@@ -265,6 +277,24 @@ type MongoDB struct {
 	// without this a freshly created one is invisible until the application writes,
 	// which reads as the create having silently failed.
 	InitialCollection string `yaml:"initial_collection"`
+}
+
+// MySQL is how ratline reaches the MySQL/MariaDB server it manages. The admin
+// credentials live in paths.mysql_defaults_file (a 0600 defaults-file), not here — a
+// password belongs off argv and out of a file operators paste into tickets.
+type MySQL struct {
+	// DefaultRole is granted to a user created without --role. readWrite rather than
+	// dbOwner: an application reads and writes its own database and does not need to
+	// create users or drop the schema it lives in.
+	DefaultRole string `yaml:"default_role"`
+
+	// EnvKey is the variable a connection string is written to in a site's .env.
+	EnvKey string `yaml:"env_key"`
+
+	// Timeout bounds one mysql-client invocation, so a server that hangs behind an
+	// access list becomes an error naming the cause rather than a command that never
+	// returns.
+	Timeout Duration `yaml:"timeout"`
 }
 
 type Features struct {
@@ -415,8 +445,16 @@ func (c *Config) Validate() error {
 			add("runtimes.python_default: %s", err)
 		}
 	}
+	if c.Runtimes.BunDefault != "" {
+		if err := validate.BunVersion(c.Runtimes.BunDefault); err != nil {
+			add("runtimes.bun_default: %s", err)
+		}
+	}
 	if !strings.HasPrefix(c.Runtimes.NodeMirror, "https://") {
 		add("runtimes.node_mirror must be an https URL")
+	}
+	if !strings.HasPrefix(c.Runtimes.BunMirror, "https://") {
+		add("runtimes.bun_mirror must be an https URL")
 	}
 	switch c.Runtimes.NodeProcessManager {
 	case "pm2", "direct":

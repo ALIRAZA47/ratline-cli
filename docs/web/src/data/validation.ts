@@ -187,10 +187,11 @@ export const rules: Rule[] = [
     source: 'internal/validate/module.go',
     points: [
       'Node: a major version (22) or a full one (22.11.0); a leading "v" is stripped.',
+      'Bun: the same shape — 1, 1.2 or 1.2.21. "latest" and "canary" are refused: the value becomes a directory under /opt/ratline/runtimes, and a pin that means something different next month is not a pin.',
       'Python: 3.x or 3.x.y. Python 2 is not supported, and the validator says so rather than failing later.',
-      'A Node entry point must be a .js, .mjs, .cjs, .ts, .mts or .cts file, and any directory part is validated as a subdirectory — so dist/main.js is fine and ../../etc/main.js is not.',
+      'A Node entry point must be a .js, .mjs, .cjs, .ts, .mts or .cts file, and any directory part is validated as a subdirectory — so dist/main.js is fine and ../../etc/main.js is not. A Bun entry point adds .jsx and .tsx, which bun runs unbuilt and node cannot parse.',
       'Package manager: npm, pnpm, yarn or bun.',
-      'Runtime: static, node or python.',
+      'Runtime: static, node, bun or python.',
       'A systemd unit name needs a .service, .timer, .socket or .target suffix, is at most 255 characters, and may only contain characters systemd accepts.',
     ],
   },

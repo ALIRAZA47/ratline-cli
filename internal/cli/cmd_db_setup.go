@@ -54,6 +54,40 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 
+			engine, eerr := g.dbEngineChoice(cmd)
+			if eerr != nil {
+				return eerr
+			}
+			if engine == engineMySQL {
+				// For MySQL, connect stores the admin password for this host (the DSN's
+				// host/port are local); a full connection string is not needed.
+				password := strings.TrimSpace(uri)
+				if password == "" && fromFile != "" {
+					body, err := os.ReadFile(fromFile)
+					if err != nil {
+						return rlerr.Wrap(err, rlerr.CodePrecondition, "reading %s", fromFile)
+					}
+					password = strings.TrimSpace(string(body))
+				}
+				if password == "" && g.CanPrompt() {
+					var err error
+					if password, err = g.readSecret("MySQL admin password (not echoed): "); err != nil {
+						return err
+					}
+					password = strings.TrimSpace(password)
+				}
+				if password == "" {
+					return rlerr.InputRequiredf("no admin password was given").
+						WithHint("run 'ratline db connect --engine mysql' and type it at the prompt, " +
+							"or pipe it in with --stdin")
+				}
+				adminUser, _ := cmd.Flags().GetString("admin-user")
+				if adminUser == "" {
+					adminUser = "admin"
+				}
+				return g.mysqlConnect(cmd, adminUser, password)
+			}
+
 			switch {
 			case fromFile != "":
 				body, err := os.ReadFile(fromFile)
@@ -157,9 +191,10 @@ func newDBConnectCommand(g *Globals) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.BoolVar(new(bool), "stdin", false, "Read the connection string from stdin (for automation; a terminal is prompted)")
+	f.BoolVar(new(bool), "stdin", false, "Read the connection string (or, with --engine mysql, the password) from stdin")
 	f.StringVar(&fromFile, "from-file", "", "Read the connection string from a file")
 	f.BoolVar(&force, "force", false, "Replace an existing connection string")
+	f.String("admin-user", "admin", "MySQL admin account name (with --engine mysql)")
 
 	// Reading stdin happens in PreRunE so that RunE sees a value either way, and so a
 	// missing --stdin is a usage error rather than a hang.

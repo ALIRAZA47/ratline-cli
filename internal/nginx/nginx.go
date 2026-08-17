@@ -230,7 +230,7 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 			}
 		}
 		d.DocRoot = root
-	case "node", "python":
+	case "node", "bun", "python":
 		if err := m.buildProxyTarget(d, site); err != nil {
 			return nil, err
 		}
@@ -253,9 +253,10 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 				Dir:  ensureSuffix(dir, "/"),
 			})
 		}
-		if site.Runtime == "node" {
+		if site.JavaScript() {
 			// Next.js and Vite both emit a hashed asset directory that nginx can
-			// serve straight from disk.
+			// serve straight from disk. A bun site builds the same output — the
+			// framework decides this, not the engine running it.
 			for _, p := range []string{"/_next/static/", "/assets/"} {
 				dir := filepath.Join(siteDir, "app", strings.Trim(p, "/"))
 				if system.IsDir(dir) {

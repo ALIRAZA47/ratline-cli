@@ -91,7 +91,9 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 			"  ratline site add api.example.com --user acme --runtime python \\\n" +
 			"      --app-module app.main:app --workers 3\n\n" +
 			"  ratline site add app.example.com --user acme --runtime node \\\n" +
-			"      --entry server.js --node 22",
+			"      --entry server.js --node 22\n\n" +
+			"  ratline site add edge.example.com --user acme --runtime bun \\\n" +
+			"      --entry server.ts --bun 1.2",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				opts.Domain = args[0]
@@ -191,7 +193,7 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&opts.Owner, "user", "", "Owning tenant (required)")
-	f.StringVar(&opts.Runtime, "runtime", "", "static, node or python (required)")
+	f.StringVar(&opts.Runtime, "runtime", "", "static, node, bun or python (required)")
 	f.StringArrayVar(&opts.Aliases, "alias", nil, "Additional server name (repeatable)")
 	f.StringVar(&ssl, "ssl", "letsencrypt", "letsencrypt, selfsigned or none")
 	f.StringVar(&email, "email", "", "ACME contact address")
@@ -204,10 +206,12 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&opts.SPA, "spa", false, "static: serve the index document for unmatched paths")
 	f.StringVar(&opts.IndexFile, "index", "index.html", "static: index document")
 
-	f.StringVar(&opts.Entry, "entry", "", "node: the file that starts the server")
+	f.StringVar(&opts.Entry, "entry", "", "node, bun: the file that starts the server")
 	f.StringVar(&opts.NodeVersion, "node", "", "node: managed Node version, e.g. 22")
-	f.StringVar(&opts.PackageManager, "package-manager", "", "node: npm, pnpm, yarn or bun (detected from the lockfile)")
-	f.StringVar(&opts.Listen, "listen", "socket", "node: socket or port")
+	f.StringVar(&opts.BunVersion, "bun", "", "bun: managed Bun version, e.g. 1.2")
+	f.StringVar(&opts.PackageManager, "package-manager", "",
+		"node, bun: npm, pnpm, yarn or bun (detected from the lockfile)")
+	f.StringVar(&opts.Listen, "listen", "socket", "node, bun: socket or port")
 	f.StringVar(&opts.ProcessManager, "daemon", "",
 		"node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)")
 	f.IntVar(&opts.Instances, "instances", 1,
@@ -674,7 +678,8 @@ func processManagerLabel(s *state.Site, pm2 bool) string {
 	case s.Runtime == "node":
 		return "direct"
 	default:
-		// A python site is gunicorn under systemd; there is no choice to report.
+		// A python site is gunicorn under systemd and a bun site is bun under
+		// systemd; neither has a choice to report.
 		return "systemd"
 	}
 }

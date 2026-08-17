@@ -205,6 +205,26 @@ func TestNodeRelaxesMemoryDenyWriteExecuteByDefault(t *testing.T) {
 	}
 }
 
+func TestBunRelaxesMemoryDenyWriteExecuteByDefault(t *testing.T) {
+	// JavaScriptCore JITs just as V8 does, so a bun site that inherited the strict
+	// default would fail on first start — and the entry in defaultRelaxed is keyed by
+	// runtime name, so nothing about the node entry covers this one.
+	site := &state.Site{
+		Domain: "edge.example.com", Owner: "bob", Runtime: "bun", Slug: "bob-edge_example_com",
+		Enabled: true, Entry: "server.ts", Listen: "socket", Instances: 1,
+	}
+	out := render(t, site, "/opt/ratline/runtimes/bun/1.2/bin/bun /home/bob/edge.example.com/app/server.ts", RenderOptions{})
+	if strings.Contains(out, "\nMemoryDenyWriteExecute=true") {
+		t.Error("MemoryDenyWriteExecute is enabled for a bun site, which breaks JavaScriptCore's JIT")
+	}
+	if !strings.Contains(out, "# MemoryDenyWriteExecute=true — relaxed for this site") {
+		t.Errorf("the relaxed directive is not documented in the unit:\n%s", out)
+	}
+	if !strings.Contains(out, "ProtectSystem=strict") {
+		t.Error("relaxing one directive dropped the rest of the sandbox")
+	}
+}
+
 func TestExplicitRelaxIsRecordedInTheUnit(t *testing.T) {
 	site := pythonSite()
 	site.Relaxed = []string{"SystemCallFilter"}

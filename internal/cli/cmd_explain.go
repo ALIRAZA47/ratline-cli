@@ -126,6 +126,8 @@ func closestTopic(want string, names []string) string {
 	for alias, topic := range map[string]string{
 		"502":         "diagnose",
 		"pm2":         "node",
+		"bunx":        "bun",
+		"typescript":  "bun",
 		"certificate": "tls",
 		"cert":        "tls",
 		"https":       "tls",
@@ -138,6 +140,8 @@ func closestTopic(want string, names []string) string {
 		"env":         "deploys",
 		"mongo":       "databases",
 		"mongodb":     "databases",
+		"mysql":       "databases",
+		"mariadb":     "databases",
 		"database":    "databases",
 		"db":          "databases",
 		"memory":      "limits",

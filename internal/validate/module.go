@@ -46,16 +46,31 @@ func AppModule(s string) error {
 
 var nodeEntryExts = map[string]bool{".js": true, ".mjs": true, ".cjs": true, ".ts": true, ".mts": true, ".cts": true}
 
+// bunEntryExts is the Node set plus the two extensions only Bun can execute.
+//
+// Bun's transpiler runs on the way in, so `bun app.tsx` is an ordinary way to start a
+// server. Node cannot do that — its type stripping does not handle JSX — so the two sets
+// are kept apart rather than widened into one. A .tsx entry point accepted for a node site
+// would be a unit that fails on first start with a syntax error from deep inside the
+// module loader, which is a long way from the flag that caused it.
+var bunEntryExts = map[string]bool{".jsx": true, ".tsx": true}
+
 // NodeEntry validates a Node entry point relative to the application directory.
-func NodeEntry(s string) error {
+func NodeEntry(s string) error { return entryPoint(s, false) }
+
+// BunEntry validates a Bun entry point. Everything NodeEntry accepts, plus JSX.
+func BunEntry(s string) error { return entryPoint(s, true) }
+
+func entryPoint(s string, bun bool) error {
 	if s == "" {
 		return rlerr.Usagef("the entry point is empty").
 			WithHint("pass the file that starts your server, for example --entry server.js")
 	}
 	dir, file := filepath.Split(s)
 	if dir != "" {
-		// RuntimeSubdir, not Subdir: node executes this file, nginx never serves it, so a
-		// leading dot is ordinary. .next/standalone/server.js is the Next.js entry point.
+		// RuntimeSubdir, not Subdir: the interpreter executes this file, nginx never
+		// serves it, so a leading dot is ordinary. .next/standalone/server.js is the
+		// Next.js entry point.
 		if err := RuntimeSubdir(strings.TrimSuffix(dir, "/")); err != nil {
 			return err
 		}
@@ -64,10 +79,14 @@ func NodeEntry(s string) error {
 		return rlerr.Usagef("invalid entry point %q", s).
 			WithHint("give a path relative to the application directory, for example server.js or dist/main.js")
 	}
-	if !nodeEntryExts[strings.ToLower(filepath.Ext(file))] {
-		return rlerr.Usagef("invalid entry point %q: expected a .js, .mjs, .cjs or .ts file", s)
+	ext := strings.ToLower(filepath.Ext(file))
+	if nodeEntryExts[ext] || (bun && bunEntryExts[ext]) {
+		return nil
 	}
-	return nil
+	if bun {
+		return rlerr.Usagef("invalid entry point %q: expected a .js, .mjs, .cjs, .ts, .jsx or .tsx file", s)
+	}
+	return rlerr.Usagef("invalid entry point %q: expected a .js, .mjs, .cjs or .ts file", s)
 }
 
 var packageManagers = map[string]bool{"npm": true, "pnpm": true, "yarn": true, "bun": true}
@@ -81,13 +100,13 @@ func PackageManager(s string) error {
 	return nil
 }
 
-var runtimeNames = map[string]bool{"static": true, "node": true, "python": true}
+var runtimeNames = map[string]bool{"static": true, "node": true, "bun": true, "python": true}
 
 // RuntimeName validates the --runtime choice.
 func RuntimeName(s string) error {
 	if !runtimeNames[s] {
 		return rlerr.Usagef("unknown runtime %q", s).
-			WithHint("choose one of static, node or python")
+			WithHint("choose one of static, node, bun or python")
 	}
 	return nil
 }
@@ -103,6 +122,20 @@ func NodeVersion(s string) error {
 	if !nodeVersionRe.MatchString(s) {
 		return rlerr.Usagef("invalid Node version %q", s).
 			WithHint("pass a major version such as 22, or a full version such as 22.11.0")
+	}
+	return nil
+}
+
+// BunVersion accepts "1", "1.2" or a full "1.2.21".
+//
+// Same shape as a Node version, and deliberately its own function rather than an alias:
+// the value becomes a path component under /opt/ratline/runtimes/bun and a tag in a
+// download URL, and the two runtimes' numbering has no reason to stay in step.
+func BunVersion(s string) error {
+	s = strings.TrimPrefix(s, "v")
+	if !nodeVersionRe.MatchString(s) {
+		return rlerr.Usagef("invalid Bun version %q", s).
+			WithHint("pass a major or minor version such as 1.2, or a full version such as 1.2.21")
 	}
 	return nil
 }

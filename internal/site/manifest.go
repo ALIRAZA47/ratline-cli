@@ -71,6 +71,8 @@ func ReadManifest(path string) (*state.Site, error) {
 			site.AppModule = value
 		case "node_version":
 			site.NodeVersion = value
+		case "bun_version":
+			site.BunVersion = value
 		case "python_version":
 			site.PythonVersion = value
 		case "listen":
@@ -161,7 +163,7 @@ func ReadManifest(path string) (*state.Site, error) {
 		site.Aliases[i] = alias
 	}
 	switch site.Runtime {
-	case "static", "node", "python":
+	case "static", "node", "bun", "python":
 	default:
 		return nil, rlerr.Preconditionf("the manifest names an unknown runtime %q", site.Runtime)
 	}

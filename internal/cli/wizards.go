@@ -233,6 +233,7 @@ func wizardSiteAdd(g *Globals, ctx context.Context, opts site.AddOptions) (site.
 		rt, err := p.pick("Runtime?", []choice{
 			{Value: "static", Label: "static", Note: "nginx serves files; nothing runs"},
 			{Value: "node", Label: "node", Note: "a Node server under its own systemd unit"},
+			{Value: "bun", Label: "bun", Note: "bun under systemd; runs TypeScript with no build step"},
 			{Value: "python", Label: "python", Note: "Gunicorn in a per-site virtualenv"},
 		}, def)
 		if err != nil {
@@ -295,6 +296,49 @@ func wizardSiteAdd(g *Globals, ctx context.Context, opts site.AddOptions) (site.
 			}
 			opts.Listen = listen
 		}
+
+	case "bun":
+		if opts.Entry == "" && opts.StartCommand == "" {
+			entry, err := p.ask("Entry point, relative to the application directory:",
+				orDefault2(detected.entry, "server.ts"), validate.BunEntry)
+			if err != nil {
+				return opts, err
+			}
+			opts.Entry = entry
+		}
+		if opts.BunVersion == "" {
+			installed := listRuntimeVersions(filepath.Join(g.Cfg.Paths.RuntimesDir, "bun"))
+			options := make([]choice, 0, len(installed)+1)
+			for _, v := range installed {
+				options = append(options, choice{Value: v, Label: "Bun " + v})
+			}
+			options = append(options, choice{Value: "", Label: "Whatever is on the system", Note: "not pinned"})
+			if len(installed) == 0 {
+				p.note("No managed Bun is installed. 'ratline runtime install bun 1.2' adds one.")
+			}
+			version, err := p.pick("Bun version?", options, orDefault2(g.Cfg.Runtimes.BunDefault, ""))
+			if err != nil {
+				return opts, err
+			}
+			opts.BunVersion = version
+		}
+		if opts.PackageManager == "" && detected.packageManager != "" && detected.packageManager != "bun" {
+			// Only worth recording when it is *not* bun: a bun site installs with bun
+			// unless told otherwise, so storing "bun" would be noise in the site row.
+			opts.PackageManager = detected.packageManager
+			p.note("Package manager: %s (from the lockfile).", detected.packageManager)
+		}
+		if opts.Listen == "" {
+			listen, err := p.pick("How should nginx reach it?", []choice{
+				{Value: "socket", Label: "A Unix socket", Note: "no port to manage; the default"},
+				{Value: "port", Label: "A localhost port", Note: "allocated automatically"},
+			}, "socket")
+			if err != nil {
+				return opts, err
+			}
+			opts.Listen = listen
+		}
+		p.note("bun runs directly under systemd, so 'site reload' on this site is a restart.")
 
 	case "python":
 		if opts.AppModule == "" {
@@ -419,6 +463,14 @@ func siteAddArgv(opts site.AddOptions) ([]string, [][2]string) {
 		if opts.Listen != "" && opts.Listen != "socket" {
 			add("--listen", opts.Listen, "listen")
 		}
+	case "bun":
+		add("--entry", opts.Entry, "entry point")
+		add("--start-command", opts.StartCommand, "start command")
+		add("--bun", opts.BunVersion, "bun version")
+		add("--package-manager", opts.PackageManager, "package manager")
+		if opts.Listen != "" && opts.Listen != "socket" {
+			add("--listen", opts.Listen, "listen")
+		}
 	case "python":
 		add("--app-module", opts.AppModule, "application module")
 		add("--python", opts.PythonVersion, "python version")
@@ -471,6 +523,14 @@ func sniffProject(appDir string) project {
 		p.why = "package.json"
 		p.packageManager = runtime.DetectPackageManager(appDir)
 		p.entry = runtime.DetectEntry(appDir)
+		// A bun lockfile is the project saying which engine it expects. It is a
+		// stronger signal than the package.json alone, and getting it wrong sends a
+		// TypeScript entry point to an interpreter that cannot run it.
+		if runtime.UsesBunLockfile(appDir) {
+			p.runtime = "bun"
+			p.why = "package.json with a bun lockfile"
+			p.entry = runtime.DetectBunEntry(appDir)
+		}
 		// A build output directory with no server file means the project is a
 		// static bundle rather than a server.
 		if p.entry == "" {
@@ -480,6 +540,9 @@ func sniffProject(appDir string) project {
 					p.why = "package.json with a " + dir + " directory and no server entry point"
 					p.buildOutput = dir
 					p.buildCommand = "npm run build"
+					if runtime.UsesBunLockfile(appDir) {
+						p.buildCommand = "bun run build"
+					}
 					break
 				}
 			}

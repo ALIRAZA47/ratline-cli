@@ -298,3 +298,38 @@ It also checks the port's exposure: a mongod listening beyond localhost while uf
 inactive, or missing, or defaulting to allow. Nothing refuses that combination when it
 happens by hand outside ratline, so `doctor` is where it surfaces — answered from the
 listening socket and the firewall's own status, not from what any config file says.
+
+## MySQL and MariaDB
+
+Everything above is MongoDB, which is the default engine. The same `db` surface drives
+MySQL and MariaDB behind `--engine mysql`:
+
+    ratline db install --engine mysql
+    ratline db create shop --engine mysql --owner acme --attach shop.example.com
+    ratline db access allow 203.0.113.19 --engine mysql
+
+`db install --engine mysql` installs the distribution's own package — `mysql-server` on
+Ubuntu, `mariadb-server` on Debian, no third-party repository — and secures it. A freshly
+installed server lets the OS root in over the local socket with no password; ratline reaches
+it there, creates the admin account whose password you chose, writes a managed drop-in that
+binds localhost only, restarts, and proves the admin credentials work over TCP before
+storing anything. The credentials live in a defaults-file at `paths.mysql_defaults_file`,
+mode 0600 — the MySQL analog of the MongoDB URI file, and for the same reason.
+
+Roles map to privilege sets scoped to one database: `read` is `SELECT`, `readWrite` adds
+`INSERT, UPDATE, DELETE`, `dbOwner` is `ALL PRIVILEGES` on that database and nothing wider.
+A generated user is `'name'@'%'`; reachability is the firewall's job, not a host pattern's.
+
+Two rules carry over exactly. The admin password never reaches `argv`: the `mysql` client
+reads it from the 0600 defaults-file (`--defaults-extra-file`), and every statement travels
+on stdin. And a database or user name cannot be a bound parameter — SQL takes an identifier
+literally — so names are validated to a conservative charset where they enter and then
+quoted, which is why a name with a backtick or a semicolon in it is refused rather than
+escaped.
+
+`db access --engine mysql` opens port 3306 the same way it opens MongoDB's: the ufw rule
+first, then the wider bind, verified against the listening socket. `doctor` watches an
+exposed MySQL port on the same terms.
+
+The connection string ratline writes into a site's `.env` is a `mysql://` URL under
+`DATABASE_URL` by default (set `databases.mysql.env_key` to change it).

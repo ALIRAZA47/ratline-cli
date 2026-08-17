@@ -50,6 +50,7 @@ func validateSiteRow(s *state.Site) error {
 		"branch":          s.Branch,
 		"www-redirect":    s.WWWRedirect,
 		"node-version":    s.NodeVersion,
+		"bun-version":     s.BunVersion,
 		"python-version":  s.PythonVersion,
 		"package-manager": s.PackageManager,
 		"app-server":      s.AppServer,
@@ -85,7 +86,16 @@ func validateSiteRow(s *state.Site) error {
 		}
 	}
 	if s.Entry != "" {
-		if err := validate.NodeEntry(s.Entry); err != nil {
+		// Judged against the engine that will execute it. Bun accepts .jsx and .tsx
+		// where node does not, so validating every entry point with the wider set
+		// would let a node site be created with a file node cannot parse — and
+		// validating every one with the narrower set would refuse a perfectly ordinary
+		// bun site.
+		check := validate.NodeEntry
+		if s.Runtime == "bun" {
+			check = validate.BunEntry
+		}
+		if err := check(s.Entry); err != nil {
 			return err
 		}
 	}
@@ -146,6 +156,11 @@ func validateSiteRow(s *state.Site) error {
 	}
 	if s.NodeVersion != "" {
 		if err := validate.NodeVersion(s.NodeVersion); err != nil {
+			return err
+		}
+	}
+	if s.BunVersion != "" {
+		if err := validate.BunVersion(s.BunVersion); err != nil {
 			return err
 		}
 	}

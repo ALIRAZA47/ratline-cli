@@ -69,7 +69,7 @@ func TestWizardProducesTheSameCommandAsTheFlags(t *testing.T) {
 			answers: []string{
 				"api.example.com",
 				"1",            // alice
-				"3",            // python
+				"4",            // python
 				"app.main:app", // module
 				"1",            // ASGI
 				"3",            // workers
@@ -80,6 +80,27 @@ func TestWizardProducesTheSameCommandAsTheFlags(t *testing.T) {
 				"ratline", "site", "add", "api.example.com",
 				"--user", "alice", "--runtime", "python",
 				"--app-module", "app.main:app", "--asgi", "--workers", "3",
+			},
+		},
+		{
+			// The bun path has its own branch in the wizard and its own branch in
+			// siteAddArgv, so the flag-collector contract has to be proved for it
+			// separately: a bun site echoing --node, or dropping --bun, would still
+			// pass every other case here.
+			name: "a bun server",
+			answers: []string{
+				"edge.example.com",
+				"1",           // alice
+				"3",           // bun
+				"src/main.ts", // entry
+				"1",           // bun version: nothing managed, so "whatever is on the system"
+				"1",           // listen: socket
+				"n",           // no www alias
+				"r",
+			},
+			wantArgv: []string{
+				"ratline", "site", "add", "edge.example.com",
+				"--user", "alice", "--runtime", "bun", "--entry", "src/main.ts",
 			},
 		},
 	}
@@ -146,6 +167,12 @@ func parseSiteAddFlags(t *testing.T, g *Globals, args []string) site.AddOptions 
 	captured.DocRoot = get("root")
 	captured.AppModule = get("app-module")
 	captured.IndexFile = get("index")
+	// Entry and the pinned engine versions were compared by sameAddOptions but never
+	// read back here, so the comparison could only ever pass by both sides being
+	// empty — which every case was until a node or bun site had one.
+	captured.Entry = get("entry")
+	captured.NodeVersion = get("node")
+	captured.BunVersion = get("bun")
 	if b, err := cmd.Flags().GetBool("spa"); err == nil {
 		captured.SPA = b
 	}
@@ -172,6 +199,9 @@ func sameAddOptions(a, b site.AddOptions) bool {
 	if a.Workers != b.Workers || a.Entry != b.Entry {
 		return false
 	}
+	if a.NodeVersion != b.NodeVersion || a.BunVersion != b.BunVersion {
+		return false
+	}
 	switch {
 	case a.ASGI == nil && b.ASGI == nil:
 	case a.ASGI == nil || b.ASGI == nil:
@@ -187,7 +217,8 @@ func summarise(o site.AddOptions) string {
 	if o.ASGI != nil {
 		asgi = map[bool]string{true: "true", false: "false"}[*o.ASGI]
 	}
-	return strings.Join([]string{o.Domain, o.Owner, o.Runtime, o.DocRoot, o.AppModule, asgi}, "|")
+	return strings.Join([]string{o.Domain, o.Owner, o.Runtime, o.DocRoot, o.AppModule, asgi,
+		"entry=" + o.Entry, "node=" + o.NodeVersion, "bun=" + o.BunVersion}, "|")
 }
 
 // Cancelling before the run step must leave nothing behind. The wizard collects

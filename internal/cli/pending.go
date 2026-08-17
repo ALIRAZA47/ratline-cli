@@ -30,8 +30,9 @@ func printServerSummary(ctx context.Context, g *Globals, p *prompter) error {
 	for _, s := range sites {
 		byRuntime[s.Runtime]++
 	}
-	p.note("%d user(s), %d site(s): %d static, %d node, %d python",
-		len(users), len(sites), byRuntime["static"], byRuntime["node"], byRuntime["python"])
+	p.note("%d user(s), %d site(s): %d static, %d node, %d bun, %d python",
+		len(users), len(sites), byRuntime["static"], byRuntime["node"],
+		byRuntime["bun"], byRuntime["python"])
 
 	// Failed services first: that is the thing most likely to be why someone
 	// opened this menu.

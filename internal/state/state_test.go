@@ -91,6 +91,51 @@ func TestUserRoundTrip(t *testing.T) {
 	}
 }
 
+// The site row is written and read through one long positional placeholder list, so a
+// column inserted in the middle is inserted in four places that all have to agree. Get
+// one of them out of step and the values simply shift along by one — no error, no
+// constraint violation, just a site whose bun version is stored as its package manager.
+// Distinct values in every neighbouring field are what makes that visible.
+func TestEveryEngineFieldSurvivesTheRoundTripInItsOwnColumn(t *testing.T) {
+	s, ctx := testStore(t), context.Background()
+	if err := s.PutUser(ctx, &User{Name: "alice", Home: "/home/alice", Shell: "/bin/bash"}); err != nil {
+		t.Fatal(err)
+	}
+	want := &Site{
+		Domain: "edge.example.com", Owner: "alice", Runtime: "bun", Slug: "alice-edge_example_com",
+		Enabled: true,
+		Entry:   "src/index.tsx", NodeVersion: "22", BunVersion: "1.2",
+		PackageManager: "pnpm", Listen: "port", ProcessManager: "direct",
+		Port: 41007, Instances: 3, PythonVersion: "3.12",
+	}
+	if err := s.PutSite(ctx, want); err != nil {
+		t.Fatalf("PutSite = %v", err)
+	}
+	got, err := s.GetSite(ctx, want.Domain)
+	if err != nil {
+		t.Fatalf("GetSite = %v", err)
+	}
+	for _, f := range [][3]any{
+		{"entry", want.Entry, got.Entry},
+		{"node_version", want.NodeVersion, got.NodeVersion},
+		{"bun_version", want.BunVersion, got.BunVersion},
+		{"package_manager", want.PackageManager, got.PackageManager},
+		{"listen", want.Listen, got.Listen},
+		{"process_manager", want.ProcessManager, got.ProcessManager},
+		{"port", want.Port, got.Port},
+		{"instances", want.Instances, got.Instances},
+		{"python_version", want.PythonVersion, got.PythonVersion},
+	} {
+		if f[1] != f[2] {
+			t.Errorf("%v: wrote %v, read back %v", f[0], f[1], f[2])
+		}
+	}
+	if !got.Dynamic() || !got.JavaScript() {
+		t.Error("a bun site must report itself both dynamic and JavaScript, " +
+			"or the unit, the nginx proxy block and the asset shortcuts all skip it")
+	}
+}
+
 func TestSiteRoundTripWithAliases(t *testing.T) {
 	s, ctx := testStore(t), context.Background()
 	if err := s.PutUser(ctx, &User{Name: "alice", Home: "/home/alice", Shell: "/bin/bash"}); err != nil {

@@ -62,6 +62,13 @@ var defaultCandidates = map[string][]string{
 	// mongod is only ever run to validate a staged configuration file
 	// (--outputConfig); the real server is started through systemctl.
 	"mongod": {"/usr/bin/mongod", "/usr/local/bin/mongod", "/opt/mongodb/bin/mongod"},
+	// MySQL / MariaDB. `db install --engine mysql` uses the distro package, so the
+	// client and server binaries live in the standard locations; the mysql/mariadb
+	// names alias the same tools on a MariaDB host. mysqld is only run to validate a
+	// staged config (--validate-config), like mongod above.
+	"mysql":     {"/usr/bin/mysql", "/usr/local/bin/mysql", "/usr/bin/mariadb"},
+	"mysqld":    {"/usr/sbin/mysqld", "/usr/bin/mysqld", "/usr/sbin/mariadbd", "/usr/bin/mariadbd"},
+	"mysqldump": {"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/bin/mariadb-dump"},
 	// The database tools ship separately from mongosh — mongodb-database-tools, which is
 	// not a dependency of the shell — so these are absent on plenty of servers where
 	// mongosh works fine. `db dump` says which package to install rather than reporting a

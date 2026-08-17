@@ -56,6 +56,11 @@ func newDBUserAddCommand(g *Globals) *cobra.Command {
 		Example: "  ratline db user add reports --database shop --role read\n" +
 			"  ratline db user add worker --database shop --attach worker.example.com",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlUserAdd(cmd, args[0], database, role, attach, envKey)
+			}
 			username := args[0]
 			if err := validate.DatabaseUsername(username); err != nil {
 				return err
@@ -149,6 +154,11 @@ func newDBUserListCommand(g *Globals) *cobra.Command {
 			"database directly. Anything the server has that ratline does not is worth\n" +
 			"knowing — it will survive a tenant deletion.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlUserList(cmd, database, live)
+			}
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
 				return err
@@ -237,6 +247,11 @@ func newDBUserPasswordCommand(g *Globals) *cobra.Command {
 		Example: "  ratline db user password shop_app --all-sites\n" +
 			"  ratline db user password shop_app --attach shop.example.com",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlUserPassword(cmd, args[0], authDB, attach, envKey, all)
+			}
 			username := args[0]
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {
@@ -352,6 +367,11 @@ func newDBUserGrantCommand(g *Globals) *cobra.Command {
 		Example: "  ratline db user grant reports --role read\n" +
 			"  ratline db user grant shop_app --role readWrite",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlUserGrant(cmd, args[0], authDB, role)
+			}
 			username := args[0]
 			if role == "" {
 				return rlerr.Usagef("--role is required").
@@ -420,6 +440,11 @@ func newDBUserDeleteCommand(g *Globals) *cobra.Command {
 			"If any site holds this user's connection string, that is named before anything\n" +
 			"happens: removing the user takes the site's database access with it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if engine, err := g.dbEngineChoice(cmd); err != nil {
+				return err
+			} else if engine == engineMySQL {
+				return g.mysqlUserDelete(cmd, args[0], authDB, force)
+			}
 			username := args[0]
 			mgr, st, err := g.dbManager(cmd.Context())
 			if err != nil {

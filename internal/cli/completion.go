@@ -239,7 +239,7 @@ func registerCompletions(g *Globals, root *cobra.Command) {
 		// server's contents. Kept here beside the flag definitions they mirror, so a
 		// new accepted value is one edit away from being completable.
 		for name, values := range map[string][]string{
-			"runtime":   {"static", "node", "python"},
+			"runtime":   {"static", "node", "bun", "python"},
 			"daemon":    {"pm2", "direct"},
 			"listen":    {"socket", "port"},
 			"scope":     {"global", "user", "site"},

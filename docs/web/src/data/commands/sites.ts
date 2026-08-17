@@ -4,16 +4,16 @@ export const sites: CommandGroup = {
   id: 'site',
   title: 'Sites',
   path: '/reference/site',
-  blurb: 'An nginx vhost, a document root, and — for node and python — a systemd unit.',
+  blurb: 'An nginx vhost, a document root, and — for node, bun and python — a systemd unit.',
   intro: [
-    'A site belongs to exactly one user and is served by nginx from inside that user’s home. For the static runtime that is the whole story. For node and python, the application also runs under its own systemd unit, as that user, behind a Unix socket in /run/ratline/<slug>/.',
+    'A site belongs to exactly one user and is served by nginx from inside that user’s home. For the static runtime that is the whole story. For node, bun and python, the application also runs under its own systemd unit, as that user, behind a Unix socket in /run/ratline/<slug>/.',
     'After `start`, `restart` or `deploy`, ratline waits for health: it polls the socket or port with a real HTTP request until it answers or defaults.health_timeout (30s) elapses. A "successful" deploy that returns 502 is a bug, which is what exit code 7 is for.',
   ],
   commands: [
     {
       id: 'site-add',
       name: 'ratline site add',
-      args: '<domain> --user <username> --runtime static|node|python',
+      args: '<domain> --user <username> --runtime static|node|bun|python',
       status: 'built',
       summary: 'Create a site: directories, vhost, unit, logs, logrotate, and optionally a certificate.',
       description: [
@@ -33,7 +33,7 @@ export const sites: CommandGroup = {
             },
             {
               name: '--runtime',
-              arg: 'static|node|python',
+              arg: 'static|node|bun|python',
               type: 'enum',
               required: true,
               description: 'How the site is served. Each runtime adds its own flags below.',
@@ -218,6 +218,66 @@ export const sites: CommandGroup = {
           ],
         },
         {
+          title: 'bun',
+          note: 'bun straight under systemd, behind a Unix socket or an allocated port. No PM2: bun has no graceful-reload signal, so `site reload` on a bun site refuses and tells you to restart rather than reporting a clean reload while dropping requests.',
+          flags: [
+            {
+              name: '--entry',
+              arg: '<file>',
+              type: 'path',
+              requiredWhen: 'unless --start-command is given',
+              description: 'The file that starts the server, relative to the application directory.',
+              note: 'Everything the node runtime accepts plus .jsx and .tsx, because bun transpiles on the way in and needs no build step to run them. Those two are refused on a node site: node cannot parse JSX, so the unit would die on first start.',
+            },
+            {
+              name: '--bun',
+              arg: '<version>',
+              type: 'version',
+              default: 'runtimes.bun_default',
+              description: 'Managed Bun version. Must already be installed.',
+              note: 'ExecStart invokes the managed binary by absolute path — /opt/ratline/runtimes/bun/1.2/bin/bun server.ts. That matters more here than for node: `bun upgrade` rewrites the binary in place, so a unit pointing into a tenant’s home would change interpreter the day they ran it. --node is refused on a bun site rather than ignored.',
+            },
+            {
+              name: '--package-manager',
+              arg: 'npm|pnpm|yarn|bun',
+              type: 'enum',
+              default: 'bun',
+              description: 'Which package manager to use for installs.',
+              note: 'bun by default rather than sniffed from the lockfile — picking npm for a bun site because a stale package-lock.json is still in the tree is a guess, and the wrong one. A project that genuinely pins pnpm or yarn can say so, and that installer is used while bun still runs the server.',
+            },
+            {
+              name: '--listen',
+              arg: 'socket|port',
+              type: 'enum',
+              default: 'socket',
+              description: 'Whether the app listens on a Unix socket or a TCP port.',
+              note: 'Bun.serve takes a socket as its unix: option rather than reading one from the environment, so a socket site reads the path from RATLINE_SOCKET, SOCKET_PATH or PORT. BUN_PORT is set only on a port site: bun parses it as a port number, so a path in it is a startup failure rather than a value the application can ignore.',
+            },
+            {
+              name: '--install-command',
+              arg: '"<command>"',
+              type: 'command',
+              default: 'bun install --frozen-lockfile',
+              description: 'Dependency install command.',
+              note: 'Runs as the site user, never as root. --frozen-lockfile is added only when there is a bun.lock or bun.lockb to freeze; bun errors out on the flag without one, which a first deploy legitimately has.',
+            },
+            {
+              name: '--build-command',
+              arg: '"<command>"',
+              type: 'command',
+              description: 'Build command, run after install.',
+              note: 'Often unnecessary: TypeScript and JSX run unbuilt. When it is set, dev dependencies are kept, because that is where every build tool lives.',
+            },
+            {
+              name: '--public',
+              arg: '<subdir>',
+              type: 'subdir',
+              description:
+                'Static directory served directly by nginx, bypassing the application.',
+            },
+          ],
+        },
+        {
           title: 'python',
           note: 'Gunicorn (WSGI) or Gunicorn with a Uvicorn worker (ASGI), in a per-site virtualenv, behind a Unix socket.',
           flags: [
@@ -369,7 +429,7 @@ ratline cert issue example.com --email admin@example.com`,
       summary: 'Every site, optionally filtered by owner or runtime.',
       flags: [
         { name: '--user', arg: '<u>', type: 'string', description: 'Only sites owned by this tenant.' },
-        { name: '--runtime', arg: '<r>', type: 'enum', description: 'Only static, node or python sites.' },
+        { name: '--runtime', arg: '<r>', type: 'enum', description: 'Only static, node, bun or python sites.' },
         { name: '--json', type: 'bool', default: 'false', description: 'JSON envelope instead of a table.' },
       ],
       examples: [

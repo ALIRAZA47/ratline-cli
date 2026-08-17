@@ -54,9 +54,35 @@ func TestNodeEntry(t *testing.T) {
 	for _, bad := range []string{
 		"", "server", "server.py", "/abs/server.js", "../server.js",
 		"dist/../../server.js", "server.js;reboot", "$(id).js", "ser ver.js", "server.js\x00",
+		// Node cannot parse JSX, so an entry point bun would run happily is still a
+		// unit that fails on first start here.
+		"app.jsx", "src/index.tsx",
 	} {
 		if err := NodeEntry(bad); err == nil {
 			t.Errorf("NodeEntry(%q) = nil, want an error", bad)
+		}
+	}
+}
+
+func TestBunEntry(t *testing.T) {
+	// Everything node accepts, plus the two extensions only bun can execute — running
+	// TypeScript and JSX with no build step is the reason to pick it.
+	for _, ok := range []string{
+		"server.js", "dist/main.js", "src/index.mjs", "app.cjs", "build/server.ts",
+		"app.jsx", "src/index.tsx",
+	} {
+		if err := BunEntry(ok); err != nil {
+			t.Errorf("BunEntry(%q) = %v, want nil", ok, err)
+		}
+	}
+	// The wider extension set must not widen anything else: these reach a systemd
+	// ExecStart line, so traversal, separators and control characters stay refused.
+	for _, bad := range []string{
+		"", "server", "server.py", "/abs/server.ts", "../server.ts",
+		"dist/../../server.ts", "server.ts;reboot", "$(id).ts", "ser ver.ts", "server.ts\x00",
+	} {
+		if err := BunEntry(bad); err == nil {
+			t.Errorf("BunEntry(%q) = nil, want an error", bad)
 		}
 	}
 }
@@ -72,6 +98,19 @@ func TestVersions(t *testing.T) {
 			t.Errorf("NodeVersion(%q) = nil, want an error", bad)
 		}
 	}
+	for _, ok := range []string{"1", "1.2", "1.2.21"} {
+		if err := BunVersion(ok); err != nil {
+			t.Errorf("BunVersion(%q) = %v, want nil", ok, err)
+		}
+	}
+	// "latest" and "canary" are names bun's own installer accepts; they are refused
+	// here because the value becomes a directory under /opt/ratline/runtimes, and a
+	// pin that means something different next month is not a pin.
+	for _, bad := range []string{"", "latest", "canary", "1.x", "1.2;rm", "../1.2", "1.2.3.4"} {
+		if err := BunVersion(bad); err == nil {
+			t.Errorf("BunVersion(%q) = nil, want an error", bad)
+		}
+	}
 	for _, ok := range []string{"3.12", "3.11.9", "3.9"} {
 		if err := PythonVersion(ok); err != nil {
 			t.Errorf("PythonVersion(%q) = %v, want nil", ok, err)
@@ -85,7 +124,7 @@ func TestVersions(t *testing.T) {
 }
 
 func TestRuntimeAndPackageManager(t *testing.T) {
-	for _, ok := range []string{"static", "node", "python"} {
+	for _, ok := range []string{"static", "node", "bun", "python"} {
 		if err := RuntimeName(ok); err != nil {
 			t.Errorf("RuntimeName(%q) = %v", ok, err)
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/diag"
 	"github.com/ALIRAZA47/ratline-cli/internal/mongo"
 	"github.com/ALIRAZA47/ratline-cli/internal/mongod"
+	"github.com/ALIRAZA47/ratline-cli/internal/mysqld"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/sshkey"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
@@ -462,6 +463,7 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 	// invisible. Same implementation as the server walk's check, so the sweep and
 	// the walk cannot drift apart.
 	g.diagnoseMongoExposure(ctx, st, add)
+	g.diagnoseMySQLExposure(ctx, st, add)
 
 	// The rest of MongoDB, when provisioning is on. A database server that has become
 	// unreachable is invisible otherwise: the sites keep serving, their connection
@@ -748,6 +750,20 @@ func (g *Globals) diagnoseMongoExposure(ctx context.Context, st *state.Store, ad
 				"who can reach the port faces only a password",
 			"activate ufw with a default-deny incoming policy (allow SSH first), or revoke "+
 				"every address: ratline db access list")
+	}
+}
+
+// diagnoseMySQLExposure is the MySQL parallel of diagnoseMongoExposure: a server reachable
+// beyond localhost with no firewall standing guard. Same reasoning, same unconditional
+// run, decided by the socket and ufw.
+func (g *Globals) diagnoseMySQLExposure(ctx context.Context, st *state.Store, add func(severity, check, subject, detail, fix string)) {
+	mm := &mysqld.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner, Bins: g.Bins, State: st, OS: g.OS}
+	if exp, err := mm.CheckExposure(ctx); err == nil && exp.Present && exp.Remote && !exp.Guarded {
+		add("problem", "mysql", "port "+mysqld.Port,
+			"MySQL listens beyond localhost and no firewall is standing guard, so anyone "+
+				"who can reach the port faces only a password",
+			"activate ufw with a default-deny incoming policy (allow SSH first), or revoke "+
+				"every address: ratline db access list --engine mysql")
 	}
 }
 

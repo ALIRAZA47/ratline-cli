@@ -175,6 +175,34 @@ func TestANodeSiteRoundTripsItsOwnFields(t *testing.T) {
 	}
 }
 
+func TestABunSiteRoundTripsItsOwnFields(t *testing.T) {
+	// bun_version is its own column, so a manifest written by a bun site and read back
+	// through the node branch's fields would restore a site pinned to nothing — which
+	// then silently follows whatever bun_default happens to be on the new server.
+	want := &state.Site{
+		Domain: "edge.example.com", Owner: "acme", Runtime: "bun",
+		Enabled: true, Entry: "src/index.tsx", BunVersion: "1.2",
+		Listen: "socket", BuildCommand: "bun run build",
+	}
+	got := writeAndRead(t, want)
+	for _, f := range [][3]any{
+		{"runtime", want.Runtime, got.Runtime},
+		{"entry", want.Entry, got.Entry},
+		{"bun_version", want.BunVersion, got.BunVersion},
+		{"listen", want.Listen, got.Listen},
+		{"build_command", want.BuildCommand, got.BuildCommand},
+	} {
+		if f[1] != f[2] {
+			t.Errorf("%v: wrote %v, read back %v", f[0], f[1], f[2])
+		}
+	}
+	// A .tsx entry point survives the round trip only because validateSiteRow judges it
+	// against the runtime the manifest names. Read as a node site it would be refused.
+	if got.NodeVersion != "" {
+		t.Errorf("node_version = %q on a bun site, want empty", got.NodeVersion)
+	}
+}
+
 func TestAStaticSPARoundTrips(t *testing.T) {
 	want := &state.Site{
 		Domain: "docs.example.com", Owner: "acme", Runtime: "static",

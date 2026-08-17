@@ -359,4 +359,69 @@ var migrations = [][]string{
 			created_by TEXT NOT NULL DEFAULT ''
 		)`,
 	},
+
+	// The Bun version a site is pinned to.
+	//
+	// Its own column rather than a reuse of node_version, even though both name a
+	// JavaScript engine. They are installed from different places, numbered
+	// independently, and a site moved from one to the other must not silently inherit a
+	// version number that means something else entirely — "22" is a Node major and not
+	// a Bun release at all.
+	{
+		`ALTER TABLE sites ADD COLUMN bun_version TEXT NOT NULL DEFAULT ''`,
+	},
+
+	// Engine-scoped database records for the SQL and key-value engines (MySQL now,
+	// Redis later). MongoDB keeps its own databases/database_users/database_attachments/
+	// mongo_access tables untouched; these parallel tables carry an `engine` column so a
+	// database named "shop" can exist independently per engine — which a single
+	// global-name table could not express — and so the released Mongo tables never have
+	// to be rebuilt. `scope` generalizes MongoDB's auth_db: for MySQL it is the user's
+	// host (e.g. "%"), for Redis it will be the keyspace prefix.
+	{
+		`CREATE TABLE db_databases (
+			engine     TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			owner      TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+			server     TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			created_by TEXT NOT NULL DEFAULT '',
+			notes      TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (engine, name)
+		)`,
+		`CREATE INDEX idx_db_databases_owner ON db_databases(engine, owner)`,
+
+		`CREATE TABLE db_users (
+			engine     TEXT NOT NULL,
+			username   TEXT NOT NULL,
+			scope      TEXT NOT NULL DEFAULT '',
+			database   TEXT NOT NULL DEFAULT '',
+			role       TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			created_by TEXT NOT NULL DEFAULT '',
+			rotated_at TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (engine, username, scope)
+		)`,
+		`CREATE INDEX idx_db_users_database ON db_users(engine, database)`,
+
+		`CREATE TABLE db_attachments (
+			engine      TEXT NOT NULL,
+			domain      TEXT NOT NULL REFERENCES sites(domain) ON DELETE CASCADE,
+			username    TEXT NOT NULL,
+			scope       TEXT NOT NULL DEFAULT '',
+			env_key     TEXT NOT NULL,
+			attached_at TEXT NOT NULL,
+			PRIMARY KEY (domain, env_key)
+		)`,
+		`CREATE INDEX idx_db_attachments_user ON db_attachments(engine, username, scope)`,
+
+		`CREATE TABLE db_access (
+			engine     TEXT NOT NULL,
+			address    TEXT NOT NULL,
+			note       TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			created_by TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (engine, address)
+		)`,
+	},
 }

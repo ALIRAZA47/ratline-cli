@@ -279,6 +279,11 @@ func siteArgvFor(s *state.Site) []string {
 		if s.Instances > 0 {
 			argv = append(argv, "--instances", fmt.Sprint(s.Instances))
 		}
+	case "bun":
+		argv = appendIf(argv, "--entry", s.Entry)
+		argv = appendIf(argv, "--bun", s.BunVersion)
+		argv = appendIf(argv, "--package-manager", s.PackageManager)
+		argv = appendIf(argv, "--listen", s.Listen)
 	case "python":
 		argv = appendIf(argv, "--app-module", s.AppModule)
 		argv = appendIf(argv, "--python", s.PythonVersion)

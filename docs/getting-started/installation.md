@@ -104,7 +104,7 @@ that is nothing, and `status` says so along with the two commands that change it
 
 ## Install a runtime
 
-Only needed for node and python sites.
+Only needed for node, bun and python sites.
 
 ```bash
 sudo ratline runtime install node 22 --with-pm2

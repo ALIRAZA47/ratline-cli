@@ -165,6 +165,24 @@ func TestNodePortVhost(t *testing.T) {
 	}
 }
 
+// A bun site is proxied exactly as a node one is. The runtime switch in buildData is a
+// literal list, so a runtime missing from it does not render a degraded vhost — it
+// returns "unknown runtime" and the whole site fails to provision.
+func TestBunVhostProxiesLikeANodeSite(t *testing.T) {
+	site := &state.Site{
+		Domain: "edge.example.com", Owner: "bob", Runtime: "bun", Slug: "bob-edge_example_com",
+		Enabled: true, Entry: "server.ts", Listen: "socket", Instances: 1,
+	}
+	out := render(t, site, nil)
+	want := "proxy_pass http://unix:/run/ratline/bob-edge_example_com/app.sock:;"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected %q in:\n%s", want, out)
+	}
+	if !strings.Contains(out, "proxy-params.conf") {
+		t.Error("the proxy header include is missing")
+	}
+}
+
 func TestTheVhostOnlyEverProxiesToASocketThatExists(t *testing.T) {
 	// A dynamic site is one unit binding one socket. Concurrency lives inside the
 	// unit — PM2 cluster workers, gunicorn workers — sharing that one listening

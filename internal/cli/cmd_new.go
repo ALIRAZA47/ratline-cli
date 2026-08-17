@@ -176,6 +176,7 @@ func newNewCommand(g *Globals) *cobra.Command {
 	}
 	cmd.AddCommand(
 		newNewNodeCommand(g),
+		newNewBunCommand(g),
 		newNewPythonCommand(g),
 		newNewStaticCommand(g),
 	)
@@ -289,6 +290,44 @@ func newNewNodeCommand(g *Globals) *cobra.Command {
 	f.StringVar(&public, "public", "", "Directory nginx serves directly, bypassing the application")
 	f.StringVar(&listen, "listen", "", "socket (default) or port")
 	f.IntVar(&instances, "instances", 0, "PM2 cluster workers")
+	return Mutating(cmd)
+}
+
+func newNewBunCommand(g *Globals) *cobra.Command {
+	s := &stack{g: g, c: &composer{g: g}}
+	var bunVersion, entry, pm, install, build, public, listen string
+	cmd := &cobra.Command{
+		Use:   "bun <domain>",
+		Short: "A tenant, a Bun site and optionally a database, in one command",
+		Args:  cobra.ExactArgs(1),
+		Long: "Defaults suited to a Bun application: bun straight under systemd, a Unix socket,\n" +
+			"and a TypeScript entry point run without a build step.\n\n" +
+			"There is no --instances and no --daemon here. PM2 is a Node supervisor, so a bun\n" +
+			"site is one process and `site reload` on it is a restart — pick `new node` when\n" +
+			"zero-downtime reloads matter more than the engine does.",
+		Example: "  ratline new bun app.example.com --user acme --with-db\n\n" +
+			"  ratline new bun api.example.com --user acme --entry src/index.ts --bun 1.2",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s.siteArgs = []string{"--runtime", "bun"}
+			s.siteArgs = appendIf(s.siteArgs, "--bun", bunVersion)
+			s.siteArgs = appendIf(s.siteArgs, "--entry", entry)
+			s.siteArgs = appendIf(s.siteArgs, "--package-manager", pm)
+			s.siteArgs = appendIf(s.siteArgs, "--install-command", install)
+			s.siteArgs = appendIf(s.siteArgs, "--build-command", build)
+			s.siteArgs = appendIf(s.siteArgs, "--public", public)
+			s.siteArgs = appendIf(s.siteArgs, "--listen", listen)
+			return s.finish(cmd, args)
+		},
+	}
+	s.bind(cmd)
+	f := cmd.Flags()
+	f.StringVar(&bunVersion, "bun", "", "Managed Bun version, e.g. 1.2")
+	f.StringVar(&entry, "entry", "server.ts", "The file that starts the server")
+	f.StringVar(&pm, "package-manager", "", "npm, pnpm, yarn or bun (bun by default)")
+	f.StringVar(&install, "install-command", "", "Dependency install command")
+	f.StringVar(&build, "build-command", "", "Build command; a multi-step build belongs in a script")
+	f.StringVar(&public, "public", "", "Directory nginx serves directly, bypassing the application")
+	f.StringVar(&listen, "listen", "", "socket (default) or port")
 	return Mutating(cmd)
 }
 
