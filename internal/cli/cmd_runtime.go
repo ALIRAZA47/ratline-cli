@@ -446,6 +446,11 @@ func (g *Globals) installBun(ctx context.Context, version string, baseline bool)
 	// that sites would then try to use.
 	staging := target + ".incoming"
 	_ = os.RemoveAll(staging)
+	// EnsureDir creates a single level, so the staging directory has to exist before its
+	// bin subdirectory — creating bin/ alone fails on the missing parent.
+	if _, err := system.EnsureDir(staging, 0o755, 0, 0); err != nil {
+		return err
+	}
 	if _, err := system.EnsureDir(filepath.Join(staging, "bin"), 0o755, 0, 0); err != nil {
 		os.RemoveAll(staging)
 		return err
