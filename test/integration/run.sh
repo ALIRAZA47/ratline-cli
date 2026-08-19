@@ -407,6 +407,57 @@ else
     printf '  skip  node runtime unavailable in this environment\n'
 fi
 
+# ---------------------------------------------------------------- bun site
+#
+# The point of bun here is the thing node cannot do: run a TypeScript entry point with no
+# build step. The server.ts below has a type annotation, which a node unit would die on at
+# first start — so a 200 through nginx proves bun transpiled it on the way in.
+
+info "bun site"
+mkdir -p /home/bob/bun.test/app
+cat > /home/bob/bun.test/app/package.json <<'PKG'
+{ "name": "bun-test", "version": "1.0.0", "private": true }
+PKG
+cat > /home/bob/bun.test/app/server.ts <<'TS'
+// A socket bun site reads the path itself and hands it to Bun.serve as `unix:`.
+const socket: string | undefined =
+  process.env.RATLINE_SOCKET ?? process.env.SOCKET_PATH ?? process.env.PORT;
+Bun.serve({
+  unix: socket!,
+  fetch(_req: Request): Response {
+    return new Response(JSON.stringify({ ok: true, app: "bun.test" }), {
+      headers: { "content-type": "application/json" },
+    });
+  },
+});
+console.log("listening on " + socket);
+TS
+chown -R bob:bob /home/bob/bun.test
+
+# The release feed only carries recent versions, so a pinned major.minor goes stale as bun
+# moves on. Resolve the current full version from the same feed ratline uses, and install
+# that; if the feed is unreachable, the section skips like the other download-dependent ones.
+bunver=$(curl -fsSL --max-time 20 https://github.com/oven-sh/bun/releases.atom 2>/dev/null \
+    | grep -oE 'bun-v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/bun-v//')
+
+if [ -n "$bunver" ] && "$RATLINE" runtime install bun "$bunver" >/dev/null 2>&1; then
+    check "runtime list shows bun" bash -c "'$RATLINE' runtime list | grep -q bun"
+    if "$RATLINE" site add bun.test --user bob --runtime bun --entry server.ts --bun "$bunver" --ssl none 2>&1 | tail -20; then
+        ok "site add bun"
+        body=$(curl -sS -H 'Host: bun.test' http://127.0.0.1/ 2>&1)
+        contains "the bun app answers through nginx" '"ok":true' "$body"
+        # The TypeScript ran unbuilt: there is no build-output directory, the entry is the
+        # .ts file itself, and it served — which node could not have done.
+        check "the entry is the TypeScript file, not a build output" \
+            bash -c '[ -f /home/bob/bun.test/app/server.ts ] && [ ! -d /home/bob/bun.test/app/dist ]'
+        check "site status reports the bun site" "$RATLINE" site status bun.test
+    else
+        bad "site add bun" "see the output above"
+    fi
+else
+    printf '  skip  bun runtime unavailable in this environment\n'
+fi
+
 # ---------------------------------------------------------------- ssh keys
 
 info "ssh keys"
@@ -1416,6 +1467,115 @@ else
     fi
 fi
 
+# ---------------------------------------------------------------- mysql engine
+#
+# The real apt-to-server path for --engine mysql: install the distribution package,
+# provision a database and a scoped user, attach it to a site, and steer the port.
+
+info "database server (mysql)"
+
+if ! command -v apt-get >/dev/null 2>&1; then
+    printf '  skip  no apt on this host\n'
+else
+    check "no mysqld is installed yet" bash -c '! command -v mysqld && ! command -v mariadbd'
+
+    MYSQLPW='integration-mysql-pw'
+    installout=$(printf '%s' "$MYSQLPW" | "$RATLINE" db install --engine mysql --stdin 2>&1)
+    contains "db install --engine mysql completed" "installed and secured" "$installout"
+    case "$installout" in
+        *"$MYSQLPW"*) bad "db install --engine mysql echoed the password" ;;
+        *) ok "db install --engine mysql does not echo the password" ;;
+    esac
+    check "mysqld is running" systemctl is-active --quiet mysql
+    check "the admin defaults-file is 0600" \
+        bash -c '[ "$(stat -c %a /etc/ratline/db/mysql.cnf)" = "600" ]'
+    check "the admin credentials work over TCP" \
+        mysql --defaults-extra-file=/etc/ratline/db/mysql.cnf -N -e "SELECT 1"
+    check "mysqld listens on localhost" bash -c 'ss -Hltn | grep -q "127\.0\.0\.1:3306"'
+    refute "and nowhere else" bash -c 'ss -Hltn | grep -E "(\*|0\.0\.0\.0|\[::\]):3306"'
+
+    # Provision a database, a scoped user, and attach it to a real site.
+    "$RATLINE" user add mysqltenant >/dev/null 2>&1
+    mkdir -p /home/mysqltenant/shop.mysql.test/public
+    echo ok > /home/mysqltenant/shop.mysql.test/public/index.html
+    chown -R mysqltenant:mysqltenant /home/mysqltenant/shop.mysql.test
+    "$RATLINE" site add shop.mysql.test --user mysqltenant --runtime static --ssl none >/dev/null 2>&1
+    createout=$("$RATLINE" db create shopdb --engine mysql --owner mysqltenant --attach shop.mysql.test 2>&1)
+    contains "db create --engine mysql created and attached" "written to" "$createout"
+    check "the database exists on the server" \
+        bash -c 'mysql --defaults-extra-file=/etc/ratline/db/mysql.cnf -N -e "SHOW DATABASES" | grep -qx shopdb'
+    check "a mysql:// DATABASE_URL was written to the site .env" \
+        bash -c 'grep -q "^DATABASE_URL=mysql://shopdb_app:" /home/mysqltenant/shop.mysql.test/.env'
+    check "db list --engine mysql shows it" bash -c "'$RATLINE' db list --engine mysql | grep -q shopdb"
+    check "db roles --engine mysql lists readWrite" bash -c "'$RATLINE' db roles --engine mysql | grep -q readWrite"
+
+    if ufw --force enable >/dev/null 2>&1; then
+        check "access allow opens 3306 behind the firewall" \
+            bash -c "'$RATLINE' db access allow 203.0.113.19 --engine mysql && ss -Hltn | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'"
+        check "doctor is quiet while ufw guards mysql" \
+            bash -c "printf '%s' \"\$('$RATLINE' doctor --json 2>/dev/null || true)\" | jq -e '[.. | objects | select(.subject? == \"port 3306\")] | length == 0'"
+        ufw --force disable >/dev/null 2>&1
+        check "doctor flags the exposed mysql port once ufw is off" \
+            bash -c "printf '%s' \"\$('$RATLINE' doctor --json 2>/dev/null || true)\" | jq -e '[.. | objects | select(.subject? == \"port 3306\" and .severity? == \"problem\")] | length > 0'"
+        ufw --force enable >/dev/null 2>&1
+        check "revoking the last address puts mysql back on localhost" \
+            bash -c "'$RATLINE' db access revoke 203.0.113.19 --engine mysql && ss -Hltn | grep -q '127\.0\.0\.1:3306' && ! ss -Hltn | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'"
+        ufw --force disable >/dev/null 2>&1
+    else
+        printf '  skip  ufw cannot enable in this container (mysql access)\n'
+    fi
+fi
+
+# ---------------------------------------------------------------- redis engine
+#
+# Redis is the ACL-user-per-keyspace model. The confinement is the load-bearing check: a
+# tenant can write its own keys and is refused another's.
+
+info "database server (redis)"
+
+if ! command -v apt-get >/dev/null 2>&1; then
+    printf '  skip  no apt on this host\n'
+else
+    check "no redis-server is installed yet" bash -c '! command -v redis-server'
+
+    REDISPW='integration-redis-pw'
+    installout=$(printf '%s' "$REDISPW" | "$RATLINE" db install --engine redis --stdin 2>&1)
+    contains "db install --engine redis completed" "installed and secured" "$installout"
+    check "redis-server is running" systemctl is-active --quiet redis-server
+    refute "an unauthenticated ping is refused" \
+        bash -c 'redis-cli -h 127.0.0.1 ping | grep -q PONG'
+    check "the admin password works" \
+        bash -c "REDISCLI_AUTH='$REDISPW' redis-cli -h 127.0.0.1 ping | grep -q PONG"
+    check "redis listens on localhost" bash -c 'ss -Hltn | grep -q "127\.0\.0\.1:6379"'
+    refute "and nowhere else" bash -c 'ss -Hltn | grep -E "(\*|0\.0\.0\.0|\[::\]):6379"'
+
+    "$RATLINE" user add redistenant >/dev/null 2>&1
+    createjson=$("$RATLINE" db create shopns --engine redis --owner redistenant --json 2>&1)
+    rurl=$(printf '%s' "$createjson" | jq -r '.. | .connection_uri? // empty' | head -1)
+    check "db create --engine redis returned a redis:// URI" bash -c "case '$rurl' in redis://shopns_app:*) exit 0;; *) exit 1;; esac"
+    check "the ACL user exists on the server" \
+        bash -c "REDISCLI_AUTH='$REDISPW' redis-cli -h 127.0.0.1 ACL GETUSER shopns_app | grep -q on"
+    # Confinement: the keyspace user writes its own keys and is refused another's.
+    check "the keyspace user can write its own keys" \
+        bash -c "redis-cli -u '$rurl' set shopns:hello world | grep -q OK"
+    refute "but is refused a key outside its keyspace" \
+        bash -c "redis-cli -u '$rurl' set intruder:hello world | grep -q OK"
+    check "db list --engine redis shows the keyspace" bash -c "'$RATLINE' db list --engine redis | grep -q shopns"
+    check "db roles --engine redis lists readWrite" bash -c "'$RATLINE' db roles --engine redis | grep -q readWrite"
+
+    if ufw --force enable >/dev/null 2>&1; then
+        check "access allow opens 6379 behind the firewall" \
+            bash -c "'$RATLINE' db access allow 203.0.113.19 --engine redis && ss -Hltn | grep -Eq '(\*|0\.0\.0\.0|\[::\]):6379'"
+        check "the admin still answers after the rebind" \
+            bash -c "REDISCLI_AUTH='$REDISPW' redis-cli -h 127.0.0.1 ping | grep -q PONG"
+        check "revoking the last address puts redis back on localhost" \
+            bash -c "'$RATLINE' db access revoke 203.0.113.19 --engine redis && ss -Hltn | grep -q '127\.0\.0\.1:6379' && ! ss -Hltn | grep -Eq '(\*|0\.0\.0\.0|\[::\]):6379'"
+        ufw --force disable >/dev/null 2>&1
+    else
+        printf '  skip  ufw cannot enable in this container (redis access)\n'
+    fi
+fi
+
 # ---------------------------------------------------------------- config
 #
 # The file every other command reads. A change that leaves it unparseable takes the whole
@@ -1536,7 +1696,7 @@ fi
 # with no socket, and restarting only api.test left direct.test broken for the rest of the
 # run — invisible until `doctor` started exiting non-zero, at which point the last check in
 # the suite failed on a site nobody had touched in a thousand lines.
-for d in api.test app.test direct.test; do
+for d in api.test app.test direct.test bun.test; do
     "$RATLINE" site restart "$d" >/dev/null 2>&1 || true
 done
 sleep 4
@@ -2388,12 +2548,13 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 #
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
-# Raised for the `db install` section, which needs only apt and so always runs. The
-# `db access` section is deliberately not counted in: it gates on `ufw --force enable`,
-# which can legitimately fail inside a container where netfilter is not loadable, and a
-# floor that assumed it ran would fail the suite for an environment limitation rather
-# than a regression — the very thing this floor must not do.
-EXPECTED_MINIMUM=528
+# Raised for the `db install` sections (mongo, mysql, redis), which need only apt and so
+# always run. The `db access` blocks and the bun site are deliberately not counted in:
+# access gates on `ufw --force enable`, which can legitimately fail where netfilter is not
+# loadable, and bun gates on a runtime download — a floor that assumed either ran would
+# fail the suite for an environment limitation rather than a regression, the very thing
+# this floor must not do.
+EXPECTED_MINIMUM=560
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'

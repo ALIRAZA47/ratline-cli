@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd systemd-sysv dbus \
         nginx openssh-server openssl ca-certificates curl \
         python3 python3-venv python3-pip \
-        git rsync sudo procps xz-utils jq sqlite3 \
+        git rsync sudo procps xz-utils unzip jq sqlite3 \
         ufw iproute2 \
         certbot \
     && rm -rf /var/lib/apt/lists/*
