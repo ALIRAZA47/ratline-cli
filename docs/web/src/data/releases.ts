@@ -39,6 +39,31 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.14.1',
+    date: '2026-08-19',
+    summary:
+      'A fix release: bun sites install again, and the MySQL, Redis and bun paths are now exercised against a real server in the integration suite.',
+    assertions: 594,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'bun sites install again',
+        body:
+          '`ratline runtime install bun <version>` failed on a server that had never installed that version, with `mkdir …/bun/<version>.incoming/bin: no such file or directory`, before anything was downloaded — so bun sites could not be provisioned at all. The installer created the staging directory and its bin/ subdirectory in a single step, but the directory helper makes one level at a time, so the bin/ creation had no parent to sit in. It now creates the staging directory first, the way the node installer already does. If you hit this on v0.13.0 or v0.14.0, upgrade and re-run the install; nothing was left behind by the failed attempts.',
+        code: `ratline runtime install bun 1.3.14
+ratline site add app.example.com --user acme --runtime bun --entry server.ts`,
+      },
+      {
+        title: 'MySQL, Redis and bun, proven against a real server',
+        body:
+          'The MySQL and Redis engines shipped proven against a modeled server in unit tests; the integration suite now installs each from the distribution on a real Ubuntu host and runs the whole path — create a database and a scoped user, attach a connection string to a site’s .env, flip the firewall with `db access`, and watch `doctor` go quiet and loud as the port opens and closes. The Redis run also proves the keyspace confinement: a tenant writes its own keys and is refused another’s. A bun site is installed and answered through nginx with its TypeScript transpiled on start, which is the reason to pick bun over node. This closes the coverage gap the last two releases were honest about.',
+      },
+    ],
+    known: [
+      'The integration suite runs on Ubuntu, so it exercises the mysql-server path; the Debian/MariaDB variant is still proven only against a modeled server in unit tests.',
+    ],
+  },
+  {
     version: 'v0.14.0',
     date: '2026-08-16',
     summary:
