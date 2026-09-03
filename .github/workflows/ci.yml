@@ -217,6 +217,18 @@ jobs:
         run: npm --prefix panel/web run build
       - name: Build the binary around it
         run: go build -o /tmp/ratline-panel ./cmd/ratline-panel
+      # A component may not declare a prop called `key`. React reserves the name for
+      # reconciliation and strips it from props, so the component receives undefined
+      # and fails silently — five of the panel's pages rendered "Nothing here yet"
+      # while the API answered perfectly, and nothing warned in a production build.
+      - name: No component declares a reserved `key` prop
+        run: |
+          if grep -rnE '^[[:space:]]+key\??:[[:space:]]*(string|number|boolean)' panel/web/src; then
+            echo "A props type declares 'key', which React never passes through." >&2
+            echo "Rename it — dataKey, itemKey, whatever it is actually for." >&2
+            exit 1
+          fi
+
       # The bundle must not need 'unsafe-inline'. The panel serves a strict
       # Content-Security-Policy, and a build that inlined a script or a style would
       # produce a blank page with only a console error to say why.

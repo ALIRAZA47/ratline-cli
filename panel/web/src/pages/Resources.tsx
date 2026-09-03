@@ -20,7 +20,7 @@ function ResourceList<T extends Record<string, unknown>>({
   title,
   lede,
   endpoint,
-  key: dataKey,
+  dataKey,
   group,
   columns,
   primary,
@@ -29,7 +29,16 @@ function ResourceList<T extends Record<string, unknown>>({
   title: string;
   lede: string;
   endpoint: string;
-  key: string;
+  /**
+   * The field inside ratline's envelope holding the rows — "sites", "users",
+   * "certificates".
+   *
+   * Emphatically not called `key`. React reserves that name for reconciliation and
+   * strips it from props, so a component that declares one receives undefined and
+   * every list here rendered as "Nothing here yet" — on five pages, silently, with
+   * the API answering perfectly the whole time.
+   */
+  dataKey: string;
   group: string;
   columns: { head: string; cell: (row: T) => React.ReactNode }[];
   /** The action opened by the page's main button. */
@@ -135,7 +144,7 @@ export function Tenants() {
       title="Tenants"
       lede="A system account per tenant: its own home, group, shell and SSH keys. Sites live inside one."
       endpoint="/api/tenants"
-      key="users"
+      dataKey="users"
       group="users"
       primary={{ id: 'user.add', label: 'New tenant' }}
       rowLink={(u) => `/tenants/${u.name}`}
@@ -208,7 +217,7 @@ export function Certificates() {
       title="Certificates"
       lede="TLS as a resource with its own lifecycle. An issuance spends a rate-limit budget, so every attempt here runs the preflight first."
       endpoint="/api/certs"
-      key="certificates"
+      dataKey="certificates"
       group="certs"
       primary={{ id: 'cert.issue', label: 'Issue' }}
       columns={[
@@ -237,7 +246,7 @@ export function Keys() {
       title="SSH keys"
       lede="Three scopes: the whole server, one tenant, or one site. A site-scoped key reaches a forced command and nothing else."
       endpoint="/api/keys"
-      key="keys"
+      dataKey="keys"
       group="keys"
       primary={{ id: 'key.add', label: 'Add a key' }}
       columns={[
@@ -268,7 +277,7 @@ export function Databases() {
       title="Databases"
       lede="One database per tenant with least-privilege users. ratline provisions inside a server it is pointed at; db install is the one thing it installs itself."
       endpoint="/api/databases"
-      key="databases"
+      dataKey="databases"
       group="databases"
       primary={{ id: 'db.create', label: 'New database' }}
       columns={[
@@ -290,7 +299,7 @@ export function Runtimes() {
       title="Runtimes"
       lede="Node, Bun and Python versions ratline manages under /opt, separate from anything the distribution installed."
       endpoint="/api/runtimes"
-      key="runtimes"
+      dataKey="runtimes"
       group="runtimes"
       primary={{ id: 'runtime.install', label: 'Install a version' }}
       columns={[
