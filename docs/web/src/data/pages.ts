@@ -49,6 +49,65 @@ export const pageMeta: Record<string, PageMeta> = {
     ],
   },
 
+  // ── The web panel ─────────────────────────────────────────────────────────────────
+  '/panel': {
+    label: 'What the panel is',
+    blurb: 'A web interface that drives the CLI rather than reimplementing it.',
+    keywords: [
+      'web ui', 'web interface', 'gui', 'dashboard', 'control panel', 'ratline-panel',
+      'ploi', 'runcloud', 'moss.sh', 'cloudpanel', 'browser', 'admin panel', 'hosting panel',
+    ],
+  },
+  '/panel/install': {
+    label: 'Installing the panel',
+    blurb: 'One command, then claim it through a tunnel before anything else can.',
+    keywords: [
+      'install panel', 'panel.sh', 'ratline-panel install', 'first account', 'claim',
+      'setup', 'super admin', 'ssh tunnel', 'port 8420', 'deb',
+    ],
+  },
+  '/panel/domain': {
+    label: 'Putting the panel on a domain',
+    blurb: 'An nginx vhost and a certificate, staged and rolled back like everything else.',
+    keywords: [
+      'panel domain', 'ratline-panel domain set', 'panel https', 'panel nginx', 'vhost',
+      'panel certificate', 'reverse proxy', 'trust_proxy', 'secure cookie', 'cloudflare',
+    ],
+  },
+  '/panel/team': {
+    label: 'Super admins and admins',
+    blurb: 'Two roles, what separates them, and how invitations work.',
+    keywords: [
+      'roles', 'super admin', 'superadmin', 'admin', 'invite', 'invitation', 'team',
+      'permissions', 'rbac', 'locked out', 'account recovery', 'totp reset',
+    ],
+  },
+  '/panel/security': {
+    label: 'The panel’s security model',
+    blurb: 'What signing in actually grants, and the four settings that matter.',
+    keywords: [
+      'panel security', 'threat model', 'root equivalent', 'argon2', 'totp', '2fa',
+      'two factor', 'csrf', 'session', 'rate limit', 'allow_from', 'require_totp',
+      'hardening', 'secrets', 'stdin', 'proc cmdline',
+    ],
+  },
+  '/panel/commands': {
+    label: 'ratline-panel commands',
+    blurb: 'Install, domain, account recovery and doctor.',
+    keywords: [
+      'ratline-panel', 'panel cli', 'account create', 'account role', 'account password',
+      'totp-reset', 'panel doctor', 'panel config', 'uninstall',
+    ],
+  },
+  '/panel/api': {
+    label: 'The panel’s HTTP API',
+    blurb: 'The same envelope as the CLI, for anything you would rather script.',
+    keywords: [
+      'panel api', 'http api', 'rest', 'endpoints', 'sse', 'server-sent events',
+      'job stream', 'csrf header', 'automation', 'curl',
+    ],
+  },
+
   // ── Cross-cutting reference ───────────────────────────────────────────────────────
   '/reference': {
     label: 'Command surface at a glance',

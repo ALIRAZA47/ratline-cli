@@ -56,6 +56,13 @@ const GuideDeployNode = lazy(() => import('./pages/guides/DeployNode').then((m) 
 const GuideDeployPython = lazy(() => import('./pages/guides/DeployPython').then((m) => ({ default: m.GuideDeployPython })));
 const GuideContinuousDeployment = lazy(() => import('./pages/guides/ContinuousDeployment').then((m) => ({ default: m.GuideContinuousDeployment })));
 const GuideAgents = lazy(() => import('./pages/guides/Agents').then((m) => ({ default: m.GuideAgents })));
+const PanelOverview = lazy(() => import('./pages/panel/Overview').then((m) => ({ default: m.PanelOverview })));
+const PanelInstall = lazy(() => import('./pages/panel/Install').then((m) => ({ default: m.PanelInstall })));
+const PanelDomain = lazy(() => import('./pages/panel/Domain').then((m) => ({ default: m.PanelDomain })));
+const PanelTeam = lazy(() => import('./pages/panel/Team').then((m) => ({ default: m.PanelTeam })));
+const PanelSecurity = lazy(() => import('./pages/panel/Security').then((m) => ({ default: m.PanelSecurity })));
+const PanelCommands = lazy(() => import('./pages/panel/Commands').then((m) => ({ default: m.PanelCommands })));
+const PanelApi = lazy(() => import('./pages/panel/Api').then((m) => ({ default: m.PanelApi })));
 
 export default function App() {
   return (
@@ -116,6 +123,17 @@ export default function App() {
         <Route path="guides/deploy-python" element={<GuideDeployPython />} />
         <Route path="guides/github-actions" element={<GuideContinuousDeployment />} />
         <Route path="guides/agents" element={<GuideAgents />} />
+
+        {/* The web panel: a separate binary and a separate install, documented as its
+            own subject because somebody administering a server from a browser needs a
+            different set of pages than somebody at a terminal. */}
+        <Route path="panel" element={<PanelOverview />} />
+        <Route path="panel/install" element={<PanelInstall />} />
+        <Route path="panel/domain" element={<PanelDomain />} />
+        <Route path="panel/team" element={<PanelTeam />} />
+        <Route path="panel/security" element={<PanelSecurity />} />
+        <Route path="panel/commands" element={<PanelCommands />} />
+        <Route path="panel/api" element={<PanelApi />} />
 
         <Route path="*" element={<NotFound />} />
       </Route>

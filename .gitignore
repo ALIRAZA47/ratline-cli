@@ -22,3 +22,16 @@ docs/web/src/generated/
 
 # Agent worktrees, which are git repositories of their own.
 .claude/worktrees/
+
+# The panel's interface
+/panel/web/node_modules/
+# Built by `npm --prefix panel/web run build` straight into the Go package that
+# embeds it. The source is in panel/web; a fresh clone embeds the placeholder page
+# beside it instead, so `go build ./...` works without Node.
+/internal/panel/web/dist/*
+!/internal/panel/web/dist/.gitkeep
+# tsc -b's incremental cache, not source.
+*.tsbuildinfo
+
+# Copied from packaging/panel-install.sh at build time; the source is there, not here.
+docs/web/public/panel.sh

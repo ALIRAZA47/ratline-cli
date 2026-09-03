@@ -1,0 +1,105 @@
+{{- /*
+The panel's own nginx vhost.
+
+Written by `ratline-panel domain set`, not by ratline. The panel is not a ratline
+site — it has no tenant, no home directory and no systemd unit under a site owner —
+so making it one would mean lying to the model to reuse the renderer. This file is
+staged, checked with `nginx -t` and committed the same way ratline's own are.
+
+Never edit it: it is regenerated whenever the domain or the certificate changes.
+*/ -}}
+# managed-by: ratline-panel
+# domain: {{ .Domain }}
+# upstream: {{ .Upstream }}
+# generated: {{ .GeneratedAt }}
+#
+# Do not edit. Regenerate with:
+#   ratline-panel domain set {{ .Domain }}
+{{ if .TLS }}
+# Plain HTTP: answer the ACME challenge, redirect everything else. Renewal must
+# never depend on a redirect, so the challenge location comes first.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ .Domain }};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ .ACMEWebroot }};
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+{{ end }}
+server {
+{{- if .TLS }}
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    ssl_certificate     {{ .CertPath }};
+    ssl_certificate_key {{ .KeyPath }};
+{{- if .ChainPath }}
+    ssl_trusted_certificate {{ .ChainPath }};
+{{- end }}
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:RatlinePanelTLS:1m;
+    ssl_session_tickets off;
+{{- else }}
+    listen 80;
+    listen [::]:80;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ .ACMEWebroot }};
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+{{- end }}
+    server_name {{ .Domain }};
+
+    # The panel sets its own Content-Security-Policy, which is stricter than
+    # anything that could be written here, so nginx adds only the headers that
+    # have to come from the edge.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "same-origin" always;
+{{- if .TLS }}
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+{{- end }}
+
+    # A panel is a small number of humans, not a public site. This is enough to
+    # let a person work and not enough to let a script grind at the sign-in form.
+    client_max_body_size 4m;
+
+    # The job transcript is a server-sent event stream. Buffering it means the
+    # browser shows nothing until the deploy has already finished, which is the
+    # single most confusing thing a panel can do.
+    location /api/jobs/ {
+        proxy_pass http://{{ .Upstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection        "";
+        proxy_buffering off;
+        proxy_cache off;
+        # A deploy can be quiet for minutes while a build runs. The panel sends a
+        # heartbeat every twenty seconds, so this only has to outlast that.
+        proxy_read_timeout 1h;
+    }
+
+    location / {
+        proxy_pass http://{{ .Upstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+}

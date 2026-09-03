@@ -1,0 +1,30 @@
+{
+  "name": "ratline-panel-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The web interface embedded in the ratline-panel binary.",
+  "license": "ISC",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "rm -rf ../../internal/panel/web/dist/assets",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0"
+  }
+}

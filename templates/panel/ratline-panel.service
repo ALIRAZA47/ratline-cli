@@ -1,0 +1,54 @@
+# managed-by: ratline-panel
+[Unit]
+Description=ratline web panel
+Documentation=man:ratline(8) https://ratline.alirazakhan.me/panel
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/ratline-panel serve
+Restart=on-failure
+RestartSec=3s
+# A panel that crash-loops must end up in a failed state where `ratline-panel
+# doctor` and `systemctl --failed` can see it, rather than restarting for ever
+# and looking healthy to anything that only checks whether a process exists.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# It runs as root, and there is no honest way around that: its whole job is to
+# invoke a tool that creates system users and writes into /etc. What can be
+# taken away is taken away below — but read the security page before putting
+# this on a public domain, because the mitigations here do not change the fact
+# that signing in to the panel is equivalent to root on this machine.
+User=root
+Group=root
+
+NoNewPrivileges=false
+# ratline needs to become other users (site owners) for npm and pip, so
+# NoNewPrivileges cannot be set: it would break setgid/setuid in the child.
+
+PrivateTmp=true
+ProtectHome=false
+ProtectSystem=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=false
+RestrictRealtime=true
+LockPersonality=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=false
+
+# The panel forks ratline, which forks nginx, systemctl, certbot, npm and pip.
+# A tight task limit here shows up as a mysterious failure three processes down.
+TasksMax=4096
+LimitNOFILE=8192
+
+# Journal only. The panel's own audit trail is a database; its log is diagnostics.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ratline-panel
+
+[Install]
+WantedBy=multi-user.target

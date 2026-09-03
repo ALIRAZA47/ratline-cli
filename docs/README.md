@@ -105,8 +105,8 @@ The pages `ratline explain` prints — embedded in the binary and rendered by th
 documentation site at [/topics](https://ratline.alirazakhan.me/topics), from these same
 files. One source of truth: there is no second copy to drift.
 
-`layout` · `sockets` · `node` · `python` · `static` · `tls` · `ssh` · `deploys` ·
-`diagnose` · `limits` · `safety` · `state` · `databases`
+`layout` · `sockets` · `node` · `bun` · `python` · `static` · `tls` · `ssh` · `deploys` ·
+`jobs` · `diagnose` · `health` · `limits` · `safety` · `state` · `databases` · `panel`
 
 ---
 

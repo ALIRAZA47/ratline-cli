@@ -187,11 +187,54 @@ jobs:
         run: python3 scripts/check-doc-links.py
       # The installer is served from the site, so it has to survive the build and stay
       # syntactically valid: it is piped straight into a root shell.
-      - name: The installer is present and valid
+      - name: The installers are present and valid
         run: |
-          test -f docs/web/dist/install.sh
-          sh -n docs/web/dist/install.sh
-          command -v shellcheck >/dev/null 2>&1 && shellcheck -s sh docs/web/dist/install.sh || true
+          for script in install.sh panel.sh; do
+            test -f "docs/web/dist/$script"
+            sh -n "docs/web/dist/$script"
+            command -v shellcheck >/dev/null 2>&1 && shellcheck -s sh "docs/web/dist/$script" || true
+          done
+
+  panel:
+    name: panel (interface + binary)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: panel/web/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: npm --prefix panel/web ci
+      # Typechecks and builds into internal/panel/web/dist, which the Go build then
+      # embeds. A checkout ships a placeholder page there so `go build ./...` works
+      # without Node; this is where the real one is proved to compile.
+      - name: Typecheck and build the interface
+        run: npm --prefix panel/web run build
+      - name: Build the binary around it
+        run: go build -o /tmp/ratline-panel ./cmd/ratline-panel
+      # The bundle must not need 'unsafe-inline'. The panel serves a strict
+      # Content-Security-Policy, and a build that inlined a script or a style would
+      # produce a blank page with only a console error to say why.
+      - name: The bundle carries no inline script or style
+        run: |
+          page=internal/panel/web/dist/index.html
+          # Every <script> must load from a file. One without src= is inline, and the
+          # panel's policy has no 'unsafe-inline' — the page would render blank with
+          # only a console error to say why.
+          if grep -o '<script[^>]*>' "$page" | grep -qv 'src='; then
+            echo "index.html carries an inline script, which the panel's CSP blocks" >&2
+            grep -o '<script[^>]*>' "$page" >&2
+            exit 1
+          fi
+          if grep -q '<style' "$page"; then
+            echo "index.html carries an inline style, which the panel's CSP blocks" >&2
+            exit 1
+          fi
 
   integration:
     name: integration (real nginx, node, python)

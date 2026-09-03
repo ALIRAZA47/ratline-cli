@@ -57,7 +57,12 @@ func newDBCommand(g *Globals) *cobra.Command {
 	}
 	// The engine selector. mongo is the default, so every existing invocation and script
 	// behaves exactly as before; --engine mysql routes each verb to the MySQL manager.
-	cmd.PersistentFlags().String("engine", "mongo", "Database engine: mongo or mysql")
+	// The list has to name every engine dbEngineChoice accepts. It said "mongo or
+	// mysql" for a release after Redis shipped, which was wrong in two places that
+	// are generated from it: docs/reference/commands.md, and `ratline schema` — from
+	// which the web panel builds this field's dropdown, so Redis was unreachable
+	// from the interface entirely.
+	cmd.PersistentFlags().String("engine", "mongo", "Database engine: mongo, mysql or redis")
 	cmd.AddCommand(
 		newDBInstallCommand(g),
 		newDBConnectCommand(g),

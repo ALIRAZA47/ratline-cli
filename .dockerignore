@@ -1,0 +1,20 @@
+# The integration image builds from the repository root, so everything here is
+# copied into the build context unless it is named below. node_modules alone is
+# several hundred megabytes and is reinstalled inside the image anyway — sending it
+# made every `make integration` upload it first.
+**/node_modules/
+
+# Build output. The image builds its own.
+/bin/
+/dist/
+/docs/web/dist/
+/internal/panel/web/dist/
+coverage.out
+*.test
+
+# Nothing here is used by a build.
+/.git/
+/.github/
+/.claude/
+/test/integration/results/
+.DS_Store

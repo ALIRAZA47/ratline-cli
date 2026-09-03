@@ -6,8 +6,11 @@
 
 ratline is the provisioning core of a hosting panel — the part that creates a system
 account per tenant, an nginx vhost and a systemd service per site, and manages TLS as a
-resource with its own lifecycle. No web UI, no daemon, no containers. A single static
-binary you run over SSH.
+resource with its own lifecycle. No daemon, no containers. A single static binary you
+run over SSH.
+
+There is a web interface, `ratline-panel`, and it is a separate binary and a separate
+install: it drives this one rather than replacing it. [Skip to it](#the-web-panel).
 
 ```bash
 ratline user add acme --ssh-key ~/.ssh/id_ed25519.pub
@@ -114,6 +117,59 @@ Exit codes are a contract, documented in
 [reference/exit-codes.md](docs/reference/exit-codes.md). `--dry-run` prints every
 mutation without making it.
 
+## The web panel
+
+```bash
+curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh
+```
+
+`ratline-panel` is a web interface for everything above: a separate binary, a separate
+systemd service and a separate install, so a server that never wants one never has one
+and the ratline binary is unchanged by its existence.
+
+It reimplements nothing. Every action runs `ratline <verb> --json` and reads the
+envelope, so a deploy started in a browser is staged, verified, committed and rolled
+back by exactly the code that would have run had you typed it — the same global lock,
+the same audit record, the same exit codes.
+
+```
+browser ──HTTP──▶ ratline-panel ──argv──▶ ratline ──▶ nginx, systemd, certbot
+                        │                    │
+                   panel.db             state.db
+                (who asked)          (what exists)
+```
+
+- **Forms generated from the binary.** They come from `ratline schema`, which is
+  produced by walking the real command tree — so a form offers exactly the flags the
+  installed ratline takes, and an upgrade that adds one adds a field.
+- **A dry run beside every mutation.** `--dry-run` is implemented at the Runner, so
+  nothing is written at any layer and the plan you read is produced by the code that
+  would have done the work.
+- **Two roles.** A super admin invites people and runs the irreversible operations; an
+  admin runs the server. The split is enforced per request — an admin's browser is never
+  sent the super-admin operations at all.
+- **Secrets never reach argv.** `/proc/PID/cmdline` is world-readable, so a password or
+  a connection string travels on stdin and appears in no argv and no log.
+- **No terminal, no file browser, no editor.** Which is exactly what lets you give it to
+  somebody who should not have those.
+
+Install it onto a server that is already running ratline — that is the normal case,
+and the integration suite covers exactly it: the panel goes onto a box the suite has
+already provisioned, and every site and tenant on it is unchanged afterwards.
+
+The installer creates the first super admin and prints a generated password once, so
+there is no window in which the panel is answering and unclaimed and no default
+password to forget about. It listens on `127.0.0.1:8420`; reach it through a tunnel,
+then give it a domain:
+
+```bash
+ssh -L 8420:127.0.0.1:8420 your-server   # from your own machine
+ratline-panel domain set panel.example.com --email you@example.com
+```
+
+Full documentation: [the web panel](https://ratline.alirazakhan.me/panel), or
+`ratline explain panel` over SSH.
+
 ## Testing
 
 ```bash
@@ -133,8 +189,10 @@ as narrow as ratline says it is.
 
 ## Non-goals
 
-No web UI, no daemon, no API server — though the internal packages are structured so an
-HTTP layer could wrap them without a refactor. No containers. Databases are MongoDB
+No daemon and no API server in the `ratline` binary itself. The web interface is a
+separate product that shells out to it, deliberately: a provisioning tool that is also a
+network service is a larger thing to trust than one that is not, and this way the choice
+is the operator's. No containers. Databases are MongoDB
 only — `ratline db` provisions them and their users, and nothing else is supported yet.
 No DNS or mail management. No PHP yet, but the runtime package is an interface, so
 adding PHP-FPM is a new file rather than a refactor.

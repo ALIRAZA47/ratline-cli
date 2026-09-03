@@ -89,10 +89,9 @@ func (m *Manager) Enable(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.State.SetSiteEnabled(ctx, site.Domain, true); err != nil {
+	if err := m.setEnabled(ctx, site, true); err != nil {
 		return err
 	}
-	site.Enabled = true
 
 	rb := system.NewRollback(m.Log)
 	if site.Dynamic() {
@@ -124,10 +123,9 @@ func (m *Manager) Disable(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.State.SetSiteEnabled(ctx, site.Domain, false); err != nil {
+	if err := m.setEnabled(ctx, site, false); err != nil {
 		return err
 	}
-	site.Enabled = false
 
 	if site.Dynamic() {
 		if err := m.Unit.Control(ctx, site, "stop"); err != nil {
@@ -146,6 +144,55 @@ func (m *Manager) Disable(ctx context.Context, name string) error {
 	}
 	rb.Commit()
 	m.Log.Info("site disabled; it now returns 503, and certificate renewal still works", "domain", site.Domain)
+	return nil
+}
+
+// setEnabled records a site's enabled flag, unless this is a rehearsal.
+//
+// A preview must not write the row — the same rule `site add` learned the hard way.
+// Writing it here left ratline believing a site was disabled while nginx was still
+// serving it, which is drift `reconcile` then has to find, produced by a command
+// whose whole promise is that it changes nothing.
+//
+// The in-memory field is set either way, because the vhost the preview renders has to
+// be the one the real command would render.
+func (m *Manager) setEnabled(ctx context.Context, site *state.Site, on bool) error {
+	if m.DryRun {
+		state := "disabled"
+		if on {
+			state = "enabled"
+		}
+		m.Log.Info("would mark the site "+state+" in state", "domain", site.Domain)
+	} else if err := m.State.SetSiteEnabled(ctx, site.Domain, on); err != nil {
+		return err
+	}
+	site.Enabled = on
+	return nil
+}
+
+// removeSiteKeys revokes the keys scoped to a site that is being deleted.
+//
+// They grant access to a directory that is about to stop existing, so they go with
+// it. Split out from Delete so the --dry-run guard below can be tested without a
+// working nginx and systemd: a rehearsal of a deletion used to revoke the site's SSH
+// access for real — the site survived, the vhost survived, and the keys that reached
+// it were gone. That is the worst shape this bug can take, because it removes access
+// while reporting that nothing happened.
+func (m *Manager) removeSiteKeys(ctx context.Context, site *state.Site) error {
+	keys, err := m.State.ListKeys(ctx, state.KeyFilter{Scope: state.ScopeSite, Site: site.Domain})
+	if err != nil {
+		return err
+	}
+	for _, k := range keys {
+		if m.DryRun {
+			m.Log.Info("would remove a site-scoped key along with the site", "label", k.Label)
+			continue
+		}
+		if err := m.State.DeleteKey(ctx, k.ID); err != nil {
+			return err
+		}
+		m.Log.Info("removed a site-scoped key along with the site", "label", k.Label)
+	}
 	return nil
 }
 
@@ -430,17 +477,8 @@ func (m *Manager) Delete(ctx context.Context, name string, purge bool, backupDir
 		m.Log.Warn("could not remove the logrotate policy", "err", err)
 	}
 
-	// Site-scoped keys grant access to a directory that is about to stop
-	// existing, so they go too.
-	keys, err := m.State.ListKeys(ctx, state.KeyFilter{Scope: state.ScopeSite, Site: site.Domain})
-	if err != nil {
+	if err := m.removeSiteKeys(ctx, site); err != nil {
 		return err
-	}
-	for _, k := range keys {
-		if err := m.State.DeleteKey(ctx, k.ID); err != nil {
-			return err
-		}
-		m.Log.Info("removed a site-scoped key along with the site", "label", k.Label)
 	}
 
 	if purge && !m.DryRun {

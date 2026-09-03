@@ -1,5 +1,19 @@
 # The integration image: a real Ubuntu with systemd as PID 1, so site units are
 # genuinely supervised rather than simulated.
+#
+# The panel's interface, built first so the Go build can embed the real thing.
+#
+# Without this stage the panel binary carries its placeholder page, and the suite
+# would prove that the API works while saying nothing about whether the interface it
+# is supposed to serve is even in the binary. The layout mirrors the repository
+# because vite's outDir is relative to panel/web.
+FROM node:22-slim AS web
+WORKDIR /src
+COPY panel/web/package.json panel/web/package-lock.json ./panel/web/
+RUN cd panel/web && npm ci
+COPY panel/web ./panel/web/
+RUN cd panel/web && npm run build
+
 # The builder must satisfy go.mod's own Go version. Pinned to 1.22 it failed with
 # "go.mod requires go >= 1.25.0 (running go 1.22.12; GOTOOLCHAIN=local)" — the
 # official images set GOTOOLCHAIN=local, so there is no silent toolchain download to
@@ -9,9 +23,12 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# After the source, so it lands on top of the placeholder a checkout carries.
+COPY --from=web /src/internal/panel/web/dist ./internal/panel/web/dist
 ENV CGO_ENABLED=0
 RUN go build -trimpath -o /out/ratline ./cmd/ratline && \
-    go build -trimpath -o /out/ratline-shell ./cmd/ratline-shell
+    go build -trimpath -o /out/ratline-shell ./cmd/ratline-shell && \
+    go build -trimpath -o /out/ratline-panel ./cmd/ratline-panel
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -60,14 +77,19 @@ RUN find /etc/systemd/system /lib/systemd/system \
 
 COPY --from=build /out/ratline /usr/local/bin/ratline
 COPY --from=build /out/ratline-shell /usr/local/lib/ratline/ratline-shell
+# The panel is installed but not set up: the suite runs `ratline-panel install`
+# itself, against a server that by then already has tenants and sites — which is the
+# situation every real install is in, and the one worth testing.
+COPY --from=build /out/ratline-panel /usr/local/bin/ratline-panel
 # ratline's own units are no longer copied in. They live in the binary's embedded
 # templates and `ratline init` installs them, which is what lets a server set up from a
 # single downloaded binary still renew its certificates — so the suite has to exercise
 # that path rather than being handed the units by the image.
 COPY test/integration/run.sh /usr/local/bin/ratline-integration
 RUN chmod 0755 /usr/local/bin/ratline /usr/local/lib/ratline/ratline-shell \
-        /usr/local/bin/ratline-integration && \
-    chown root:root /usr/local/bin/ratline /usr/local/lib/ratline/ratline-shell
+        /usr/local/bin/ratline-panel /usr/local/bin/ratline-integration && \
+    chown root:root /usr/local/bin/ratline /usr/local/lib/ratline/ratline-shell \
+        /usr/local/bin/ratline-panel
 
 # A unit that runs the suite once systemd is up, then shuts the container down
 # with the suite's exit code. Running the tests from a shell before systemd is

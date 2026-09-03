@@ -1,5 +1,6 @@
 BINARY    := ratline
 SHELL_BIN := ratline-shell
+PANEL_BIN := ratline-panel
 MODULE    := github.com/ALIRAZA47/ratline-cli
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -31,6 +32,28 @@ help: ## Show the available targets
 build: ## Build both binaries for this host
 	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/$(BINARY) ./cmd/$(BINARY)
 	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/$(SHELL_BIN) ./cmd/$(SHELL_BIN)
+
+# The panel is a separate product, built separately, and nothing in the ratline
+# binary depends on it. A server that never wants a web interface never builds this.
+.PHONY: panel-web
+panel-web: ## Build the panel's interface into the Go package that embeds it
+	npm --prefix panel/web install
+	npm --prefix panel/web run build
+
+.PHONY: panel
+panel: panel-web ## Build ratline-panel for this host, interface included
+	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/$(PANEL_BIN) ./cmd/$(PANEL_BIN)
+
+# For iterating on Go without a Node toolchain in the loop. The binary carries
+# whatever `make panel-web` last produced — which is a placeholder page in a fresh
+# checkout, and the page says so rather than serving a blank screen.
+.PHONY: panel-go
+panel-go: ## Build ratline-panel without rebuilding the interface
+	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/$(PANEL_BIN) ./cmd/$(PANEL_BIN)
+
+.PHONY: panel-dev
+panel-dev: ## Run the interface's dev server against a panel on 127.0.0.1:8420
+	npm --prefix panel/web run dev
 
 .PHONY: test
 test: ## Run the unit tests
@@ -104,6 +127,37 @@ dist: ## Cross-compile release binaries for amd64 and arm64
 	done
 	cd $(DIST) && sha256sum * > SHA256SUMS
 
+# Built after `dist`, appending to the same SHA256SUMS, because the panel is
+# released alongside ratline and verified the same way. The interface is built
+# first: cross-compiling a binary around a stale bundle would ship an interface
+# nobody could tell was old.
+.PHONY: panel-dist
+panel-dist: panel-web ## Cross-compile ratline-panel and add it to dist/
+	@mkdir -p $(DIST)
+	@for arch in amd64 arm64; do \
+		echo "building linux/$$arch (panel)"; \
+		GOOS=linux GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' \
+			-o $(DIST)/$(PANEL_BIN)-linux-$$arch ./cmd/$(PANEL_BIN); \
+	done
+	cd $(DIST) && sha256sum $(PANEL_BIN)-linux-* >> SHA256SUMS
+
+.PHONY: panel-deb
+panel-deb: panel-dist ## Build the ratline-panel .deb packages with nfpm
+	@command -v nfpm >/dev/null || { \
+		echo "nfpm is not installed."; \
+		echo "  go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest"; \
+		exit 1; }
+	@for arch in amd64 arm64; do \
+		sed "s|\$${ARCH}|$$arch|g" packaging/nfpm-panel.yaml > $(DIST)/.nfpm-panel-$$arch.yaml; \
+		VERSION=$(VERSION) ARCH=$$arch nfpm package \
+			--config $(DIST)/.nfpm-panel-$$arch.yaml --packager deb --target $(DIST)/; \
+		rm -f $(DIST)/.nfpm-panel-$$arch.yaml; \
+	done
+
+# nfpm expands ${ARCH} in `arch:` and `version:` but not inside a contents glob, so
+# `src: dist/ratline-linux-${ARCH}` fails with "no matching files" — a packaging
+# target that had been silently unbuildable. The arch is substituted here instead,
+# which does not depend on nfpm's expansion rules at all.
 .PHONY: deb
 deb: dist ## Build .deb packages with nfpm
 	@command -v nfpm >/dev/null || { \
@@ -111,8 +165,10 @@ deb: dist ## Build .deb packages with nfpm
 		echo "  go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest"; \
 		exit 1; }
 	@for arch in amd64 arm64; do \
+		sed "s|\$${ARCH}|$$arch|g" packaging/nfpm.yaml > $(DIST)/.nfpm-$$arch.yaml; \
 		VERSION=$(VERSION) ARCH=$$arch nfpm package \
-			--config packaging/nfpm.yaml --packager deb --target $(DIST)/; \
+			--config $(DIST)/.nfpm-$$arch.yaml --packager deb --target $(DIST)/; \
+		rm -f $(DIST)/.nfpm-$$arch.yaml; \
 	done
 
 .PHONY: completions
@@ -136,6 +192,11 @@ install: build ## Install both binaries onto this host (needs root)
 	install -o root -g root -m 0755 bin/$(BINARY) /usr/local/bin/$(BINARY)
 	install -d -o root -g root -m 0755 /usr/local/lib/ratline
 	install -o root -g root -m 0755 bin/$(SHELL_BIN) /usr/local/lib/ratline/$(SHELL_BIN)
+
+.PHONY: install-panel
+install-panel: panel ## Install ratline-panel onto this host and set it up (needs root)
+	install -o root -g root -m 0755 bin/$(PANEL_BIN) /usr/local/bin/$(PANEL_BIN)
+	/usr/local/bin/$(PANEL_BIN) install
 
 .PHONY: clean
 clean: ## Remove build artefacts

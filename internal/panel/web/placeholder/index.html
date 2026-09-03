@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>ratline panel — the interface is not built into this binary</title>
+    <!-- Deliberately styled inline, and deliberately referencing nothing.
+         This page ships in the repository so that `go build ./...` works in a
+         checkout that has never run the Node build; a stylesheet or a script would
+         be one more file to embed, and one more thing to 404 when it is missing. -->
+    <style>
+      body { font: 16px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+             max-width: 46rem; margin: 12vh auto; padding: 0 1.5rem;
+             color: #1c1917; background: #fafaf9; }
+      code { background: #eeedec; padding: .15em .4em; border-radius: 3px; }
+      pre  { background: #eeedec; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+      @media (prefers-color-scheme: dark) {
+        body { color: #e7e5e4; background: #1c1917; }
+        code, pre { background: #292524; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>The panel interface was not built into this binary</h1>
+    <p>
+      The API is running — this page is a placeholder that ships in the repository so
+      that <code>go build ./...</code> works without Node installed. A release binary
+      carries the real interface.
+    </p>
+    <p>Build it:</p>
+    <pre>npm --prefix panel/web install
+npm --prefix panel/web run build
+make panel</pre>
+    <p>
+      Meanwhile the API answers normally, so
+      <code>curl -s localhost:8420/api/bootstrap</code> works, and
+      <code>ratline-panel doctor</code> reports this as a finding.
+    </p>
+  </body>
+</html>

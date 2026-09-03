@@ -83,6 +83,11 @@ export const topicGroups: { title: string; blurb: string; names: string[] }[] = 
     blurb: 'Deploys, the ceilings that hold, and what to do when something breaks.',
     names: ['deploys', 'limits', 'safety', 'diagnose'],
   },
+  {
+    title: 'The web interface',
+    blurb: 'A separate service that drives the same commands from a browser.',
+    names: ['panel'],
+  },
 ];
 
 /** Every topic that a group claims, so a new one added to the binary is not silently
