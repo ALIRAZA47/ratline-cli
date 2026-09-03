@@ -27,6 +27,27 @@ func TestPasswordRoundTrip(t *testing.T) {
 	}
 }
 
+// A hash written by an older golang.org/x/crypto must still verify, because the
+// alternative is a dependency bump locking every existing operator out of their own
+// panel. The vector below was produced by x/crypto v0.25.0 with a fixed salt, and it
+// is here rather than round-tripped on purpose: hashing and verifying with the same
+// build passes even if the encoding changed underneath, which is the failure this
+// test exists to catch. The stored version tag is the sharp edge — VerifyPassword
+// compares it against argon2.Version and rejects anything else outright.
+func TestVerifyPasswordAcceptsAHashFromAnOlderXCrypto(t *testing.T) {
+	const (
+		password = "correct horse battery staple"
+		hash     = "$argon2id$v=19$m=65536,t=3,p=4$MDEyMzQ1Njc4OWFiY2RlZg$77UfmnZYT23WpPeUKhovauWm5OxRQv9nTf1dJ+tF5EY"
+	)
+	ok, err := VerifyPassword(hash, password)
+	if err != nil {
+		t.Fatalf("a hash from an older x/crypto was rejected: %v", err)
+	}
+	if !ok {
+		t.Fatal("a hash from an older x/crypto did not verify, so upgrading locks existing accounts out")
+	}
+}
+
 // Two hashes of the same password must differ, or the salt is not doing anything and
 // a stolen database can be attacked once for every account at a time.
 func TestPasswordHashesAreSalted(t *testing.T) {
