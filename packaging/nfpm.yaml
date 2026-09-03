@@ -11,7 +11,8 @@ description: |
   Provision isolated users, sites and certificates on a single server.
   ratline creates a system account per tenant, an nginx vhost and a systemd
   service per site, and manages TLS certificates as a first-class resource.
-  Static, Node and Python runtimes; no containers, no daemon, no web UI.
+  Static, Node, Bun and Python runtimes; no containers and no daemon. A web
+  interface is available separately as the ratline-panel package.
 vendor: ratline
 homepage: https://github.com/ALIRAZA47/ratline-cli
 license: MIT

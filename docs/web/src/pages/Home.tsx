@@ -31,7 +31,8 @@ export function Home() {
           own logs, and SSH keys scoped to exactly what their holder should reach.
         </p>
         <p className="mt-4 max-w-[36rem] text-base leading-relaxed text-fg">
-          It is the provisioning core of Ploi, RunCloud or Dokku — minus the web UI, and minus
+          It is the provisioning core of Ploi, RunCloud or Dokku — with the web interface
+          split out into <Link to="/panel">a separate product</Link> — and minus
           containers.
         </p>
 

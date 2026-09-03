@@ -4,8 +4,9 @@ Provision isolated users and their web apps on one bare Ubuntu VPS.
 
 ratline is the provisioning core of a hosting panel — the part that creates a system
 account per tenant, an nginx vhost and a systemd service per site, and manages TLS as a
-resource with its own lifecycle. There is no web UI, no daemon and no containers. It is
-a single static binary you run over SSH.
+resource with its own lifecycle. No daemon and no containers. It is a single static
+binary you run over SSH — and, if you want one, a separate web interface that drives it
+rather than replacing it (see [topics/panel.md](topics/panel.md)).
 
 ```bash
 ratline user add acme --ssh-key ~/.ssh/id_ed25519.pub
@@ -219,8 +220,10 @@ See [reference/configuration.md](reference/configuration.md).
 
 ## Non-goals
 
-No web UI, no daemon, no API server — though the internal packages are structured so an
-HTTP layer could wrap them without a refactor. No containers. Databases are MongoDB
-only — `ratline db` provisions them and their users, and nothing else is supported yet.
-No DNS or mail management. No PHP yet, but the runtime package is an interface, so
-adding PHP-FPM is a new file rather than a refactor.
+No daemon and no API server in the `ratline` binary itself. The web interface is a
+separate product that shells out to it — deliberately, because a provisioning tool that
+is also a network service is a larger thing to trust than one that is not, and this way
+the choice is the operator's. No containers. Databases are MongoDB, MySQL/MariaDB and
+Redis/Valkey, chosen with `--engine`; Postgres is not supported. No DNS or mail
+management. No PHP yet, but the runtime package is an interface, so adding PHP-FPM is a
+new file rather than a refactor.
