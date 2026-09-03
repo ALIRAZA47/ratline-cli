@@ -594,7 +594,7 @@ Available Commands:
   access      Control which addresses can reach this host's MongoDB
 
 Flags:
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -h, --help            help for db
 
 Global Flags:
@@ -3014,7 +3014,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3064,7 +3064,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3102,7 +3102,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3134,7 +3134,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3162,7 +3162,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3203,7 +3203,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3238,7 +3238,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3262,7 +3262,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3292,7 +3292,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3323,7 +3323,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3360,7 +3360,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3397,7 +3397,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3427,7 +3427,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -3467,7 +3467,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4489,7 +4489,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4524,7 +4524,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4557,7 +4557,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4590,7 +4590,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4626,7 +4626,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4658,7 +4658,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4694,7 +4694,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
@@ -4722,7 +4722,7 @@ Flags:
 Global Flags:
       --config string   Configuration file (default /etc/ratline/config.yaml)
       --dry-run         Print every mutation without making it
-      --engine string   Database engine: mongo or mysql (default "mongo")
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
   -i, --interactive     Ask which options to set before running (arguments are still required)
       --json            Machine-readable output on stdout; logs on stderr
       --no-input        Never prompt; fail instead (implied when stdout is not a terminal)

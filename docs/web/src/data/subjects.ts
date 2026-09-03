@@ -96,6 +96,17 @@ export const subjects: Subject[] = [
     settings: ['databases'],
   },
   {
+    id: 'panel',
+    title: 'The web panel',
+    blurb:
+      'A separate service that drives these same commands from a browser: two roles, forms generated from the binary’s own schema, and a dry run beside every mutation.',
+    commands: [],
+    concepts: ['/panel', '/panel/security'],
+    topics: ['panel'],
+    guides: ['/panel/install', '/panel/domain', '/panel/team', '/panel/commands', '/panel/api'],
+    settings: [],
+  },
+  {
     id: 'operations',
     title: 'Running a server',
     blurb:

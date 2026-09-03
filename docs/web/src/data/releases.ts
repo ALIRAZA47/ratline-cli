@@ -39,6 +39,70 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.15.0',
+    date: '2026-08-28',
+    summary:
+      'A web panel: a separate binary and a separate service that drives this CLI from a browser, and reimplements none of it.',
+    upgrade: 'curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh',
+    assertions: 675,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'ratline-panel',
+        body:
+          'A web interface for everything ratline does, installed separately and running as its own systemd service. It reimplements nothing: every action runs `ratline <verb> --json` and reads the envelope, so a deploy started in a browser is staged, verified, committed and rolled back by exactly the code that would have run over SSH — the same global lock, the same audit record, the same exit codes. It has its own SQLite database holding only what ratline cannot know (which human asked) and never writes to `state.db`. A server that does not want a web interface simply does not install it, and the ratline binary is unchanged by its existence.',
+        code: `curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh
+ratline-panel domain set panel.example.com --email you@example.com`,
+      },
+      {
+        kind: 'feature',
+        title: 'The forms are generated from the binary, not written down',
+        body:
+          'The panel parses `ratline schema` at runtime, so a form offers exactly the flags the installed ratline takes, with the types and required-ness it declares — and an upgrade that adds a flag adds a field without anybody editing the panel. It reads the runtime-specific markers out of the help text ratline already writes ("node, bun: the file that starts the server"), so provisioning a static site does not present the thirty flags belonging to the other three runtimes. What *is* written down is the policy: who may run what, what needs a name typed back, what runs as a job. Its default is fail-safe — an unclassified mutation is super-admin only — so a ratline release that adds a command appears locked down rather than wide open.',
+      },
+      {
+        kind: 'feature',
+        title: 'Two roles, and a dry run beside every mutation',
+        body:
+          'A super admin invites people and runs the operations that cannot be undone; an admin runs the server day to day. The split is enforced per request, and an admin’s browser is never sent the super-admin actions at all — asking for one returns the same "no such action" as a command that does not exist. Every mutating action has a dry run next to the real one, which is free because `--dry-run` is implemented at ratline’s Runner: nothing is written at any layer, and the plan you read is produced by the code that would have done the work. Long actions — deploys, issuances, runtime builds — become jobs with stored transcripts streamed to the browser, so closing the tab does not stop them.',
+      },
+      {
+        kind: 'security',
+        title: 'Installation creates the first super admin',
+        body:
+          'There is no window in which the panel is answering and unclaimed, and no default password. `ratline-panel install --admin-email you@example.com` creates the account and prints a generated twenty-character password once — from an alphabet with no 0/O or 1/l/I in it, because it exists to be read off one screen and typed into another. A provisioning script supplies its own on stdin instead. `--no-admin` puts you back in the claimable state deliberately, and `doctor` reports that as a problem until somebody signs up.',
+        code: `ratline-panel install --admin-email you@example.com
+
+printf '%s' "$PANEL_PASSWORD" | ratline-panel install \\
+    --admin-email ops@example.com --admin-password-stdin`,
+      },
+      {
+        kind: 'security',
+        title: 'Secrets never reach argv, and there is no shell to inject into',
+        body:
+          'A value in argv is a value in `/proc/PID/cmdline`, which every account on the server can read while the command runs. So a password, a connection string or an environment value is sent as its own field and written to ratline’s standard input; the argv recorded in the activity log carries `--stdin` and nothing else. `site env set` is the case that matters — its stdin is `NAME=value` lines, so the panel asks for the name separately, validates both halves and composes the line itself, because typing it as a positional assignment works perfectly and puts the value in the process table. Every invocation is an argv slice built element by element: flags are emitted as one `--name=value` element, positionals come after a bare `--`, and a request can never set a global flag. All three have tests, and the integration suite checks that the secret it sets through the panel appears in the site’s `.env` and in neither the activity log nor the journal.',
+      },
+      {
+        kind: 'fix',
+        title: '`--dry-run` no longer writes to the state database',
+        body:
+          'Found by driving the panel’s new dry-run button against a real server. `ratline site enable --dry-run` and `site disable --dry-run` wrote the enabled flag, and `site delete --dry-run` deleted the site’s SSH keys — while all three correctly left nginx alone. So a rehearsed disable left ratline believing a site was offline that nginx was still serving, and a rehearsed deletion revoked access to a site that still existed, both while reporting that nothing had happened. The Runner’s dry-run only skips external commands; a write to the state database sits below it and has to be guarded by hand, which these three were not. If you previewed a disable or a deletion on an earlier version, `ratline reconcile` will find the drift and `ratline key list` will show whether a key went.',
+        code: `ratline reconcile          # find the drift
+ratline key list --scope site`,
+      },
+      {
+        title: 'Proven on a server that is already in use',
+        body:
+          'The integration suite installs the panel onto the Ubuntu host it has spent the run provisioning — with tenants, sites, units, certificates and a database on it — then signs in with the generated password, reads back the sites ratline created, disables and re-enables one and checks nginx rather than believing the panel, rehearses a deletion and checks that the site’s SSH keys survived it, runs a job, restarts the service, and uninstalls. Every site and tenant is compared before and after. That is the claim worth testing: the interesting install is not the one onto a bare machine — and it is how the dry-run bug above was found.',
+      },
+    ],
+    known: [
+      'The panel runs as root, because its job is to invoke a tool that creates system accounts and writes into /etc. Signing in is equivalent to root on the machine, and no arrangement of privileges changes that — put it behind nginx, turn on security.require_totp, and give people the admin role.',
+      'There is no API token: authentication is a session cookie and a CSRF header. Anything you would script against the HTTP API can be run as `ratline … --json` over SSH with a scoped key, which is one fewer credential.',
+      'The panel does not send email. Invitations are links shown once, and you choose how to deliver them.',
+    ],
+  },
+  {
     version: 'v0.14.1',
     date: '2026-08-19',
     summary:

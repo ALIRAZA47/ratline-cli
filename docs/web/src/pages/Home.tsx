@@ -31,7 +31,8 @@ export function Home() {
           own logs, and SSH keys scoped to exactly what their holder should reach.
         </p>
         <p className="mt-4 max-w-[36rem] text-base leading-relaxed text-fg">
-          It is the provisioning core of Ploi, RunCloud or Dokku — minus the web UI, and minus
+          It is the provisioning core of Ploi, RunCloud or Dokku — with the web interface
+          split out into <Link to="/panel">a separate product</Link> — and minus
           containers.
         </p>
 
@@ -108,8 +109,11 @@ export function Home() {
             <Link to="/concepts/security">security model</Link> for exactly where it stops.
           </li>
           <li>
-            <strong>No web UI.</strong> It is a CLI with a <code>--json</code> envelope, designed to
-            sit under one.
+            <strong>No web UI in this binary.</strong> It is a CLI with a{' '}
+            <code>--json</code> envelope, designed to sit under one — and{' '}
+            <Link to="/panel">ratline-panel</Link> is that one, installed separately so a
+            server that does not want a web service does not get one. It reimplements
+            nothing: every action it offers runs this binary and reads the envelope.
           </li>
           <li>
             <strong>No multi-server orchestration.</strong> One box. <code>ratline export</code>{' '}
@@ -121,10 +125,11 @@ export function Home() {
             than a convention.
           </li>
           <li>
-            <strong>Databases are MongoDB only.</strong>{' '}
-            <code>ratline db</code> provisions databases and least-privilege users, behind{' '}
-            <code>features.db_provisioning</code> because it needs an admin connection
-            string. Nothing else — Postgres, MySQL, Redis — is supported.
+            <strong>Three database engines, not every database.</strong>{' '}
+            <code>ratline db</code> provisions databases and least-privilege users on
+            MongoDB, MySQL/MariaDB and Redis/Valkey — pick one with{' '}
+            <code>--engine</code> — behind <code>features.db_provisioning</code>, because
+            it needs an admin connection string. Postgres is not supported.
           </li>
         </ul>
       </div>
@@ -202,6 +207,9 @@ esac`}
         </CardLink>
         <CardLink to="/guides/debug-502" title="Debugging a 502">
           Six causes, in the order that finds them fastest.
+        </CardLink>
+        <CardLink to="/panel" title="The web panel">
+          Everything above, from a browser. A separate binary that drives this one.
         </CardLink>
         <CardLink to="/reference/config" title="Configuration reference">
           Every setting, its default, and the reason the default is what it is.

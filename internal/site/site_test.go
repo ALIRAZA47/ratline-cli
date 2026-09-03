@@ -346,3 +346,121 @@ func TestDryRunLifecycleOperationsWriteNothing(t *testing.T) {
 		t.Errorf("workers = %d after a real write, want 8", back.Workers)
 	}
 }
+
+// The third round of the same bug, found by driving the panel's "Dry run" button
+// against a real server.
+//
+// `site enable/disable --dry-run` wrote the enabled flag, and `site delete --dry-run`
+// deleted the site's SSH keys — while both correctly left nginx alone. So a rehearsal
+// left ratline believing a site was disabled that nginx was still serving, and a
+// rehearsed deletion revoked access to a site that still existed.
+func TestDryRunEnableAndDisableDoNotWriteTheFlag(t *testing.T) {
+	st, mgr, site := lifecycleFixture(t)
+	ctx := context.Background()
+
+	mgr.DryRun = true
+	// Exercised through setEnabled rather than Disable, for the same reason the test
+	// above uses putSite: the surrounding command reaches nginx and systemd, which a
+	// developer machine does not have, and a test that cannot run proves nothing.
+	if err := mgr.setEnabled(ctx, site, false); err != nil {
+		t.Fatal(err)
+	}
+	back, err := st.GetSite(ctx, site.Domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !back.Enabled {
+		t.Error("a dry-run disable marked the site disabled in state, while nginx kept serving it")
+	}
+
+	if err := st.SetSiteEnabled(ctx, site.Domain, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.setEnabled(ctx, site, true); err != nil {
+		t.Fatal(err)
+	}
+	if back, err = st.GetSite(ctx, site.Domain); err != nil {
+		t.Fatal(err)
+	}
+	if back.Enabled {
+		t.Error("a dry-run enable marked the site enabled in state")
+	}
+
+	// And the real path still writes, or the guard has broken the command.
+	mgr.DryRun = false
+	if err := mgr.setEnabled(ctx, site, true); err != nil {
+		t.Fatal(err)
+	}
+	if back, err = st.GetSite(ctx, site.Domain); err != nil {
+		t.Fatal(err)
+	}
+	if !back.Enabled {
+		t.Error("a real enable did not write the flag")
+	}
+}
+
+func TestDryRunDeleteDoesNotRevokeSiteKeys(t *testing.T) {
+	st, mgr, site := lifecycleFixture(t)
+	ctx := context.Background()
+
+	key := &state.Key{
+		ID: "k1", Label: "ci", Fingerprint: "SHA256:probe", Algorithm: "ssh-ed25519",
+		Blob: "AAAA", Scope: state.ScopeSite, Site: site.Domain, Source: "manual",
+	}
+	if err := st.PutKey(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr.DryRun = true
+	if err := mgr.removeSiteKeys(ctx, site); err != nil {
+		t.Fatalf("removeSiteKeys under --dry-run = %v", err)
+	}
+	keys, err := st.ListKeys(ctx, state.KeyFilter{Scope: state.ScopeSite, Site: site.Domain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("%d site-scoped keys after a rehearsed deletion, want 1 — the preview "+
+			"revoked access to a site it did not delete", len(keys))
+	}
+
+	// The negative case: a real delete does revoke them, or the test above would
+	// pass for a function that had stopped working entirely.
+	mgr.DryRun = false
+	if err := mgr.removeSiteKeys(ctx, site); err != nil {
+		t.Fatal(err)
+	}
+	if keys, err = st.ListKeys(ctx, state.KeyFilter{Scope: state.ScopeSite, Site: site.Domain}); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Errorf("%d site-scoped keys survived a real deletion", len(keys))
+	}
+}
+
+// lifecycleFixture is a store with one tenant and one enabled static site, plus a
+// manager pointed at it.
+func lifecycleFixture(t *testing.T) (*state.Store, *Manager, *state.Site) {
+	t.Helper()
+	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	if err := st.PutUser(ctx, &state.User{Name: "alice", Home: "/home/alice", Shell: "/bin/sh"}); err != nil {
+		t.Fatal(err)
+	}
+	site := &state.Site{
+		Domain: "app.example.com", Owner: "alice", Runtime: "static",
+		Slug: "alice-app_example_com", Enabled: true, DocRoot: "public",
+		IndexFile: "index.html", Instances: 1,
+	}
+	if err := st.PutSite(ctx, site); err != nil {
+		t.Fatal(err)
+	}
+	mgr := testManager()
+	mgr.State = st
+	return st, mgr, site
+}

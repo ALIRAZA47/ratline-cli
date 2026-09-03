@@ -2493,6 +2493,371 @@ exits_with 2 "an export with nothing in it is refused" "$RATLINE" import /tmp/em
 check "cleaning up the migration test" "$RATLINE" site delete moved.test --purge --yes
 check "and its tenant" "$RATLINE" user delete importuser --purge --yes
 
+# ---------------------------------------------------------------- the web panel
+
+# Everything above has been provisioning this server: there are tenants, sites, units,
+# certificates and a database on it now. That is the point of putting this section
+# here rather than at the top — the interesting install is not the one onto a bare
+# machine, it is the one onto a server somebody is already running things on.
+info "the web panel, installed onto a server that is already in use"
+
+PANEL=/usr/local/bin/ratline-panel
+PANEL_URL=http://127.0.0.1:8420
+JAR=/tmp/panel-cookies.txt
+ADMIN_EMAIL=panel-admin@example.test
+
+# What ratline holds before the panel is installed. If any of this changes, the panel
+# has done something it must never do: it is a caller, not a co-owner.
+# Only the fields that must not change. A deploy run through the panel legitimately
+# moves last_deploy_at, and failing the suite for that would be a false alarm about
+# the very thing the panel is supposed to be able to do.
+site_shape() { "$RATLINE" site list --json 2>/dev/null | jq -Sc '[.data.sites[] | {domain,user,runtime,enabled}]' 2>/dev/null; }
+user_shape() { "$RATLINE" user list --json 2>/dev/null | jq -Sc '[.data.users[] | {name,home,shell,disabled}]' 2>/dev/null; }
+sites_before=$(site_shape)
+users_before=$(user_shape)
+statedb_before=$(sha256sum /var/lib/ratline/state.db 2>/dev/null | cut -d' ' -f1)
+config_before=$(sha256sum /etc/ratline/config.yaml 2>/dev/null | cut -d' ' -f1)
+
+check "the panel binary runs" "$PANEL" version
+
+# The install. No terminal, so this is the provisioning-script path: the address is a
+# flag and the password is generated and printed once.
+install_out=$("$PANEL" install --admin-email "$ADMIN_EMAIL" --admin-name "Integration" 2>&1)
+if [ $? -eq 0 ]; then ok "ratline-panel install"; else bad "ratline-panel install" "$(printf '%s' "$install_out" | tail -5)"; fi
+
+ADMIN_PASSWORD=$(printf '%s\n' "$install_out" | awk '/^  Password/ {print $2}')
+if [ -n "$ADMIN_PASSWORD" ]; then
+    ok "it printed a generated password"
+else
+    bad "it printed a generated password" "$(printf '%s' "$install_out" | tail -8)"
+fi
+contains "and named the account to sign in as" "$ADMIN_EMAIL" "$install_out"
+
+# systemd's Type=exec returns once the process has been exec'd, not once it is
+# listening. Every probe below would otherwise race the first accept().
+panel_up=no
+for _ in $(seq 1 30); do
+    if curl -fsS "$PANEL_URL/api/bootstrap" >/dev/null 2>&1; then panel_up=yes; break; fi
+    sleep 1
+done
+[ "$panel_up" = yes ] && ok "it came up and started answering" \
+    || bad "it came up and started answering" "$(journalctl -u ratline-panel.service --no-pager -n 15 2>&1 | tail -8)"
+
+check "the account exists"    bash -c "$PANEL account list | grep -q '$ADMIN_EMAIL'"
+check "and it is a super admin" bash -c "$PANEL account list | grep '$ADMIN_EMAIL' | grep -q superadmin"
+
+# The whole reason the installer creates it: there must be no moment in which the
+# panel is answering and unclaimed.
+setup_probe=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PANEL_URL/api/auth/setup" \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"squatter@example.test","password":"a perfectly good passphrase"}' 2>/dev/null)
+[ "$setup_probe" = "409" ] && ok "the claim page is already closed (409)" \
+    || bad "the claim page is already closed" "got $setup_probe, want 409"
+
+check "the service is enabled" systemctl is-enabled --quiet ratline-panel.service
+check "the service is running" systemctl is-active --quiet ratline-panel.service
+
+# It listens on the loopback and nowhere else. A panel bound to 0.0.0.0 by accident is
+# a root-equivalent surface on the internet.
+listen=$(ss -ltnp 2>/dev/null | grep ':8420' || true)
+case "$listen" in
+    *127.0.0.1:8420*) ok "it is listening on the loopback only" ;;
+    *) bad "it is listening on the loopback only" "$listen" ;;
+esac
+
+# ratline's own state is untouched.
+[ "$(sha256sum /var/lib/ratline/state.db | cut -d' ' -f1)" = "$statedb_before" ] \
+    && ok "ratline's state database was not written to" \
+    || bad "ratline's state database was not written to" "the panel must never write to it"
+[ "$(sha256sum /etc/ratline/config.yaml | cut -d' ' -f1)" = "$config_before" ] \
+    && ok "ratline's configuration was not touched" \
+    || bad "ratline's configuration was not touched"
+
+check "the panel's database is 0600" bash -c '[ "$(stat -c %a /var/lib/ratline/panel.db)" = "600" ]'
+
+info "the panel answers, and signs the installer's account in"
+
+check "the API answers"       bash -c "curl -fsS $PANEL_URL/api/bootstrap >/dev/null"
+contains "and reports that it is already set up" '"needs_setup":false' \
+    "$(curl -fsS $PANEL_URL/api/bootstrap)"
+
+# The interface itself, not the placeholder: the image builds the bundle, so this
+# proves the binary is carrying it.
+index=$(curl -fsS "$PANEL_URL/" || true)
+contains "the interface is served" '<div id="root">' "$index"
+contains "and it is the built bundle, not the placeholder" '/assets/' "$index"
+
+# A deep link has to reach the application, or a refresh on a site page is a 404.
+deep=$(curl -s -o /dev/null -w '%{http_code}' "$PANEL_URL/sites/api.test")
+[ "$deep" = "200" ] && ok "a deep link reaches the application" \
+    || bad "a deep link reaches the application" "got $deep for /sites/api.test"
+
+rm -f "$JAR"
+login=$(curl -fsS -c "$JAR" -X POST "$PANEL_URL/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')" || true)
+CSRF=$(printf '%s' "$login" | jq -r '.data.csrf // empty')
+if [ -n "$CSRF" ]; then ok "the generated password signs in"; else bad "the generated password signs in" "$login"; fi
+
+# A wrong password must not, or the check above proves nothing.
+wrong=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PANEL_URL/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg e "$ADMIN_EMAIL" '{email:$e,password:"not the password"}')")
+[ "$wrong" = "401" ] && ok "a wrong password does not" || bad "a wrong password does not" "got $wrong"
+
+# api() runs an authenticated request: api <method> <path> [body]
+api() {
+    local method="$1" path="$2" body="${3:-}"
+    if [ -n "$body" ]; then
+        curl -sS -b "$JAR" -X "$method" "$PANEL_URL$path" \
+            -H 'Content-Type: application/json' -H "X-Ratline-CSRF: $CSRF" -d "$body"
+    else
+        curl -sS -b "$JAR" -X "$method" "$PANEL_URL$path" -H "X-Ratline-CSRF: $CSRF"
+    fi
+}
+
+info "the panel sees what ratline already manages"
+
+# The sites this suite created earlier, read back through the panel. This is the
+# claim that matters for an install onto a server already in use.
+panel_sites=$(api GET /api/sites | jq -r '(.data.sites // [])[].domain' 2>/dev/null | sort | tr '\n' ' ')
+contains "it lists the site provisioned earlier" "api.test" "$panel_sites"
+contains "and the static one"                    "static.test" "$panel_sites"
+panel_users=$(api GET /api/tenants | jq -r '(.data.users // [])[].name' 2>/dev/null | sort | tr '\n' ' ')
+contains "it lists the tenant that owns them" "alice" "$panel_users"
+
+# And what it says matches what the CLI says, because it asked the CLI.
+#
+# The emptiness guard is not pedantry: with no sites both sides are the empty string
+# and this passes while proving nothing, which is exactly how it read the first time
+# it ran against a server whose provisioning had failed.
+cli_domains=$("$RATLINE" site list --json | jq -r '(.data.sites // [])[].domain' | sort | tr '\n' ' ')
+if [ -z "$cli_domains" ]; then
+    bad "and its answer is the CLI's, exactly" "there are no sites, so this proves nothing"
+elif [ "$panel_sites" = "$cli_domains" ]; then
+    ok "and its answer is the CLI's, exactly"
+else
+    bad "and its answer is the CLI's, exactly" "panel: $panel_sites / cli: $cli_domains"
+fi
+
+overview=$(api GET /api/overview)
+contains "the dashboard reads ratline's status" '"sites"' "$overview"
+contains "the catalogue is built from the installed binary" '"verb":"site deploy"' \
+    "$(api GET /api/actions)"
+
+info "a change made through the panel really happens"
+
+# Disable a site through the panel, then ask the system — not the panel — whether it
+# happened. A panel that reports success without changing anything is the failure
+# mode worth testing for.
+check "the site is enabled to begin with" test -L /etc/nginx/sites-enabled/static.test.conf
+disable=$(api POST /api/actions/site.disable/run '{"args":["static.test"]}')
+contains "site disable through the panel reports success" '"ok":true' "$disable"
+refute "and nginx really stopped serving it" test -L /etc/nginx/sites-enabled/static.test.conf
+contains "and the CLI agrees"  '"enabled": false' \
+    "$("$RATLINE" site show static.test --json)"
+
+enable=$(api POST /api/actions/site.enable/run '{"args":["static.test"]}')
+contains "site enable through the panel reports success" '"ok":true' "$enable"
+check "and the symlink is back" test -L /etc/nginx/sites-enabled/static.test.conf
+check "nginx is still valid afterwards" nginx -t
+
+# A dry run must change nothing at all — and "at all" includes ratline's own state
+# database, not just what nginx is serving. Checking only the symlink is how a
+# `site disable --dry-run` that wrote the enabled flag went unnoticed: nginx kept
+# serving the site while ratline believed it was disabled.
+dry=$(api POST /api/actions/site.disable/preview '{"args":["static.test"]}')
+contains "a dry run reports the plan" '"dry_run":true' "$dry"
+contains "and passes --dry-run to ratline" '"--dry-run"' "$dry"
+check "and the site is still enabled afterwards" test -L /etc/nginx/sites-enabled/static.test.conf
+contains "and ratline still records it as enabled" '"enabled": true' \
+    "$("$RATLINE" site show static.test --json)"
+
+# The same for a deletion, which is the preview with the most to lose: it used to
+# revoke the site's SSH keys for real while leaving the site in place.
+"$RATLINE" key add --scope site --site static.test --label dry-run-probe \
+    --key "$(ssh-keygen -q -t ed25519 -N '' -f /tmp/dryrun-probe -C probe@test >/dev/null 2>&1; cat /tmp/dryrun-probe.pub)" \
+    >/dev/null 2>&1
+keys_before=$("$RATLINE" key list --json | jq '[(.data.keys // [])[] | select(.label=="dry-run-probe")] | length')
+drydel=$(api POST /api/actions/site.delete/preview '{"args":["static.test"]}')
+contains "a rehearsed deletion reports a plan" '"dry_run":true' "$drydel"
+keys_after=$("$RATLINE" key list --json | jq '[(.data.keys // [])[] | select(.label=="dry-run-probe")] | length')
+if [ "$keys_before" = "1" ] && [ "$keys_after" = "1" ]; then
+    ok "and it did not revoke the site's SSH keys"
+else
+    bad "and it did not revoke the site's SSH keys" "before: $keys_before, after: $keys_after"
+fi
+check "and the site is still there afterwards" "$RATLINE" site show static.test
+check "removing the probe key" "$RATLINE" key remove dry-run-probe --yes --force
+
+info "the panel's own rules hold on a real server"
+
+# A destructive action without the name typed back.
+refused=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -X POST \
+    "$PANEL_URL/api/actions/site.delete/run" -H 'Content-Type: application/json' \
+    -H "X-Ratline-CSRF: $CSRF" -d '{"args":["static.test"]}')
+[ "$refused" = "400" ] && ok "a deletion without a typed confirmation is refused (400)" \
+    || bad "a deletion without a typed confirmation is refused" "got $refused"
+check "and the site is still there" test -f /etc/nginx/sites-available/static.test.conf
+
+# Without the CSRF token.
+nocsrf=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -X POST \
+    "$PANEL_URL/api/actions/site.restart/run" -H 'Content-Type: application/json' \
+    -d '{"args":["api.test"]}')
+[ "$nocsrf" = "403" ] && ok "a request without the session's token is refused (403)" \
+    || bad "a request without the session's token is refused" "got $nocsrf"
+
+# Without a session at all.
+noauth=$(curl -s -o /dev/null -w '%{http_code}' "$PANEL_URL/api/sites")
+[ "$noauth" = "401" ] && ok "an unauthenticated read is refused (401)" \
+    || bad "an unauthenticated read is refused" "got $noauth"
+
+# The role gate, against a real second account.
+"$PANEL" account create panel-ops@example.test --role admin >/dev/null 2>&1 <<'PW'
+an ordinary admin passphrase
+PW
+check "a second account, as an admin" bash -c "$PANEL account list | grep panel-ops@example.test | grep -q admin"
+rm -f /tmp/panel-admin-jar.txt
+oplogin=$(curl -fsS -c /tmp/panel-admin-jar.txt -X POST "$PANEL_URL/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"panel-ops@example.test","password":"an ordinary admin passphrase"}' || true)
+OPCSRF=$(printf '%s' "$oplogin" | jq -r '.data.csrf // empty')
+if [ -n "$OPCSRF" ]; then ok "the admin can sign in"; else bad "the admin can sign in" "$oplogin"; fi
+
+opsees=$(curl -sS -b /tmp/panel-admin-jar.txt "$PANEL_URL/api/actions" | jq -r '[.data[] | select(.min_role=="superadmin")] | length')
+[ "$opsees" = "0" ] && ok "an admin's browser is never sent a super-admin action" \
+    || bad "an admin's browser is never sent a super-admin action" "it received $opsees of them"
+
+opdelete=$(curl -s -o /dev/null -w '%{http_code}' -b /tmp/panel-admin-jar.txt -X POST \
+    "$PANEL_URL/api/actions/user.delete/run" -H 'Content-Type: application/json' \
+    -H "X-Ratline-CSRF: $OPCSRF" -d '{"args":["alice"],"confirm":"alice"}')
+[ "$opdelete" = "404" ] && ok "and asking for one directly gets 'no such action' (404)" \
+    || bad "and asking for one directly gets 'no such action'" "got $opdelete"
+check "so the tenant is still there" id alice
+
+opteam=$(curl -s -o /dev/null -w '%{http_code}' -b /tmp/panel-admin-jar.txt "$PANEL_URL/api/team")
+[ "$opteam" = "403" ] && ok "an admin cannot manage the team (403)" \
+    || bad "an admin cannot manage the team" "got $opteam"
+
+info "a secret set through the panel stays out of the process list"
+
+secret='postgres://app:hunter2@db.internal/app'
+setenv=$(api POST /api/actions/site.env.set/run \
+    "$(jq -nc --arg s "$secret" '{args:["api.test"],secret:$s,secret_key:"PANEL_SET_URL"}')")
+contains "site env set through the panel succeeds" '"ok":true' "$setenv"
+
+# The value reached the .env…
+check "the value reached the site's .env" bash -c "grep -q 'PANEL_SET_URL=$secret' /home/alice/api.test/.env"
+# …and the argv the panel recorded does not contain it.
+argv=$(printf '%s' "$setenv" | jq -r '.data.argv | join(" ")')
+case "$argv" in
+    *hunter2*) bad "and the argv it recorded does not carry it" "$argv" ;;
+    *--stdin*) ok "and the argv it recorded does not carry it" ;;
+    *) bad "and the argv it recorded does not carry it" "no --stdin either: $argv" ;;
+esac
+# Nor does the activity log, which is what somebody would read later.
+activity=$(api GET /api/activity)
+case "$activity" in
+    *hunter2*) bad "nor does the activity log" ;;
+    *) ok "nor does the activity log" ;;
+esac
+# Nor the journal, which is kept for weeks and readable by systemd-journal.
+if journalctl -u ratline-panel.service --no-pager 2>/dev/null | grep -q hunter2; then
+    bad "nor the panel's journal"
+else
+    ok "nor the panel's journal"
+fi
+
+info "a long action becomes a job with a transcript"
+
+deploy=$(api POST /api/actions/site.deploy/run '{"args":["static.test"]}')
+JOB=$(printf '%s' "$deploy" | jq -r '.data.job_id // empty')
+if [ -n "$JOB" ]; then ok "a deploy is queued as a job"; else bad "a deploy is queued as a job" "$deploy"; fi
+
+# Wait for it, rather than assuming. The worker runs it out of band.
+job_state=""
+for _ in $(seq 1 60); do
+    job_state=$(api GET "/api/jobs/$JOB" | jq -r '.data.state')
+    case "$job_state" in done|failed) break ;; esac
+    sleep 1
+done
+case "$job_state" in
+    done)   ok "and it finished" ;;
+    failed) ok "and it finished (failed, which is still a finished job)" ;;
+    *)      bad "and it finished" "it is still $job_state after 60s" ;;
+esac
+job=$(api GET "/api/jobs/$JOB")
+contains "the job records what it ran"   'site deploy' "$(printf '%s' "$job" | jq -r '.data.argv')"
+contains "and who asked for it"          "$ADMIN_EMAIL" "$(printf '%s' "$job" | jq -r '.data.actor')"
+# Either a transcript or a stated reason. A finished job that says nothing at all is
+# the one outcome that leaves somebody with nowhere to look.
+transcript=$(printf '%s' "$job" | jq -r '.data.output // ""')
+joberr=$(printf '%s' "$job" | jq -r '.data.error // ""')
+if [ -n "$transcript" ] || [ -n "$joberr" ]; then
+    ok "and kept a record of what happened"
+else
+    bad "and kept a record of what happened" "both its transcript and its error are empty"
+fi
+
+info "the panel reports on itself"
+
+check "ratline-panel doctor is clean" "$PANEL" doctor
+doctor_json=$("$PANEL" doctor --json 2>/dev/null || true)
+contains "and says it is driving ratline" '"name": "ratline"' "$doctor_json"
+contains "and that the interface is in the binary" '"name": "interface"' "$doctor_json"
+if printf '%s' "$doctor_json" | jq -e '.data.checks[] | select(.name=="interface") | .ok' >/dev/null 2>&1; then
+    ok "and that it is the built one"
+else
+    bad "and that it is the built one" "the binary is carrying the placeholder page"
+fi
+
+# Every ratline command the installed binary has must be classified, or the panel is
+# older than the ratline it is driving and some commands are super-admin by default.
+if printf '%s' "$doctor_json" | jq -e '.data.checks[] | select(.name=="policy") | .ok' >/dev/null 2>&1; then
+    ok "every ratline command has a panel policy"
+else
+    bad "every ratline command has a panel policy" \
+        "$(printf '%s' "$doctor_json" | jq -r '.data.checks[] | select(.name=="policy") | .detail')"
+fi
+
+info "the panel comes back the way it went down"
+
+check "restarting it"  systemctl restart ratline-panel.service
+for _ in $(seq 1 20); do curl -fsS "$PANEL_URL/api/bootstrap" >/dev/null 2>&1 && break; sleep 1; done
+check "and it answers again" bash -c "curl -fsS $PANEL_URL/api/bootstrap >/dev/null"
+# The session is in the database, not in memory, so it survives.
+still=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$PANEL_URL/api/me")
+[ "$still" = "200" ] && ok "and the session survived the restart" \
+    || bad "and the session survived the restart" "got $still"
+
+info "uninstalling the panel leaves ratline alone"
+
+check "ratline-panel uninstall" "$PANEL" uninstall
+refute "the unit is gone"       test -f /etc/systemd/system/ratline-panel.service
+refute "and nothing is listening on 8420" bash -c "ss -ltn 2>/dev/null | grep -q ':8420'"
+refute "and it is not in systemctl --failed" bash -c "systemctl --failed --no-legend | grep -q ratline-panel"
+check "the accounts database is kept"  test -f /var/lib/ratline/panel.db
+
+# The claim this whole section exists to make: a server that had the panel installed
+# and removed is exactly the server it was before.
+sites_after=$(site_shape)
+users_after=$(user_shape)
+[ "$sites_before" = "$sites_after" ] && ok "every site is exactly as it was" \
+    || bad "every site is exactly as it was" "the panel changed something it does not own"
+[ "$users_before" = "$users_after" ] && ok "every tenant is exactly as it was" \
+    || bad "every tenant is exactly as it was"
+check "nginx is still valid" nginx -t
+check "and ratline still works" "$RATLINE" site list
+
+# The environment variable set through the panel is left behind on purpose: it is a
+# change the operator asked for, and uninstalling the panel must not undo the work
+# done with it.
+check "the variable set through the panel is still there" \
+    bash -c "grep -q PANEL_SET_URL /home/alice/api.test/.env"
+check "removing it again" "$RATLINE" site env unset api.test PANEL_SET_URL --yes
+
+rm -f "$JAR" /tmp/panel-admin-jar.txt
+
 # ---------------------------------------------------------------- teardown
 
 info "delete leaves no residue"
@@ -2549,12 +2914,13 @@ printf '\n\033[1m%s\033[0m\n' "$PASS passed, $FAIL failed"
 # The count only ever goes up as tests are added, so a floor catches the disappearance
 # without needing to know which section went. Raise it when you add a section.
 # Raised for the `db install` sections (mongo, mysql, redis), which need only apt and so
-# always run. The `db access` blocks and the bun site are deliberately not counted in:
+# always run, and again for the web panel section, which needs nothing the image does not
+# already have. The `db access` blocks and the bun site are deliberately not counted in:
 # access gates on `ufw --force enable`, which can legitimately fail where netfilter is not
 # loadable, and bun gates on a runtime download — a floor that assumed either ran would
 # fail the suite for an environment limitation rather than a regression, the very thing
 # this floor must not do.
-EXPECTED_MINIMUM=560
+EXPECTED_MINIMUM=620
 if [ "$((PASS + FAIL))" -lt "$EXPECTED_MINIMUM" ]; then
     red "only $((PASS + FAIL)) checks ran, expected at least $EXPECTED_MINIMUM"
     printf '        A section skipped itself. Look for "skip" above — something the\n'
