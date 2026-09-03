@@ -197,17 +197,11 @@ fi
 
 "$PANEL" "$@"
 
-say ""
-if [ -n "$PANEL_DOMAIN" ]; then
-    say "    open https://$PANEL_DOMAIN"
-else
-    say "The panel is on the loopback. From your own machine:"
-    say ""
-    say "    ssh -L 8420:127.0.0.1:8420 $(hostname -f 2>/dev/null || hostname)"
-    say "    open http://localhost:8420"
-    say ""
-    say "Then, once DNS points here:"
-    say "    ratline-panel domain set panel.example.com --email you@example.com"
-fi
+# Nothing about where to reach it is repeated here.
+#
+# `ratline-panel install` has just printed the address, the generated password and
+# the tunnel command, and it knows the configured port and bind address — this script
+# would only be guessing at them. Printing a second, slightly different copy directly
+# under the first is how an operator ends up reading the wrong one.
 say ""
 say "Check it any time with:  ratline-panel doctor"
