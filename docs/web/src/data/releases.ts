@@ -76,6 +76,18 @@ ratline-panel domain set panel.example.com --email you@example.com`,
           'The failure above reported only "configuration file /etc/nginx/nginx.conf test failed" — that it failed, not what failed. The line above it in nginx’s output names the directive, the file and the line number, and without it an operator watching a rollback has nothing to act on. `nginx -t` failures from the panel now carry nginx’s full output in the hint, the same way ratline’s own vhost path already did.',
       },
       {
+        kind: 'security',
+        title: 'x/crypto and x/net brought forward, clearing every open advisory',
+        body:
+          'golang.org/x/crypto 0.25.0 → 0.52.0, x/net 0.27.0 → 0.55.0, x/term 0.22.0 → 0.43.0 and x/text 0.16.0 → 0.37.0, which closes all 20 advisories that were open against this repository. x/crypto is on the path that matters here — it is what the panel’s argon2id password hashing and ratline’s SSH key handling are built on — so this is worth taking even though none of the advisories had a demonstrated route into either binary.',
+      },
+      {
+        kind: 'fix',
+        title: 'The panel installer no longer repeats what the binary just printed',
+        body:
+          'It echoed the panel’s own summary back after the install had already printed it, so the generated password and the URL appeared twice and it was not obvious which copy was authoritative. The installer now lets the binary do the talking.',
+      },
+      {
         kind: 'fix',
         title: 'ASSUME_YES on the installer is genuinely non-interactive',
         body:
