@@ -13,6 +13,7 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/selfupdate"
 )
 
 // `update` replaces the binary on a server that is serving, so the tests are about
@@ -31,8 +32,8 @@ func TestSameVersionIgnoresTheTagPrefix(t *testing.T) {
 		{"1.2.0", "1.2.1", false},
 		{"dev", "1.2.0", false},
 	} {
-		if got := sameVersion(tc.a, tc.b); got != tc.same {
-			t.Errorf("sameVersion(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.same)
+		if got := selfupdate.SameVersion(tc.a, tc.b); got != tc.same {
+			t.Errorf("selfupdate.SameVersion(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.same)
 		}
 	}
 }
@@ -42,15 +43,15 @@ func TestBackupNamingRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "ratline")
 
-	if path, version := newestBackup(target); path != "" || version != "" {
+	if path, version := selfupdate.NewestBackup(target); path != "" || version != "" {
 		t.Errorf("with nothing kept, newestBackup = (%q, %q), want empty", path, version)
 	}
 
-	kept := backupPath(target, "1.2.0")
+	kept := selfupdate.BackupPath(target, "1.2.0")
 	if err := os.WriteFile(kept, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path, version := newestBackup(target)
+	path, version := selfupdate.NewestBackup(target)
 	if path != kept {
 		t.Errorf("newestBackup path = %q, want %q", path, kept)
 	}
@@ -63,8 +64,8 @@ func TestNewestBackupPrefersTheMostRecent(t *testing.T) {
 	// Several updates leave several copies; a rollback means "undo the last one".
 	dir := t.TempDir()
 	target := filepath.Join(dir, "ratline")
-	older := backupPath(target, "1.0.0")
-	newer := backupPath(target, "1.1.0")
+	older := selfupdate.BackupPath(target, "1.0.0")
+	newer := selfupdate.BackupPath(target, "1.1.0")
 	for _, p := range []string{older, newer} {
 		if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
 			t.Fatal(err)
@@ -75,7 +76,7 @@ func TestNewestBackupPrefersTheMostRecent(t *testing.T) {
 	if err := os.Chtimes(newer, old.Add(time.Hour), old.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if path, version := newestBackup(target); path != newer || version != "1.1.0" {
+	if path, version := selfupdate.NewestBackup(target); path != newer || version != "1.1.0" {
 		t.Errorf("newestBackup = (%q, %q), want the 1.1.0 copy", path, version)
 	}
 }
@@ -90,7 +91,7 @@ func TestBackupNamingIgnoresUnrelatedNeighbours(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if path, _ := newestBackup(target); path != "" {
+	if path, _ := selfupdate.NewestBackup(target); path != "" {
 		t.Errorf("newestBackup matched an unrelated file: %q", path)
 	}
 }
@@ -181,7 +182,7 @@ func TestChecksumFileMatchesSha256(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := checksumFile(path)
+	got, err := selfupdate.ChecksumFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestChecksumFileMatchesSha256(t *testing.T) {
 		t.Errorf("checksumFile = %q, want %q", got, want)
 	}
 
-	if _, err := checksumFile(filepath.Join(dir, "absent")); err == nil {
+	if _, err := selfupdate.ChecksumFile(filepath.Join(dir, "absent")); err == nil {
 		t.Error("a missing artefact should be an error, not an empty checksum")
 	}
 }
@@ -285,7 +286,7 @@ func TestTheReleaseLookupSaysWhichFailureItWas(t *testing.T) {
 			w.WriteHeader(tc.status)
 		}))
 		u := &updater{g: NewGlobals(), latestAPI: srv.URL}
-		_, err := u.resolveVersion(t.Context(), "")
+		_, err := u.engine().Latest(t.Context(), "")
 		srv.Close()
 
 		if err == nil {
@@ -303,7 +304,7 @@ func TestAnExplicitVersionSkipsTheLookupEntirely(t *testing.T) {
 	// The escape hatch for a mirrored release, so it must not touch the network — a
 	// server with no route to github is the case it exists for.
 	u := &updater{g: NewGlobals(), latestAPI: "http://127.0.0.1:1/unreachable"}
-	got, err := u.resolveVersion(t.Context(), "v1.4.0")
+	got, err := u.engine().Latest(t.Context(), "v1.4.0")
 	if err != nil {
 		t.Fatalf("resolveVersion with an explicit version = %v", err)
 	}
