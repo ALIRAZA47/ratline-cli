@@ -39,6 +39,38 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.15.1',
+    date: '2026-09-13',
+    summary:
+      'A patch release. The panel could not be put on a domain at all on Ubuntu 24.04; nothing else changes.',
+    assertions: 675,
+    changes: [
+      {
+        kind: 'fix',
+        title: '`ratline-panel domain set` failed nginx -t on Ubuntu 24.04',
+        body:
+          'The panel wrote `http2 on;` into its vhost unconditionally. nginx only understands that directive from 1.25.1, and Ubuntu 24.04 ships 1.24.0 — which rejects it as unknown, so the vhost failed `nginx -t`, the whole operation rolled back, and the panel stayed unreachable on its domain. Reproduced against a real nginx 1.24.0: the directive gives `[emerg] unknown directive "http2"`, the listen parameter tests clean. ratline’s own vhost template has always chosen between the two spellings by version; the panel’s did not, because its TLS branch is the one path the integration suite cannot reach — `domain set` needs certbot and real DNS. The detection is now shared between them. If you hit this, upgrade and re-run `ratline-panel domain set`; the rollback left nothing behind.',
+        code: `curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh
+ratline-panel domain set panel.example.com --email you@example.com`,
+      },
+      {
+        kind: 'fix',
+        title: 'And it now says what nginx actually complained about',
+        body:
+          'The failure above reported only "configuration file /etc/nginx/nginx.conf test failed" — that it failed, not what failed. The line above it in nginx’s output names the directive, the file and the line number, and without it an operator watching a rollback has nothing to act on. `nginx -t` failures from the panel now carry nginx’s full output in the hint, the same way ratline’s own vhost path already did.',
+      },
+      {
+        kind: 'fix',
+        title: 'ASSUME_YES on the installer is genuinely non-interactive',
+        body:
+          '`ASSUME_YES=1` made the confirmation return true without asking, and the branch it then took ran `ratline init </dev/tty` — reaching for a terminal to prompt on in a run that had just been told not to prompt. Where there is no tty, which is the whole point of the flag, that failed and the install ended with the one step that finishes it undone. It now takes the `--write-config-only` path whenever it was told not to ask, or whenever there is no terminal at all: a cloud-init script, a Dockerfile, a CI job.',
+      },
+    ],
+    known: [
+      'The panel’s TLS vhost still cannot be exercised by the integration suite — issuing a certificate needs certbot and DNS that resolves to the host. It is covered by template tests for all three http2 cases instead, and both spellings were checked against a real nginx 1.24.0.',
+    ],
+  },
+  {
     version: 'v0.15.0',
     date: '2026-08-28',
     summary:
