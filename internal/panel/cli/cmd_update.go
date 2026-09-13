@@ -215,7 +215,11 @@ func (u *panelUpdater) run(ctx context.Context, want string) error {
 	}
 	u.app.printf("Updated ratline-panel %s → %s\n", res.From, res.To)
 	u.app.printf("  binary  %s\n", res.Items[0].Target)
-	u.app.printf("  kept    %s\n", res.Backups[res.Items[0].Target])
+	// A binary that was not there to begin with leaves nothing to keep, and a line
+	// reading "kept" with nothing after it invites a rollback that cannot work.
+	if kept := res.Backups[res.Items[0].Target]; kept != "" {
+		u.app.printf("  kept    %s\n", kept)
+	}
 	switch {
 	case restarted:
 		u.app.printf("\nThe service was restarted, so it is serving the new binary.\n")
