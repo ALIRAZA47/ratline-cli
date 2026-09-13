@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -135,6 +136,19 @@ func (app *App) openStore() (*store.Store, error) {
 			WithHint("is the panel installed? try 'ratline-panel install'")
 	}
 	return st, nil
+}
+
+// emitJSON writes the envelope ratline uses — {ok, command, version, data} — so a
+// script that reads both binaries needs one parser, not two.
+func (app *App) emitJSON(command string, data map[string]any) error {
+	enc := json.NewEncoder(app.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(map[string]any{
+		"ok": true, "command": command, "version": buildinfo.Version, "data": data,
+	}); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "writing JSON output")
+	}
+	return nil
 }
 
 func (app *App) printf(format string, a ...any) {

@@ -75,7 +75,8 @@ less install.sh && sudo sh install.sh
 
 Upgrading later is one command too — `ratline update` checksums the new release, proves
 the binary runs and can read this server's state, swaps it atomically, and keeps the old
-one for `--rollback`.
+one for `--rollback`. The panel updates itself the same way, separately, and restarts
+its service afterwards: `ratline-panel update`.
 
 ## Documentation
 
@@ -165,6 +166,15 @@ then give it a domain:
 ```bash
 ssh -L 8420:127.0.0.1:8420 your-server   # from your own machine
 ratline-panel domain set panel.example.com --email you@example.com
+```
+
+It updates itself, and its interface is inside the binary, so there is nothing else to
+upgrade. A running job stops an update rather than being killed by the restart:
+
+```bash
+ratline-panel update --check     # is there a newer release?
+ratline-panel update             # verify, install, restart
+ratline-panel update --rollback  # put the previous binary back
 ```
 
 Full documentation: [the web panel](https://ratline.alirazakhan.me/panel), or

@@ -142,6 +142,48 @@ shown once, and they choose how to deliver it. It works once and expires.
   you need those, you need SSH, and the panel not offering them is the reason it can
   be given to somebody who should not have them.
 
+## Keeping it up to date
+
+The panel updates itself, in one command, and so does ratline. They are separate
+binaries with separate commands, because they are separately installed — a server can
+run a newer ratline than panel, and usually does between releases.
+
+```sh
+ratline-panel update --check    # is there a newer release? changes nothing
+ratline-panel update            # download, verify, install, restart
+ratline update                  # the CLI itself, the same way
+```
+
+Nothing is installed until the download has been checksummed against the release's own
+`SHA256SUMS` and the new binary has been run and asked its version — a file that does
+not identify itself as `ratline-panel`, or reports a version the release does not
+claim, is discarded rather than installed. The install itself is an atomic rename, and
+the binary it replaced is kept beside it:
+
+```sh
+ratline-panel update --rollback   # put the previous binary back and restart
+```
+
+Two things about the panel differ from updating the CLI, and both are about it being a
+daemon rather than a command that finishes:
+
+- **It restarts.** Replacing the file changes nothing until the service does, so the
+  update restarts it and says so. Requests in flight end; signed-in sessions do not,
+  because they live in the panel's database rather than in memory.
+- **It waits for the queue.** A running job is a child of the process being replaced,
+  so the restart kills it and the panel marks it failed on the way back up. An update
+  refuses to start while anything is queued or running. `--force` updates anyway;
+  `--no-restart` installs and leaves the running panel on the old binary until you
+  restart it yourself.
+
+The interface is inside the binary, so there is no second thing to update and no
+window in which a new panel is serving an old page.
+
+```sh
+ratline-panel version
+ratline-panel doctor      # worth running once afterwards
+```
+
 ## Recovering from it
 
 The panel can lock you out of itself: a lost second factor, a forgotten password, or

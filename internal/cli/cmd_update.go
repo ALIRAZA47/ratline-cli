@@ -2,14 +2,8 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"time"
@@ -18,6 +12,7 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/buildinfo"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/selfupdate"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 )
 
@@ -47,30 +42,13 @@ import (
 // authorized_keys point at it, which is why it is verified and swapped the same way.
 
 // updateRepo is the project the artefacts come from, named in its own constant so
-// the two URLs below cannot drift apart from each other or from the error messages.
+// the release URLs cannot drift apart from each other or from the error messages.
 const updateRepo = "ALIRAZA47/ratline-cli"
 
 // updateBaseURL is where release artefacts live. Overridable, because a server
 // without a route to github is a normal thing and mirroring the release is the
 // obvious answer.
 const updateBaseURL = "https://github.com/" + updateRepo + "/releases"
-
-// latestAPI reports the newest published tag.
-const latestAPI = "https://api.github.com/repos/" + updateRepo + "/releases/latest"
-
-// updateArtefacts are the files an install consists of, keyed by the install path
-// they land at relative to the configured prefix.
-type artefact struct {
-	// Asset is the file name in the release.
-	Asset string
-	// Target is where it is installed.
-	Target string
-	// Mode is the mode it is installed with.
-	Mode os.FileMode
-	// Required — ratline-shell is only present once keys have been used, but it is
-	// part of every release and its absence from a release is a broken release.
-	Required bool
-}
 
 func newUpdateCommand(g *Globals) *cobra.Command {
 	var (
@@ -93,7 +71,8 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 			"downgrade past a schema migration. The install itself is an atomic rename, and\n" +
 			"the previous binary is kept beside it for --rollback.\n\n" +
 			"No site is interrupted. Sites are systemd units running an interpreter; they do\n" +
-			"not exec this binary, so replacing it cannot drop a request.",
+			"not exec this binary, so replacing it cannot drop a request.\n\n" +
+			"The web panel updates itself the same way, separately: 'ratline-panel update'.",
 		Example: "  ratline update                       # to the latest release\n" +
 			"  ratline update --check               # is there one? change nothing\n" +
 			"  ratline update --version 1.2.0\n" +
@@ -119,30 +98,19 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&rollback, "rollback", false, "Restore the binary this command last replaced")
 	f.BoolVar(&unverified, "allow-unverified", false,
 		"Install even when the release publishes no SHA256SUMS (refused by default)")
-	// Mutating: it replaces files under /usr/local and takes the lock for the swap,
-	// so it cannot interleave with a deploy that is halfway through rendering a unit.
 	return Mutating(cmd)
 }
 
-type updater struct {
-	// latestAPI is injectable so the release-lookup failure modes can be tested
-	// without reaching github; empty means the real endpoint.
-	latestAPI       string
-	g               *Globals
-	baseURL         string
-	allowUnverified bool
-}
-
-// artefacts is what this release installs, resolved against the running binary's
-// own location so an install under /opt or /usr/bin updates itself rather than
-// something under /usr/local that may not exist.
-func (u *updater) artefacts() ([]artefact, error) {
+// artefacts resolves what a release installs, against the running binary's own
+// location so an install under /opt or /usr/bin updates itself rather than something
+// under /usr/local that may not exist.
+func (u *updater) artefacts() ([]selfupdate.Artefact, error) {
 	self, err := system.SelfPath()
 	if err != nil {
 		return nil, err
 	}
 	arch := goruntime.GOARCH
-	return []artefact{
+	return []selfupdate.Artefact{
 		{
 			Asset: fmt.Sprintf("ratline-linux-%s", arch),
 			// The running binary, whatever path it was installed at.
@@ -158,14 +126,39 @@ func (u *updater) artefacts() ([]artefact, error) {
 	}, nil
 }
 
+// updater binds the shared self-updater to ratline's globals.
+type updater struct {
+	// latestAPI is injectable so the release-lookup failure modes can be tested
+	// without reaching github; empty means the real endpoint.
+	latestAPI       string
+	g               *Globals
+	baseURL         string
+	allowUnverified bool
+}
+
+// engine builds the shared updater with ratline's own artefacts, verification and
+// refusals hung off it.
+func (u *updater) engine() *selfupdate.Updater {
+	return &selfupdate.Updater{
+		Product: "ratline", Repo: updateRepo,
+		BaseURL: u.baseURL, LatestAPI: u.latestAPI,
+		Current: buildinfo.Version,
+		Log:     u.g.Log, Runner: u.g.Runner,
+		AllowUnverified: u.allowUnverified,
+		Artefacts:       u.artefacts,
+		Verify:          u.verifyBinary,
+		PreInstall:      u.refuseIfPackaged,
+	}
+}
+
 // check reports whether an update is available.
 func (u *updater) check(ctx context.Context, want string) error {
-	target, err := u.resolveVersion(ctx, want)
+	target, err := u.engine().Latest(ctx, want)
 	if err != nil {
 		return err
 	}
 	current := buildinfo.Version
-	same := sameVersion(current, target)
+	same := selfupdate.SameVersion(current, target)
 
 	if u.g.JSON {
 		return u.g.EmitJSON(map[string]any{
@@ -183,148 +176,15 @@ func (u *updater) check(ctx context.Context, want string) error {
 
 // run performs the update.
 func (u *updater) run(ctx context.Context, want string) error {
-	target, err := u.resolveVersion(ctx, want)
+	current := buildinfo.Version
+	res, err := u.engine().Run(ctx, want)
 	if err != nil {
 		return err
 	}
-	current := buildinfo.Version
-	if sameVersion(current, target) {
+	if res == nil {
 		u.g.Printf("ratline %s is already installed; nothing to do.\n", current)
 		return nil
 	}
-
-	items, err := u.artefacts()
-	if err != nil {
-		return err
-	}
-	for _, a := range items {
-		// An empty target would fail the rename, and it would fail it after the main
-		// binary had already been swapped. Refuse before anything is touched.
-		if strings.TrimSpace(a.Target) == "" {
-			return rlerr.Preconditionf("there is no configured install path for %s", a.Asset).
-				WithHint("set paths.shell_wrapper in /etc/ratline/config.yaml, " +
-					"or run 'ratline doctor' to see what else is unset")
-		}
-		if !filepath.IsAbs(a.Target) {
-			return rlerr.Preconditionf("the install path for %s is not absolute: %s", a.Asset, a.Target)
-		}
-	}
-	if err := u.refuseIfPackaged(ctx, items); err != nil {
-		return err
-	}
-
-	// Staged beside its own install target, one directory per destination: a rename
-	// is only atomic within a filesystem, and /tmp is very often a different one.
-	// The two artefacts need not share a directory either — the shell wrapper's path
-	// is configurable and may well be on another mount — so staging both next to the
-	// main binary would install one of them across a device boundary and fail.
-	stages := map[string]string{}
-	defer func() {
-		for _, dir := range stages {
-			os.RemoveAll(dir)
-		}
-	}()
-	for _, a := range items {
-		parent := filepath.Dir(a.Target)
-		if _, ok := stages[parent]; ok {
-			continue
-		}
-		dir, err := os.MkdirTemp(parent, ".ratline-update-*")
-		if err != nil {
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "creating a staging directory in %s", parent)
-		}
-		stages[parent] = dir
-		if err := os.Chmod(dir, 0o700); err != nil {
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "securing the staging directory")
-		}
-	}
-
-	sums, err := u.fetchChecksums(ctx, target)
-	if err != nil {
-		return err
-	}
-
-	staged := map[string]string{}
-	for _, a := range items {
-		path := filepath.Join(stages[filepath.Dir(a.Target)], a.Asset)
-		u.g.Log.Info("downloading", "asset", a.Asset, "version", target)
-		got, err := download(ctx, u.assetURL(target, a.Asset), path, 10*time.Minute)
-		if err != nil {
-			return err
-		}
-		if want, ok := sums[a.Asset]; ok {
-			if got != want {
-				// Either the download was corrupted or the artefact is not the one the
-				// release published. Both are refusals, not warnings.
-				return rlerr.Externalf("%s does not match the published checksum", a.Asset).
-					WithHint("expected %s, got %s — retry, and if it persists the release "+
-						"or the mirror is wrong", want[:16], got[:16])
-			}
-		} else if !u.allowUnverified {
-			return rlerr.Externalf("the release does not list a checksum for %s", a.Asset).
-				WithHint("this is unusual and worth understanding before installing; " +
-					"--allow-unverified overrides it")
-		}
-		if err := os.Chmod(path, a.Mode); err != nil {
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode on %s", path)
-		}
-		staged[a.Target] = path
-	}
-
-	// Prove the new binary works before it is anywhere near the install path.
-	newMain := staged[items[0].Target]
-	if err := u.verifyBinary(ctx, newMain, target); err != nil {
-		return err
-	}
-
-	// Keep the outgoing binaries where a rollback can find them.
-	backups := map[string]string{}
-	for _, a := range items {
-		if !system.Exists(a.Target) {
-			continue
-		}
-		backup := backupPath(a.Target, current)
-		if err := system.CopyFile(a.Target, backup, a.Mode, 0, 0); err != nil {
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "keeping a copy of %s", a.Target)
-		}
-		backups[a.Target] = backup
-	}
-
-	// The swap. Atomic per file, and the rollback stack puts back anything already
-	// replaced if a later one fails.
-	rb := system.NewRollback(u.g.Log)
-	var swapErr error
-	for _, a := range items {
-		src := staged[a.Target]
-		if err := os.MkdirAll(filepath.Dir(a.Target), 0o755); err != nil {
-			swapErr = rlerr.Wrap(err, rlerr.CodeGeneric, "creating %s", filepath.Dir(a.Target))
-			break
-		}
-		if err := os.Rename(src, a.Target); err != nil {
-			swapErr = rlerr.Wrap(err, rlerr.CodeGeneric, "installing %s", a.Target)
-			break
-		}
-		// Not named `target`: that is the version being installed, in scope here, and
-		// shadowing it in a loop that renames files is a trap worth not setting.
-		installed, backup := a.Target, backups[a.Target]
-		rb.Push("installed "+installed, func(context.Context) error {
-			if backup == "" {
-				return os.Remove(installed)
-			}
-			return os.Rename(backup, installed)
-		})
-	}
-	if swapErr == nil {
-		// The installed binary, not the staged one: a rename onto a path that is a
-		// symlink or a bind mount can land somewhere unexpected.
-		swapErr = u.verifyBinary(ctx, items[0].Target, target)
-	}
-	if swapErr != nil {
-		rb.Unwind(ctx)
-		return rlerr.Wrap(swapErr, rlerr.CodeOf(swapErr),
-			"the update was reverted and %s is unchanged", current)
-	}
-	rb.Commit()
 
 	// A release that adds one of ratline's own timers has to install it here, not only in
 	// `init`. v0.11.0 shipped continuous health checks and, on every server that upgraded
@@ -349,15 +209,15 @@ func (u *updater) run(ctx context.Context, want string) error {
 
 	if u.g.JSON {
 		return u.g.EmitJSON(map[string]any{
-			"updated": true, "from": current, "to": target,
+			"updated": true, "from": res.From, "to": res.To,
 			"timers": installedUnits, "rollback": "ratline update --rollback",
 		})
 	}
-	u.g.Printf("Updated ratline %s → %s\n", current, target)
+	u.g.Printf("Updated ratline %s → %s\n", res.From, res.To)
 	if err := u.g.Fields(
-		[2]string{"binary", items[0].Target},
-		[2]string{"shell wrapper", items[1].Target},
-		[2]string{"kept", backups[items[0].Target]},
+		[2]string{"binary", res.Items[0].Target},
+		[2]string{"shell wrapper", res.Items[1].Target},
+		[2]string{"kept", res.Backups[res.Items[0].Target]},
 	); err != nil {
 		return err
 	}
@@ -374,24 +234,9 @@ func (u *updater) rollback(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	restored := map[string]string{}
-	for _, a := range items {
-		backup, version := newestBackup(a.Target)
-		if backup == "" {
-			continue
-		}
-		if err := os.Rename(backup, a.Target); err != nil {
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "restoring %s", a.Target)
-		}
-		if err := os.Chmod(a.Target, a.Mode); err != nil {
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode on %s", a.Target)
-		}
-		restored[a.Target] = version
-	}
-	if len(restored) == 0 {
-		return rlerr.Preconditionf("there is no kept binary to roll back to").
-			WithHint("a copy is only kept by 'ratline update'; reinstall the version you " +
-				"want with install.sh")
+	restored, err := u.engine().Rollback(ctx)
+	if err != nil {
+		return err
 	}
 	if u.g.JSON {
 		return u.g.EmitJSON(map[string]any{"rolled_back": true, "restored": restored})
@@ -399,118 +244,6 @@ func (u *updater) rollback(ctx context.Context) error {
 	u.g.Printf("Restored ratline %s\n", restored[items[0].Target])
 	u.g.Printf("\nConfirm it:\n  ratline version\n  ratline doctor\n")
 	return nil
-}
-
-// resolveVersion turns a request into a concrete version string.
-func (u *updater) resolveVersion(ctx context.Context, want string) (string, error) {
-	if want != "" {
-		return strings.TrimPrefix(want, "v"), nil
-	}
-	endpoint := u.latestAPI
-	if endpoint == "" {
-		endpoint = latestAPI
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return "", rlerr.Wrap(err, rlerr.CodeGeneric, "building the release request")
-	}
-	req.Header.Set("User-Agent", "ratline")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", rlerr.Wrap(err, rlerr.CodeExternal, "asking for the latest release").
-			WithHint("a server with no route to github can be pointed at a mirror: " +
-				"ratline update --base-url https://mirror.example.internal/ratline --version X")
-	}
-	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		// This endpoint 404s when a repository has published no releases at all, which
-		// is a different problem from a flaky API — and "pass --version" is the wrong
-		// advice for it, because there would be no assets to download either.
-		return "", rlerr.Externalf("no release has been published for %s", updateRepo).
-			WithHint("there is nothing to update to yet. If you build from source, " +
-				"install over the running binary yourself; if you are pointing at a " +
-				"fork or a mirror, pass --base-url and --version")
-	case http.StatusForbidden, http.StatusTooManyRequests:
-		// Unauthenticated GitHub API calls are rate limited per address, and a server
-		// behind shared NAT hits it without having done anything wrong.
-		return "", rlerr.Externalf("the release API rate limited this server (HTTP %d)", resp.StatusCode).
-			WithHint("this resets within the hour; pass --version to skip the lookup entirely")
-	default:
-		return "", rlerr.Externalf("the release API returned HTTP %d", resp.StatusCode).
-			WithHint("pass --version to skip the lookup")
-	}
-	var payload struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
-		return "", rlerr.Wrap(err, rlerr.CodeExternal, "reading the release list")
-	}
-	if payload.TagName == "" {
-		return "", rlerr.Externalf("the latest release has no tag").
-			WithHint("pass --version explicitly")
-	}
-	return strings.TrimPrefix(payload.TagName, "v"), nil
-}
-
-// assetURL is where one artefact of one version lives.
-func (u *updater) assetURL(version, asset string) string {
-	return fmt.Sprintf("%s/download/v%s/%s", u.baseURL, version, asset)
-}
-
-// fetchChecksums reads the release's SHA256SUMS into a name-to-digest map.
-//
-// A release with no checksum file is not treated as "fine": an unverified binary
-// installed as root on a server that holds every tenant's keys is precisely the
-// supply-chain hole the runtime installer already refuses to leave open.
-func (u *updater) fetchChecksums(ctx context.Context, version string) (map[string]string, error) {
-	url := u.assetURL(version, "SHA256SUMS")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, rlerr.Wrap(err, rlerr.CodeGeneric, "building a request for %s", url)
-	}
-	req.Header.Set("User-Agent", "ratline")
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		if u.allowUnverified {
-			u.g.Log.Warn("could not fetch SHA256SUMS, and --allow-unverified was given", "url", url)
-			return map[string]string{}, nil
-		}
-		return nil, rlerr.Wrap(err, rlerr.CodeExternal, "fetching %s", url)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		if u.allowUnverified {
-			u.g.Log.Warn("no SHA256SUMS in this release, and --allow-unverified was given",
-				"status", resp.StatusCode)
-			return map[string]string{}, nil
-		}
-		return nil, rlerr.Externalf("%s returned HTTP %d", url, resp.StatusCode).
-			WithHint("a release without checksums cannot be verified; " +
-				"--allow-unverified overrides this, deliberately")
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, rlerr.Wrap(err, rlerr.CodeExternal, "reading %s", url)
-	}
-	sums := map[string]string{}
-	for _, line := range strings.Split(string(body), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			continue
-		}
-		// The sha256sum format prefixes binary entries with '*'.
-		sums[strings.TrimPrefix(fields[1], "*")] = strings.ToLower(fields[0])
-	}
-	if len(sums) == 0 && !u.allowUnverified {
-		return nil, rlerr.Externalf("%s is empty or unparseable", url)
-	}
-	return sums, nil
 }
 
 // verifyBinary runs a candidate and satisfies itself that it works here.
@@ -532,7 +265,7 @@ func (u *updater) verifyBinary(ctx context.Context, path, wantVersion string) er
 	if err := json.Unmarshal([]byte(res.Out()), &payload); err != nil {
 		return rlerr.Wrap(err, rlerr.CodeExternal, "the downloaded binary printed no version")
 	}
-	if got := payload.Data.Version; !sameVersion(got, wantVersion) {
+	if got := payload.Data.Version; !selfupdate.SameVersion(got, wantVersion) {
 		return rlerr.Externalf("the downloaded binary reports version %q, but %q was requested",
 			got, wantVersion)
 	}
@@ -559,7 +292,7 @@ func (u *updater) verifyBinary(ctx context.Context, path, wantVersion string) er
 // Replacing a dpkg-managed file behind dpkg's back leaves the package database
 // lying, and the next `apt upgrade` silently reverts the update. Saying so is more
 // useful than winning the race.
-func (u *updater) refuseIfPackaged(ctx context.Context, items []artefact) error {
+func (u *updater) refuseIfPackaged(ctx context.Context, items []selfupdate.Artefact) error {
 	if !u.g.Bins.Available("dpkg") {
 		return nil
 	}
@@ -579,59 +312,4 @@ func (u *updater) refuseIfPackaged(ctx context.Context, items []artefact) error 
 				"        apt-get update && apt-get install --only-upgrade ratline")
 	}
 	return nil
-}
-
-// backupPath is where the outgoing binary is kept.
-func backupPath(target, version string) string {
-	return fmt.Sprintf("%s.%s.previous", target, version)
-}
-
-// newestBackup finds the most recently kept copy of a binary, and the version it is.
-func newestBackup(target string) (path, version string) {
-	dir, base := filepath.Split(target)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", ""
-	}
-	var newest os.DirEntry
-	var newestMod time.Time
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, base+".") || !strings.HasSuffix(name, ".previous") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if newest == nil || info.ModTime().After(newestMod) {
-			newest, newestMod = e, info.ModTime()
-		}
-	}
-	if newest == nil {
-		return "", ""
-	}
-	name := newest.Name()
-	return filepath.Join(dir, name),
-		strings.TrimSuffix(strings.TrimPrefix(name, base+"."), ".previous")
-}
-
-// sameVersion compares versions tolerantly, since a tag may carry a v and a
-// development build may not be a version at all.
-func sameVersion(a, b string) bool {
-	return strings.TrimPrefix(a, "v") == strings.TrimPrefix(b, "v")
-}
-
-// checksumFile is used by the tests to build a fixture release.
-func checksumFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

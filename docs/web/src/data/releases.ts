@@ -39,12 +39,28 @@ export interface Release {
 
 export const releases: Release[] = [
   {
-    version: 'v0.15.1',
+    version: 'v0.16.0',
     date: '2026-09-13',
     summary:
-      'A patch release. The panel could not be put on a domain at all on Ubuntu 24.04; nothing else changes.',
+      'The panel updates itself, and it can now be put on a domain on Ubuntu 24.04 — which it could not before.',
+    upgrade: 'ratline-panel update',
     assertions: 675,
     changes: [
+      {
+        kind: 'feature',
+        title: '`ratline-panel update`',
+        body:
+          'The panel updates itself in one command, the way ratline always has, instead of being upgraded by piping the installer from the network into a root shell again. Nothing is installed until the download has been checksummed against the release’s own SHA256SUMS and the new binary has been run and asked its version — a file that does not identify itself as ratline-panel, or reports a version the release does not claim, is discarded rather than installed. The swap is an atomic rename and the old binary is kept for `--rollback`. The interface is inside the binary, so there is nothing else to upgrade and no window in which a new panel serves an old page. The checksum and swap logic is now one shared implementation rather than two, so the two updaters cannot drift.',
+        code: `ratline-panel update --check     # is there a newer release?
+ratline-panel update             # verify, install, restart
+ratline-panel update --rollback  # put the previous binary back`,
+      },
+      {
+        kind: 'feature',
+        title: 'An update waits for the job queue rather than killing it',
+        body:
+          'The panel is a daemon, so replacing the file on disk changes nothing until the service restarts — and a job running at that moment is a child of the process being replaced, which the restart takes with it. An update refuses to start while anything is queued or running, and says which job and what to do about it. `--force` updates anyway; `--no-restart` installs and leaves the running panel on the old binary until you restart it yourself. Signed-in sessions survive a restart either way: they live in the panel’s database, not in memory.',
+      },
       {
         kind: 'fix',
         title: '`ratline-panel domain set` failed nginx -t on Ubuntu 24.04',
@@ -68,6 +84,8 @@ ratline-panel domain set panel.example.com --email you@example.com`,
     ],
     known: [
       'The panel’s TLS vhost still cannot be exercised by the integration suite — issuing a certificate needs certbot and DNS that resolves to the host. It is covered by template tests for all three http2 cases instead, and both spellings were checked against a real nginx 1.24.0.',
+      'A panel older than this release has no `update` command, so the first upgrade to it is still the installer: `curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh`. Every upgrade after that is `ratline-panel update`.',
+      'ratline and the panel are versioned and released together but updated separately, so a server can run a newer one than the other. That is intended — the panel is a caller, and it tolerates a ratline that has commands it has not heard of.',
     ],
   },
   {

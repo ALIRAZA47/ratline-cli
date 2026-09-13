@@ -103,6 +103,7 @@ func NewRootCommand(app *App) *cobra.Command {
 		newAccountCommand(app),
 		newNginxCommand(app),
 		newDoctorCommand(app),
+		newUpdateCommand(app),
 		newConfigCommand(app),
 		newVersionCommand(app),
 	)
