@@ -929,6 +929,8 @@ the previous binary is kept beside it for --rollback.
 No site is interrupted. Sites are systemd units running an interpreter; they do
 not exec this binary, so replacing it cannot drop a request.
 
+The web panel updates itself the same way, separately: 'ratline-panel update'.
+
 Usage:
   ratline update [flags]
 

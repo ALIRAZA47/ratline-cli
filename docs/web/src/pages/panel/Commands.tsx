@@ -26,6 +26,18 @@ const groups: { title: string; blurb: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: 'Updating it',
+    blurb: 'It updates itself, separately from the CLI. The interface is inside the binary, so there is nothing else to upgrade.',
+    rows: [
+      ['ratline-panel update', 'Download the latest release, check it against the release’s own SHA256SUMS, run it and confirm it reports that version, swap it atomically and restart the service.'],
+      ['ratline-panel update --check', 'Say whether a newer release exists. Changes nothing.'],
+      ['ratline-panel update --version <v>', 'Install a specific release rather than the latest.'],
+      ['ratline-panel update --rollback', 'Put back the binary the last update replaced, and restart.'],
+      ['ratline-panel update --force', 'Update even though a job is queued or running — the restart kills it.'],
+      ['ratline-panel update --no-restart', 'Install without restarting. The running panel keeps serving the old binary until you restart it.'],
+    ],
+  },
+  {
     title: 'Accounts',
     blurb: 'The recovery path — for when the panel has locked you out of itself.',
     rows: [
