@@ -636,6 +636,24 @@ func (m *Manager) EnsureSnippets(ctx context.Context) error {
 // Returns (standalone, onListen); exactly one is true.
 func (m *Manager) http2Support() (bool, bool) {
 	major, minor, patch, ok := m.nginxVersion()
+	return http2Spelling(major, minor, patch, ok)
+}
+
+// HTTP2Support reports how the installed nginx wants HTTP/2 turned on: as a
+// `http2 on;` directive (1.25.1 and later) or as a `listen … http2` parameter
+// (everything older).
+//
+// Exported because the panel writes its own vhost and needs the same answer. It hard
+// coded `http2 on;`, which Ubuntu 24.04's nginx 1.24 rejects as an unknown directive
+// — so `domain set` wrote a vhost that could not pass `nginx -t`, rolled back, and
+// left the panel unreachable on its domain. One implementation, so the two spellings
+// cannot drift apart again.
+func HTTP2Support(ctx context.Context, runner system.Runner) (directive, onListen bool) {
+	major, minor, patch, ok := versionOf(ctx, runner)
+	return http2Spelling(major, minor, patch, ok)
+}
+
+func http2Spelling(major, minor, patch int, ok bool) (bool, bool) {
 	if !ok {
 		// Unknown version: prefer the listen parameter, which every nginx that has
 		// ever supported HTTP/2 accepts. A deprecation warning is survivable; an
@@ -646,6 +664,19 @@ func (m *Manager) http2Support() (bool, bool) {
 		return true, false
 	}
 	return false, true
+}
+
+// versionOf reads the installed nginx's version without a Manager.
+func versionOf(ctx context.Context, runner system.Runner) (major, minor, patch int, ok bool) {
+	if runner == nil {
+		return 0, 0, 0, false
+	}
+	// `nginx -v` writes to stderr, which the runner captures alongside stdout.
+	res, err := runner.Run(ctx, system.Cmd{Name: "nginx", Args: []string{"-v"}})
+	if err != nil || res == nil {
+		return 0, 0, 0, false
+	}
+	return parseNginxVersion(res.Out() + res.Stderr)
 }
 
 var nginxVersionRe = regexp.MustCompile(`nginx/(\d+)\.(\d+)\.(\d+)`)
@@ -664,17 +695,26 @@ func (m *Manager) nginxVersion() (major, minor, patch int, ok bool) {
 		if err != nil || res == nil {
 			return
 		}
-		fields := nginxVersionRe.FindStringSubmatch(res.Out() + res.Stderr)
-		if len(fields) != 4 {
+		a, b, c, ok := parseNginxVersion(res.Out() + res.Stderr)
+		if !ok {
 			return
 		}
-		a, _ := strconv.Atoi(fields[1])
-		b, _ := strconv.Atoi(fields[2])
-		c, _ := strconv.Atoi(fields[3])
 		m.version = [3]int{a, b, c}
 		m.versionOK = true
 	})
 	return m.version[0], m.version[1], m.version[2], m.versionOK
+}
+
+// parseNginxVersion reads "nginx/1.24.0" out of whatever `nginx -v` printed.
+func parseNginxVersion(out string) (major, minor, patch int, ok bool) {
+	fields := nginxVersionRe.FindStringSubmatch(out)
+	if len(fields) != 4 {
+		return 0, 0, 0, false
+	}
+	a, _ := strconv.Atoi(fields[1])
+	b, _ := strconv.Atoi(fields[2])
+	c, _ := strconv.Atoi(fields[3])
+	return a, b, c, true
 }
 
 // gzipDirectives and brotliDirectives are what ratline would like to set at http

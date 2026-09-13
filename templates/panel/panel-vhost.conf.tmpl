@@ -36,9 +36,11 @@ server {
 {{ end }}
 server {
 {{- if .TLS }}
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl{{ if .HTTP2OnListen }} http2{{ end }};
+    listen [::]:443 ssl{{ if .HTTP2OnListen }} http2{{ end }};
+{{- if .HTTP2Directive }}
     http2 on;
+{{- end }}
 
     ssl_certificate     {{ .CertPath }};
     ssl_certificate_key {{ .KeyPath }};
