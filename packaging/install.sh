@@ -190,6 +190,14 @@ if [ "$NO_INIT" = "1" ]; then
 elif [ -f "$CONF_DIR/config.yaml" ]; then
     step "Keeping the existing $CONF_DIR/config.yaml, refreshing directories and timers"
     "$RATLINE" init --write-config-only
+elif [ "$ASSUME_YES" = "1" ] || ! ( : </dev/tty ) 2>/dev/null; then
+    # ASSUME_YES means "do not ask me anything", so it must not then reach for a
+    # terminal to ask on: `init` without --write-config-only prompts for the ACME
+    # contact, and redirecting it from a /dev/tty that is not there fails the one
+    # step that finishes the install. Same for any run with no terminal at all —
+    # a cloud-init script, a Dockerfile, a CI job.
+    step "Writing the configuration and starting the timers without prompting"
+    "$RATLINE" init --write-config-only
 elif confirm "Run 'ratline init' now to finish setup?"; then
     # Interactive: asks for the ACME contact address and the admin account.
     "$RATLINE" init </dev/tty || warn "'ratline init' did not finish; run it again when ready"

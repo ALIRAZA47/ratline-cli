@@ -21,10 +21,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
+	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -124,6 +126,15 @@ type vhostData struct {
 	ChainPath   string
 	ACMEWebroot string
 	GeneratedAt string
+
+	// HTTP2Directive and HTTP2OnListen are mutually exclusive spellings of the same
+	// thing, chosen by the installed nginx's version. This file used to emit
+	// `http2 on;` unconditionally, which nginx only understands from 1.25.1 — so on
+	// Ubuntu 24.04, which ships 1.24, `domain set` wrote a vhost that could not pass
+	// `nginx -t`, rolled back, and left the panel unreachable on its domain with
+	// nothing on screen to say why.
+	HTTP2Directive bool
+	HTTP2OnListen  bool
 }
 
 // DomainOptions is one call to `domain set`.
@@ -175,6 +186,9 @@ func (m *Manager) SetDomain(ctx context.Context, opts DomainOptions) (err error)
 		ACMEWebroot: ACMEWebroot,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	}
+	// Asked of the nginx that is actually installed, through ratline's own detection
+	// so the two spellings cannot drift apart again.
+	data.HTTP2Directive, data.HTTP2OnListen = nginx.HTTP2Support(ctx, m.Runner)
 	if err := m.writeVhost(ctx, data, rb); err != nil {
 		return err
 	}
@@ -267,10 +281,8 @@ func (m *Manager) writeVhost(ctx context.Context, data vhostData, rb *system.Rol
 	// The real tool, on the real file, before it is live. `nginx -t` parses the
 	// whole configuration, so this catches a vhost that is individually valid and
 	// collides with something already there.
-	if _, err := m.Runner.Run(ctx, system.Cmd{
-		Name: "nginx", Args: []string{"-t"}, Label: "nginx -t",
-	}); err != nil {
-		return rlerr.Wrap(err, rlerr.CodePrecondition, "the generated vhost did not pass nginx -t")
+	if err := m.testNginx(ctx); err != nil {
+		return err
 	}
 	if _, err := m.Runner.Run(ctx, system.Cmd{
 		Name: "systemctl", Args: []string{"reload", "nginx"}, Mutates: true,
@@ -348,9 +360,7 @@ func (m *Manager) ClearDomain(ctx context.Context) error {
 	if err := system.RemoveManaged(m.Cfg.Paths.NginxVhost); err != nil {
 		return err
 	}
-	if _, err := m.Runner.Run(ctx, system.Cmd{
-		Name: "nginx", Args: []string{"-t"}, Label: "nginx -t",
-	}); err != nil {
+	if err := m.testNginx(ctx); err != nil {
 		return err
 	}
 	if _, err := m.Runner.Run(ctx, system.Cmd{
@@ -362,11 +372,41 @@ func (m *Manager) ClearDomain(ctx context.Context) error {
 	return m.Cfg.Write(m.Cfg.SourcePath)
 }
 
+// testNginx runs `nginx -t` and puts what nginx said into the error.
+//
+// The Runner's own message is the *last* line of the output, which for nginx is
+// "configuration file /etc/nginx/nginx.conf test failed" — a statement that it failed,
+// not of what failed. The line above it is the one that names the directive and the
+// file and the line number, and without it an operator watching a rollback has nothing
+// to act on. This is the same shape nginx.Manager.Test produces for ratline's own
+// vhosts; the panel was the one path that dropped it.
+func (m *Manager) testNginx(ctx context.Context) error {
+	res, err := m.Runner.Run(ctx, system.Cmd{
+		Name: "nginx", Args: []string{"-t"}, Label: "nginx -t",
+	})
+	if err == nil {
+		return nil
+	}
+	detail := ""
+	if res != nil {
+		detail = strings.TrimSpace(res.Stderr)
+		if detail == "" {
+			detail = strings.TrimSpace(res.Stdout)
+		}
+	}
+	wrapped := rlerr.Wrap(err, rlerr.CodePrecondition,
+		"the generated vhost did not pass nginx -t, so nothing was reloaded")
+	if detail == "" {
+		return wrapped
+	}
+	return wrapped.
+		WithField("nginx_output", detail).
+		WithHint("%s", "nginx reported:\n  "+strings.ReplaceAll(detail, "\n", "\n  "))
+}
+
 // ReloadNginx is what certbot's deploy hook calls after a renewal.
 func (m *Manager) ReloadNginx(ctx context.Context) error {
-	if _, err := m.Runner.Run(ctx, system.Cmd{
-		Name: "nginx", Args: []string{"-t"}, Label: "nginx -t",
-	}); err != nil {
+	if err := m.testNginx(ctx); err != nil {
 		return err
 	}
 	_, err := m.Runner.Run(ctx, system.Cmd{
