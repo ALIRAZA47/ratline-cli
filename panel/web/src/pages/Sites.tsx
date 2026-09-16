@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Page } from '../components/Layout';
 import { ActionForm } from '../components/ActionForm';
+import { MoreMenu } from '../components/MoreMenu';
 import { useApi } from '../lib/hooks';
-import type { Action, Site } from '../lib/types';
+import type { Action, ActionRecord, Site } from '../lib/types';
 import {
   Badge,
   Card,
@@ -98,6 +99,9 @@ export function Sites() {
  * site surface is a filtered view of the same catalogue every other page uses, so
  * there is no list of buttons here to fall out of step with the binary.
  */
+/** The one thing people come to this page to do. Everything else is in the menu. */
+const PRIMARY = 'site.deploy';
+
 export function SiteDetail() {
   const { domain = '' } = useParams();
   const site = useApi<Record<string, unknown>>(`/api/sites/${encodeURIComponent(domain)}`);
@@ -108,41 +112,48 @@ export function SiteDetail() {
   const action = useApi<Action>(openAction ? `/api/actions/${openAction}` : null);
   const actions = useApi<Action[]>('/api/actions?group=sites');
 
-  const quick = [
-    { id: 'site.deploy', label: 'Deploy' },
-    { id: 'site.restart', label: 'Restart' },
-    { id: 'site.reload', label: 'Reload' },
-    { id: 'site.env.set', label: 'Set a variable' },
-    { id: 'cert.issue', label: 'Issue a certificate' },
-    { id: 'site.disable', label: 'Disable' },
-  ];
-
   const info = site.data ?? {};
+  // The activity log already filters by target, so a site's own history costs one
+  // more read and saves crossing to /activity and filtering it by hand.
+  const history = useApi<ActionRecord[]>(
+    `/api/activity?target=${encodeURIComponent(domain)}`,
+    [domain],
+  );
+
+  // Everything this site can be asked to do, minus the one verb that gets its own
+  // button. The list is the catalogue's, so a ratline release that adds a site
+  // command adds it to the menu without anybody editing this file.
+  const others = (actions.data ?? []).filter(
+    (a) => (a.verb.startsWith('site ') || a.verb.startsWith('cert ')) && a.id !== PRIMARY,
+  );
 
   return (
     <Page
       title={domain}
       lede={typeof info.runtime === 'string' ? `A ${info.runtime} site owned by ${String(info.owner ?? info.user ?? '')}.` : undefined}
+      back={{ to: '/sites', label: 'Sites' }}
       actions={
-        <Link className="btn" to={`/sites/${encodeURIComponent(domain)}/logs`}>
-          Logs
-        </Link>
+        <>
+          <button
+            className={`btn ${openAction === PRIMARY ? '' : 'btn-primary'}`}
+            onClick={() => setOpenAction(openAction === PRIMARY ? null : PRIMARY)}
+          >
+            {openAction === PRIMARY ? 'Cancel' : 'Deploy'}
+          </button>
+          <Link className="btn" to={`/sites/${encodeURIComponent(domain)}/logs`}>
+            Logs
+          </Link>
+          <MoreMenu
+            actions={others}
+            loading={actions.loading}
+            onPick={setOpenAction}
+            empty="No other site commands are available to you."
+          />
+        </>
       }
     >
       <ErrorBox error={site.error} />
       {site.loading && !site.data && <Spinner />}
-
-      <div className="flex flex-wrap gap-2">
-        {quick.map((q) => (
-          <button
-            key={q.id}
-            className={`btn ${openAction === q.id ? 'btn-primary' : ''}`}
-            onClick={() => setOpenAction(openAction === q.id ? null : q.id)}
-          >
-            {q.label}
-          </button>
-        ))}
-      </div>
 
       {openAction && (
         <Card>
@@ -187,24 +198,36 @@ export function SiteDetail() {
           </Table>
         )}
       </Card>
-
-      <Card title="Everything else this site can do">
-        {actions.loading && <Spinner />}
-        <div className="flex flex-wrap gap-1.5">
-          {(actions.data ?? [])
-            .filter((a) => a.verb.startsWith('site ') || a.verb.startsWith('cert '))
-            .map((a) => (
-              <button
-                key={a.id}
-                className="btn btn-ghost text-xs"
-                title={a.summary}
-                onClick={() => setOpenAction(a.id)}
-              >
-                <span className="mono">{a.verb}</span>
-                {a.destructive && <span className="text-[var(--danger)]">•</span>}
-              </button>
+      <Card
+        title="This site's history"
+        action={
+          <Link className="btn btn-ghost text-xs" to={`/activity?target=${encodeURIComponent(domain)}`}>
+            Full log
+          </Link>
+        }
+      >
+        <ErrorBox error={history.error} />
+        {history.loading && !history.data ? (
+          <Spinner />
+        ) : !history.data || history.data.length === 0 ? (
+          <Empty>Nothing has been done to this site through the panel yet.</Empty>
+        ) : (
+          <ul className="space-y-1.5 text-sm">
+            {history.data.slice(0, 8).map((rec) => (
+              <li key={rec.id} className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="mono text-xs">{rec.action}</span>
+                  <span className="ml-1.5 text-xs text-[var(--fg-muted)]">by {rec.actor}</span>
+                  {rec.dry_run && <span className="ml-1.5 text-2xs text-[var(--warn)]">dry run</span>}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-2xs text-[var(--fg-faint)]">
+                  {!rec.ok && <Badge tone="danger">exit {rec.exit_code}</Badge>}
+                  <When at={rec.at} />
+                </span>
+              </li>
             ))}
-        </div>
+          </ul>
+        )}
       </Card>
     </Page>
   );
@@ -213,13 +236,26 @@ export function SiteDetail() {
 export function SiteLogs() {
   const { domain = '' } = useParams();
   const [lines, setLines] = useState(200);
+  const [filter, setFilter] = useState('');
   const { data, error, loading, reload } = useApi<{ text: string }>(
     `/api/sites/${encodeURIComponent(domain)}/logs?lines=${lines}`,
     [lines],
   );
+
+  // Filtered here rather than server-side, because ratline's logs command has no
+  // such flag and inventing one in the query string would be a control that reads
+  // like it narrows the read when it does not. This narrows what is already on
+  // screen, which is what somebody scanning a tail for one request actually wants.
+  const all = data?.text?.trimEnd() ?? '';
+  const needle = filter.trim().toLowerCase();
+  const shown = needle
+    ? all.split('\n').filter((l) => l.toLowerCase().includes(needle)).join('\n')
+    : all;
+  const hiddenLines = needle ? all.split('\n').length - shown.split('\n').length : 0;
   return (
     <Page
       title={`${domain} · logs`}
+      back={{ to: `/sites/${encodeURIComponent(domain)}`, label: domain }}
       lede="The tail of whatever ratline considers this site's log — the journal, PM2's capture, or nginx's access log, depending on how it is supervised."
       actions={
         <>
@@ -237,17 +273,37 @@ export function SiteLogs() {
           <button className="btn" onClick={reload}>
             Refresh
           </button>
-          <Link className="btn btn-ghost" to={`/sites/${encodeURIComponent(domain)}`}>
-            Back
-          </Link>
         </>
       }
     >
       <ErrorBox error={error} />
+
+      <Card title="What is being tailed">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-48 flex-1">
+            <span className="label">Filter these lines</span>
+            <input
+              className="field"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="any text"
+              autoComplete="off"
+            />
+          </label>
+          <p className="hint mb-2 max-w-prose flex-1">
+            Whatever ratline considers this site&rsquo;s log — the journal, PM2&rsquo;s capture or
+            nginx&rsquo;s access log, depending on how it is supervised.
+            {hiddenLines > 0 && ` ${hiddenLines} lines hidden by the filter.`}
+          </p>
+        </div>
+      </Card>
+
       {loading && !data ? (
         <Spinner />
       ) : (
-        <pre className="terminal max-h-[70vh]">{data?.text?.trimEnd() || 'Nothing logged yet.'}</pre>
+        <pre className="terminal max-h-[70vh]">
+          {shown || (needle ? `Nothing in the last ${lines} lines matches that.` : 'Nothing logged yet.')}
+        </pre>
       )}
     </Page>
   );

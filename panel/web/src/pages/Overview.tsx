@@ -1,55 +1,24 @@
 import { Link } from 'react-router-dom';
 import { Page } from '../components/Layout';
-import { useApi, usePoll } from '../lib/hooks';
-import type { Job, Overview as OverviewData } from '../lib/types';
+import { usePoll } from '../lib/hooks';
+import { statusOf, useOverview, type Status } from '../lib/overview';
+import type { Job } from '../lib/types';
+import { WarningIcon } from '../components/icons';
 import { Badge, Card, Cell, Empty, ErrorBox, Row, Spinner, Table, When, stateTone } from '../components/ui';
 
-interface SiteRow {
-  domain: string;
-  owner: string;
-  runtime: string;
-  state: string;
-  detail?: string;
-  tls: string;
-  health?: string;
-  needs_attention: boolean;
-}
-
-interface CertRow {
-  name: string;
-  status: string;
-  days_remaining: number;
-}
-
-interface Status {
-  hostname?: string;
-  version?: string;
-  os?: string;
-  uptime?: string;
-  users: number;
-  keys: number;
-  sites: number;
-  certificates: number;
-  jobs: number;
-  workers: number;
-  problems: number;
-  sites_detail?: SiteRow[];
-  certificates_detail?: CertRow[];
-  warnings?: string[];
-}
-
 export function Overview() {
-  const { data, error, loading, reload } = useApi<OverviewData>('/api/overview');
+  const { data, error, loading, reload } = useOverview();
+  // The front page is a dashboard somebody is looking at, so it asks more often
+  // than the sidebar's background refresh does.
   usePoll(reload, 15000);
-
-  const status = data?.status as Status | undefined;
+  const status = statusOf(data);
 
   return (
     <Page
-      title="Overview"
+      title={status?.hostname ?? 'Server'}
       lede={
-        status?.hostname
-          ? `${status.hostname} — everything ratline knows about this server, on one screen.`
+        status?.uptime
+          ? `${status.sites} ${status.sites === 1 ? 'site' : 'sites'} · up ${status.uptime}`
           : 'Everything ratline knows about this server, on one screen.'
       }
       actions={
@@ -67,102 +36,85 @@ export function Overview() {
       )}
       {loading && !data && <Spinner />}
 
-      {status && (
-        <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat label="Tenants" value={status.users} to="/tenants" />
-            <Stat label="Sites" value={status.sites} to="/sites" />
-            <Stat label="Certificates" value={status.certificates} to="/certs" />
-            <Stat label="SSH keys" value={status.keys} to="/keys" />
-            <Stat label="Jobs & workers" value={status.jobs + status.workers} to="/sites" />
-            <Stat
-              label="Problems"
-              value={status.problems}
-              tone={status.problems > 0 ? 'danger' : 'ok'}
-            />
-          </div>
+      {/* The sites are the page; what is running and what just happened are
+          the margin notes beside them. They used to sit underneath, which put
+          the one live thing on the server below the fold on a laptop. */}
+      <div className="flex flex-col gap-5 lg:flex-row">
+        <div className="min-w-0 flex-1 space-y-5">
+        {status && (
+          <>
+            <Attention status={status} />
 
-          {status.warnings && status.warnings.length > 0 && (
-            <Card title="What ratline wants you to look at">
-              <ul className="space-y-1.5 text-sm">
-                {status.warnings.map((warning) => (
-                  <li key={warning} className="flex gap-2">
-                    <span className="text-[var(--warn)]">•</span>
-                    <span>{warning}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-
-          <Card
-            title="Sites"
-            action={
-              <Link className="btn btn-ghost text-xs" to="/sites">
-                All sites
-              </Link>
-            }
-          >
-            {!status.sites_detail || status.sites_detail.length === 0 ? (
-              <Empty>No sites yet. Create one from Sites → New site.</Empty>
-            ) : (
-              <Table head={['Domain', 'Owner', 'Runtime', 'State', 'TLS']}>
-                {status.sites_detail.map((site) => (
-                  <Row key={site.domain}>
-                    <Cell>
-                      <Link className="font-medium hover:underline" to={`/sites/${site.domain}`}>
-                        {site.domain}
-                      </Link>
-                      {site.detail && (
-                        <div className="text-2xs text-[var(--fg-faint)]">{site.detail}</div>
-                      )}
-                    </Cell>
-                    <Cell className="text-[var(--fg-muted)]">{site.owner}</Cell>
-                    <Cell>
-                      <Badge>{site.runtime}</Badge>
-                    </Cell>
-                    <Cell>
-                      <Badge tone={site.needs_attention ? 'danger' : stateTone(site.state)}>
-                        {site.state}
-                      </Badge>
-                    </Cell>
-                    <Cell className="text-[var(--fg-muted)]">{site.tls}</Cell>
-                  </Row>
-                ))}
-              </Table>
-            )}
-          </Card>
-
-          {status.certificates_detail && status.certificates_detail.length > 0 && (
             <Card
-              title="Certificates near expiry"
+              title="Sites"
               action={
-                <Link className="btn btn-ghost text-xs" to="/certs">
-                  All certificates
+                <Link className="btn btn-ghost text-xs" to="/sites">
+                  All sites
                 </Link>
               }
             >
-              <Table head={['Name', 'Status', 'Days left']}>
-                {status.certificates_detail.map((cert) => (
-                  <Row key={cert.name}>
-                    <Cell className="mono text-xs">{cert.name}</Cell>
-                    <Cell>
-                      <Badge tone={cert.days_remaining < 14 ? 'danger' : 'warn'}>
-                        {cert.status}
-                      </Badge>
-                    </Cell>
-                    <Cell>{cert.days_remaining}</Cell>
-                  </Row>
-                ))}
-              </Table>
+              {!status.sites_detail || status.sites_detail.length === 0 ? (
+                <Empty>No sites yet. Create one from Sites → New site.</Empty>
+              ) : (
+                <Table head={['Domain', 'Owner', 'Runtime', 'State', 'TLS']}>
+                  {status.sites_detail.map((site) => (
+                    <Row key={site.domain}>
+                      <Cell>
+                        <Link className="font-medium hover:underline" to={`/sites/${site.domain}`}>
+                          {site.domain}
+                        </Link>
+                        {site.detail && (
+                          <div className="text-2xs text-[var(--fg-faint)]">{site.detail}</div>
+                        )}
+                      </Cell>
+                      <Cell className="text-[var(--fg-muted)]">{site.owner}</Cell>
+                      <Cell>
+                        <Badge>{site.runtime}</Badge>
+                      </Cell>
+                      <Cell>
+                        <Badge tone={site.needs_attention ? 'danger' : stateTone(site.state)}>
+                          {site.state}
+                        </Badge>
+                      </Cell>
+                      <Cell className="text-[var(--fg-muted)]">{site.tls}</Cell>
+                    </Row>
+                  ))}
+                </Table>
+              )}
             </Card>
-          )}
-        </>
-      )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+            {status.certificates_detail && status.certificates_detail.length > 0 && (
+              <Card
+                title="Certificates near expiry"
+                action={
+                  <Link className="btn btn-ghost text-xs" to="/certs">
+                    All certificates
+                  </Link>
+                }
+              >
+                <Table head={['Name', 'Status', 'Days left']}>
+                  {status.certificates_detail.map((cert) => (
+                    <Row key={cert.name}>
+                      <Cell className="mono text-xs">{cert.name}</Cell>
+                      <Cell>
+                        <Badge tone={cert.days_remaining < 14 ? 'danger' : 'warn'}>
+                          {cert.status}
+                        </Badge>
+                      </Cell>
+                      <Cell>{cert.days_remaining}</Cell>
+                    </Row>
+                  ))}
+                </Table>
+              </Card>
+            )}
+          </>
+        )}
+
+        </div>
+
+        <aside className="w-full shrink-0 space-y-4 lg:w-80">
         <Card
-          title="Running and recent jobs"
+          title="Running now"
           action={
             <Link className="btn btn-ghost text-xs" to="/jobs">
               All jobs
@@ -181,7 +133,7 @@ export function Overview() {
         </Card>
 
         <Card
-          title="Recent activity"
+          title="Recent"
           action={
             <Link className="btn btn-ghost text-xs" to="/activity">
               Full log
@@ -210,56 +162,118 @@ export function Overview() {
             </ul>
           )}
         </Card>
+        </aside>
       </div>
     </Page>
   );
 }
 
-function Stat({
-  label,
-  value,
-  to,
-  tone,
-}: {
-  label: string;
-  value: number;
-  to?: string;
-  tone?: 'ok' | 'danger';
-}) {
-  const inner = (
-    <div className="card px-3 py-2.5">
-      <div className="text-2xs uppercase tracking-wide text-[var(--fg-faint)]">{label}</div>
-      <div
-        className={`mt-0.5 text-xl font-semibold tabular-nums ${
-          tone === 'danger' ? 'text-[var(--danger)]' : ''
-        }`}
-      >
-        {value}
+/**
+ * One band naming what a human has to decide about, instead of six cards counting
+ * things nobody was asked to count.
+ *
+ * The counts moved to the sidebar, where a number is navigation weight. What is
+ * left here is the only question the front page should answer first: is there
+ * anything wrong, and with what. It renders nothing at all when the answer is no —
+ * a reassurance panel that is always on screen is not read after the first week.
+ *
+ * Every line comes from ratline's own reading of the server. The panel does not
+ * decide what counts as a problem; `ratline status` does, and this repeats it.
+ */
+function Attention({ status }: { status: Status }) {
+  const items: { key: string; subject?: string; text: string; to?: string }[] = [];
+
+  for (const cert of status.certificates_detail ?? []) {
+    items.push({
+      key: `cert:${cert.name}`,
+      subject: cert.name,
+      text:
+        cert.days_remaining <= 0
+          ? 'the certificate has expired'
+          : `the certificate expires in ${cert.days_remaining} ${
+              cert.days_remaining === 1 ? 'day' : 'days'
+            }`,
+      to: '/certs',
+    });
+  }
+
+  for (const site of status.sites_detail ?? []) {
+    if (!site.needs_attention) continue;
+    items.push({
+      key: `site:${site.domain}`,
+      subject: site.domain,
+      text: site.detail || site.state,
+      to: `/sites/${encodeURIComponent(site.domain)}`,
+    });
+  }
+
+  // Anything ratline raised that is not already on the list.
+  //
+  // `warnings` is ratline's own prose and usually restates what the structured
+  // rows above already say — "www.example.com renews in 12 days and its last
+  // attempt failed" beside a certificate row for the same domain. Saying it twice
+  // makes the band look longer than the problem is, so a warning naming a subject
+  // that is already listed is dropped in favour of the row, which links to it.
+  const named = new Set(items.map((i) => i.subject).filter(Boolean) as string[]);
+  for (const warning of status.warnings ?? []) {
+    if ([...named].some((subject) => warning.includes(subject))) continue;
+    items.push({ key: `warn:${warning}`, text: warning });
+  }
+
+  if (items.length === 0) return null;
+
+  return (
+    <section
+      className="rounded-[var(--radius-card)] border border-[var(--warn)]/30 bg-[var(--warn-soft)] px-3.5 py-3"
+      aria-labelledby="attention-heading"
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[var(--warn)]">
+          <WarningIcon />
+        </span>
+        <h2 id="attention-heading" className="text-sm font-semibold">
+          {items.length === 1 ? 'One thing needs attention' : `${items.length} things need attention`}
+        </h2>
       </div>
-    </div>
-  );
-  return to ? (
-    <Link to={to} className="block hover:opacity-80">
-      {inner}
-    </Link>
-  ) : (
-    inner
+      <ul className="mt-2 space-y-2 text-sm">
+        {items.map((item) => (
+          <li key={item.key} className="leading-snug">
+            {item.subject &&
+              (item.to ? (
+                <Link className="mono text-xs font-medium hover:underline" to={item.to}>
+                  {item.subject}
+                </Link>
+              ) : (
+                <span className="mono text-xs font-medium">{item.subject}</span>
+              ))}
+            <span className={item.subject ? 'text-[var(--fg-muted)]' : ''}>
+              {item.subject ? ' — ' : ''}
+              {item.text}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
 export function JobLine({ job }: { job: Job }) {
+  const running = job.state !== 'done' && job.state !== 'failed';
   return (
-    <li className="flex items-center justify-between gap-3">
-      <Link to={`/jobs/${job.id}`} className="min-w-0 hover:underline">
-        <span className="mono text-xs">{job.action}</span>
-        {job.target && <span className="ml-1.5 text-xs text-[var(--fg-muted)]">{job.target}</span>}
-      </Link>
-      <span className="flex shrink-0 items-center gap-2">
-        <Badge tone={stateTone(job.state)}>{job.state}</Badge>
-        <span className="text-2xs text-[var(--fg-faint)]">
-          <When at={job.finished_at || job.started_at || job.queued_at} />
+    <li className="space-y-1">
+      <div className="flex items-center justify-between gap-3">
+        <Link to={`/jobs/${job.id}`} className="min-w-0 hover:underline">
+          <span className="mono text-xs">{job.action}</span>
+          {job.target && <span className="ml-1.5 text-xs text-[var(--fg-muted)]">{job.target}</span>}
+        </Link>
+        <span className="flex shrink-0 items-center gap-2">
+          <Badge tone={stateTone(job.state)}>{job.state}</Badge>
+          <span className="text-2xs text-[var(--fg-faint)]">
+            <When at={job.finished_at || job.started_at || job.queued_at} />
+          </span>
         </span>
-      </span>
+      </div>
+      {running && <div className="running-bar" role="presentation" />}
     </li>
   );
 }

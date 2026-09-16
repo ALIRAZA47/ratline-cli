@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ApiError, api } from '../lib/api';
 import type { Action, ActionFlag, RunResult } from '../lib/types';
 import { Argv, Badge, ErrorBox, Field } from './ui';
@@ -67,25 +67,46 @@ export function ActionForm({
   const target = action.args?.[0] ? (args[action.args[0].name] ?? '') : '';
   const confirmed = !action.destructive || confirm.trim() === target;
 
+  /**
+   * The command this form is about to run, as the server would build it.
+   *
+   * Asked for rather than assembled here on purpose. The rules that stop argv
+   * injection — one `--name=value` element, positionals after a bare `--` — live in
+   * one Go function, and a TypeScript copy of them would be a second set of rules
+   * that can disagree with the one that actually execs. So the browser sends the
+   * form's state and is told the answer.
+   */
+  const [preview, setPreview] = useState<string[] | null>(null);
+  const previewBody = JSON.stringify({
+    args: (action.args ?? []).map((a) => args[a.name] ?? '').filter((v) => v !== ''),
+    flags: cleanedFlags(action, flags),
+    has_secret: secret !== '',
+  });
+
+  useEffect(() => {
+    // Debounced: this is a keystroke-driven read, and the endpoint parses the
+    // catalogue on the far side of it.
+    let live = true;
+    const id = window.setTimeout(() => {
+      api
+        .post<{ argv: string[] }>(`/api/actions/${action.id}/argv`, JSON.parse(previewBody))
+        // `live` guards against an earlier, slower reply landing after a later one
+        // and putting a command on screen that is not the one in the form.
+        .then((res) => live && setPreview(res.argv))
+        // A form that is not filled in yet cannot be built into a command, which
+        // is a perfectly ordinary state and not worth an error box.
+        .catch(() => live && setPreview(null));
+    }, 250);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [action.id, previewBody]);
+
   function body() {
-    const cleaned: Record<string, unknown> = {};
-    for (const [name, value] of Object.entries(flags)) {
-      if (value === '' || value === false) continue;
-      const flag = action.flags?.find((f) => f.name === name);
-      // A repeatable flag is typed as a comma-separated list, which is how
-      // somebody writes two aliases without a widget that adds rows.
-      if (flag?.repeatable && typeof value === 'string') {
-        cleaned[name] = value
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        continue;
-      }
-      cleaned[name] = value;
-    }
     return {
       args: (action.args ?? []).map((a) => args[a.name] ?? '').filter((v) => v !== ''),
-      flags: cleaned,
+      flags: cleanedFlags(action, flags),
       secret: secret || undefined,
       secret_key: secretKey || undefined,
       confirm: confirm || undefined,
@@ -209,6 +230,20 @@ export function ActionForm({
             autoComplete="off"
           />
         </Field>
+      )}
+
+      {preview && (
+        <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-sunken)]/40 px-3.5 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold">What will run</h3>
+            <span className="hint">
+              Built by the server, not guessed here — this is the command, exactly.
+            </span>
+          </div>
+          <div className="mt-1.5">
+            <Argv argv={preview} />
+          </div>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -383,4 +418,29 @@ function Result({ result }: { result: RunResult }) {
       )}
     </div>
   );
+}
+
+/**
+ * The form's flags, in the shape the API takes.
+ *
+ * Shared by the run and the argv preview so the command shown on screen is built
+ * from exactly the values the run will send.
+ */
+function cleanedFlags(action: Action, flags: Record<string, string | boolean>) {
+  const cleaned: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(flags)) {
+    if (value === '' || value === false) continue;
+    const flag = action.flags?.find((f) => f.name === name);
+    // A repeatable flag is typed as a comma-separated list, which is how somebody
+    // writes two aliases without a widget that adds rows.
+    if (flag?.repeatable && typeof value === 'string') {
+      cleaned[name] = value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      continue;
+    }
+    cleaned[name] = value;
+  }
+  return cleaned;
 }
