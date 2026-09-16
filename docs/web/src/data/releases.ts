@@ -39,6 +39,102 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.17.0',
+    date: '2026-09-17',
+    summary:
+      'A security review of the whole tool — as a tenant trying to reach root, as a stranger trying to reach a site, and as somebody asking whether the code itself could let anyone in — and a panel rebuilt around what an operator came to do.',
+    upgrade: 'ratline update && ratline reconcile --fix',
+    assertions: 679,
+    changes: [
+      {
+        kind: 'security',
+        title: 'Root never opens a path a tenant controls by name',
+        body:
+          'A tenant owns their home, so between any two operations ratline made by path they could rename a real directory away and put a symlink in its place. The file helpers checked with Lstat and then wrote, chowned or read by name, and that gap was enough: a tenant could have root chown a directory of root’s to them, redirect a write of their own .env into another tenant’s site, or have root read whatever a link pointed at. Every write and every read inside a tenant-owned tree now goes through a descriptor obtained by walking the path with O_NOFOLLOW, following only links root created, and a file root reads on a tenant’s behalf has to be a regular file the tenant owns — not a link, not a FIFO, not somebody else’s.',
+      },
+      {
+        kind: 'security',
+        title: 'systemd and nginx no longer read or write inside a tenant’s directory as root',
+        body:
+          'systemd read each site’s .env with EnvironmentFile= and appended job logs with StandardOutput=append:, both as PID 1 before dropping to the site user; nginx opened every site’s access and error log as root on each reload. All three named paths the tenant could replace with a symlink, which made each a root read or a root append of whatever the tenant chose — another tenant’s database credentials loaded into their own environment by crash-looping their service, or a request line appended to a file of root’s. The site’s .env and its job logs are now handled by ratline-shell’s new exec mode, which runs as the tenant, loads the file and opens the log with the tenant’s privileges, then execs the program in place. nginx’s logs moved to a root-owned directory per site under paths.nginx_log_dir (/var/log/nginx/ratline/<slug> by default), readable by the tenant through their group. ratline update installs the new ratline-shell; ratline reconcile --fix re-renders every vhost and unit to the new shape, and each dynamic site picks it up on its next restart. doctor names anything still on the old one.',
+        code: `ratline update
+ratline reconcile --fix
+ratline site restart <domain>     # for each dynamic site, when convenient
+ratline doctor`,
+      },
+      {
+        kind: 'security',
+        title: 'An unknown host, or the bare IP, is served nothing',
+        body:
+          'No vhost was marked default_server, so a request to the server’s IP address, or with any name ratline did not manage, was answered with whichever tenant’s site sorted first — and an unknown name on port 443 was handed that tenant’s certificate, which both revealed a hosted domain to whoever asked and served their content under a hostname they do not own. A catch-all now closes the connection with no response on port 80 and refuses the TLS handshake outright on 443, so no certificate is presented at all. The 443 block needs nginx 1.19.4 and is left out on anything older rather than written as a directive nginx would refuse. An operator who already has their own default server keeps it, and the block verifies itself with nginx -t and backs out if it broke a working configuration.',
+      },
+      {
+        kind: 'security',
+        title: 'A tenant cannot serve root’s files through a symlink in their site',
+        body:
+          'nginx followed a symlink in a document root to wherever it pointed, so a tenant could link public/leak to /etc/passwd and serve it. disable_symlinks if_not_owner serves a link only when it and its target belong to the same user — a tenant’s own release layout still works, and a link out of their tree does not.',
+      },
+      {
+        kind: 'security',
+        title: 'The panel’s second factor, its re-authentication, and its front door',
+        body:
+          'A TOTP code could be presented twice inside the skew window; each time step is now spent once, as RFC 6238 requires. The endpoints that re-check a password or a code for somebody already signed in — exactly where a stolen session would sit guessing — had no throttle; they get the same eight tries the sign-in does. The first-account setup and the last-super-admin guards were a read and a write on separate connections; they are single transactions now. A cross-site text/plain POST could sign a browser in as the attacker’s account; application/json is required. An admin calling the API directly could put a secret in a positional argument, where it would land in the process table and the panel’s own action log; positionals are capped at the declared count and recorded argv is redacted. And --config was emitted after the -- that ends flag parsing, so a configured ratline.config was silently ignored for every command that names a site.',
+      },
+      {
+        kind: 'fix',
+        title: '--dry-run that changed things',
+        body:
+          'ratline update --dry-run performed a real, unlocked update — and the panel’s Preview button on Update did the same. It now reports, like --check. Rehearsals of user disable and enable, user password set, cert delete, revoke and autorenew, and key add, remove and prune still wrote their state rows; a rehearsed key removal recorded a revocation sshd never saw, and a rehearsed disable left state calling an account disabled while it still logged in. All of them are guarded.',
+      },
+      {
+        kind: 'fix',
+        title: 'Redis and MySQL provisioning told the truth less often than they should',
+        body:
+          'redis-cli exits 0 with nothing on stdout when it cannot connect, and ratline read that as success: an install would verify a server that never started, and db drop would report a flush that deleted nothing, leaving the next tenant given that keyspace name to inherit the keys. A connection failure is now a failure, a server is proven by a positive answer, and the flush script is quoted so redis-cli accepts it. Creating a MySQL or Redis user that already existed silently widened or took over another tenant’s account and returned a password that was not its password; both refuse now. The MySQL defaults file did not quote its password, so one with a # or a space was stored one way and read another.',
+      },
+      {
+        kind: 'fix',
+        title: 'Smaller refusals, and one honest one',
+        body:
+          'A restore rejects archives holding symlinks or hard links, since a hard link shares its target’s inode and the post-restore chown would have handed the tenant a file outside the archive. A malformed SHA256SUMS line crashed the updater rather than being refused. ratline-panel install --json discarded the generated admin password; it is in the envelope now. Names that begin with a dash are refused where they would become an argv element, RATLINE_BIN_* overrides are held to the same executable check as a discovered binary, and a job’s schedule is checked for control characters at render. --isolation strict promised a chroot that nothing ever installed and logged that it had been added; it now says plainly that strict isolation is not available in this release, and the SSH documentation says what it should have: SFTP over a site-scoped key is not confined to the site.',
+      },
+      {
+        kind: 'security',
+        title: 'Every open dependency advisory closed',
+        body:
+          'golang.org/x/text had an infinite loop on invalid input on the path the domain validator’s IDNA mapping uses, and five standard-library advisories (crypto/tls, net/http, net/url, encoding/asn1) are fixed in Go 1.26.6. The x modules are current and the toolchain is pinned so that local builds, CI and make dist all compile with the patched runtime. govulncheck reports nothing.',
+      },
+      {
+        kind: 'feature',
+        title: 'The panel, rebuilt around what an operator came to do',
+        body:
+          'The first interface answered “what is on this server?” with counts and offered every command at equal weight; neither is the question somebody opens it with. The sidebar is three groups rather than eleven destinations, with counts beside them as navigation weight and a warning pill on what needs a decision. The front page leads with a band naming what needs attention and renders nothing when the answer is nothing; what is running and what just happened sit in a rail beside the sites. Every page has one primary action — site deploy gets the button on a site’s page — and everything else moves into a menu that is still generated from ratline’s catalogue, so a release that adds a command still appears. Also a site’s own history, the command catalogue in columns, icons drawn as SVG, a mobile drawer that overlays rather than squeezing the content, and an indeterminate bar for a running job rather than a percentage the panel would have had to invent. Same tokens, same components, same density; what changes is what gets the space.',
+      },
+      {
+        kind: 'feature',
+        title: 'The command a form is about to run, before it runs it',
+        body:
+          'The panel’s claim on your trust is that every action is a ratline command you could have typed, and that you can see which one. That was only true afterwards. A form now shows the exact argv it will execute as you fill it in, built by the same function the run path calls — not a copy of the rules in the browser that could drift from the one that actually execs. The preview executes nothing, writes nothing and records nothing, and a secret never crosses the wire for it.',
+      },
+      {
+        kind: 'feature',
+        title: 'Logs in the panel that work, and `ratline logs`',
+        body:
+          'The panel’s per-site logs page never worked: it read the log as text but the code underneath tried to parse it as a JSON envelope, and a log is never one, so every request failed. It works now, and it lets you pick which log — the application’s, nginx’s access or error log, or the unit’s journal — with the line count and filter beside it. On the command line, ratline logs <domain> is a top-level shortcut for site logs, built from the same code, with the same flags.',
+        code: `ratline logs example.com
+ratline logs example.com --access --lines 500
+ratline logs example.com --journal --follow`,
+      },
+    ],
+    known: [
+      'SFTP over a site-scoped SSH key reaches everything the site owner’s UID can. internal-sftp -d sets a starting directory, not a chroot. Give a contractor who only needs file transfer their own system user, or an rsync or git workflow; a modern scp speaks SFTP, so pass -O to stay on the confined path.',
+      'Releases are verified against a SHA256SUMS published beside them. That catches a corrupted download, not a substituted one: whoever controls the GitHub account or the domain serving install.sh controls every install. Signed releases are the mitigation and are not here yet.',
+      'On nginx older than 1.19.4 — Ubuntu 22.04 ships 1.18 — the port-443 catch-all is not installed, so an unmatched TLS name there still receives the first vhost’s certificate. The port-80 catch-all applies everywhere.',
+      'The panel’s security.allow_from is judged on X-Forwarded-For, which any local process — including a tenant’s — can set when it connects to the panel’s loopback port. Treat it as a convenience; the password and the second factor are the lock, and doctor says so.',
+      '--isolation strict is not available. A site-scoped key is confined by ratline-shell for rsync, scp -O and git; kernel-enforced isolation is one system user per site.',
+    ],
+  },
+  {
     version: 'v0.16.0',
     date: '2026-09-13',
     summary:
