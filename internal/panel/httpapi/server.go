@@ -87,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	// The catalogue and the two ways of running something from it.
 	mux.Handle("GET /api/actions", s.authed(s.handleActions))
 	mux.Handle("GET /api/actions/{id}", s.authed(s.handleAction))
+	mux.Handle("POST /api/actions/{id}/argv", s.authed(s.handleArgv))
 	mux.Handle("POST /api/actions/{id}/preview", s.authed(s.handlePreview))
 	mux.Handle("POST /api/actions/{id}/run", s.authed(s.handleRun))
 

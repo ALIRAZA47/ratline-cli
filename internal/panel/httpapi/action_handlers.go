@@ -62,6 +62,72 @@ type runRequest struct {
 	Confirm string `json:"confirm,omitempty"`
 }
 
+// argvRequest is a form asking what it is about to run, before it runs it.
+type argvRequest struct {
+	Args  []string       `json:"args,omitempty"`
+	Flags map[string]any `json:"flags,omitempty"`
+	// HasSecret says a value will be sent on stdin, without sending it. The secret
+	// itself is not needed to know the shape of the command and has no business
+	// crossing the wire for a preview.
+	HasSecret bool `json:"has_secret,omitempty"`
+	DryRun    bool `json:"dry_run,omitempty"`
+}
+
+// handleArgv answers "what exactly will you run?" without running anything.
+//
+// The panel's claim on an operator's trust is that every action is a ratline command
+// they could have typed, and that they can see which one. Until now that was only
+// true after the fact — the argv came back with a result — so the form asked for
+// confidence before it showed the thing that earns it.
+//
+// The argv is built by rl.BuildArgv, the same function the run path calls, rather
+// than assembled in the browser from the form's state. That is the whole point: a
+// second implementation in TypeScript would be a second set of rules about how a
+// flag is quoted and where positionals go, and the one that matters — the one that
+// actually execs — would not be the one on screen. This endpoint executes nothing,
+// writes nothing and records nothing, because nothing happened.
+func (s *Server) handleArgv(w http.ResponseWriter, r *http.Request, c *Caller) {
+	var body argvRequest
+	if err := decode(w, r, &body); err != nil {
+		s.fail(w, err)
+		return
+	}
+	cat, err := s.Client.Catalogue(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	action, policy, found := rl.Lookup(cat, r.PathValue("id"), c.Account.Role)
+	if !found {
+		s.notAvailable(w)
+		return
+	}
+
+	secret := ""
+	if body.HasSecret {
+		// A non-empty value is what makes BuildArgv emit --stdin. Its contents are
+		// never read here and never reach argv anywhere — that is the invariant
+		// this whole mechanism exists to keep.
+		secret = "-"
+	}
+	argv, err := rl.BuildArgv(cat, policy, rl.Request{
+		Verb:  action.Verb,
+		Args:  body.Args,
+		Flags: body.Flags,
+		// Confirmed only gates a destructive command; it does not change the argv.
+		// Setting it lets the form show the command before the name is typed back,
+		// while the run path still refuses without it.
+		Confirmed: true,
+		Secret:    secret,
+		DryRun:    body.DryRun,
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	ok(w, map[string]any{"action": action.ID, "argv": argv})
+}
+
 // handlePreview runs the action with --dry-run and returns the plan.
 //
 // This is the feature the panel gets almost free and that a hand-written web

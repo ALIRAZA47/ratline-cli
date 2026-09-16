@@ -942,3 +942,108 @@ func TestUnauthenticatedRequestsAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// The change this makes to the product: a form can show the command before it runs
+// it, and the command it shows is the one that will run — because the same function
+// builds both. Anything else is a second implementation that drifts from the first,
+// and the one on screen would be the one that is wrong.
+func TestTheArgvPreviewMatchesWhatTheRunActuallyExecutes(t *testing.T) {
+	h := newHarness(t, nil)
+	h.setup("ops@example.com", goodPassword)
+
+	body := map[string]any{"args": []string{"example.com"}}
+
+	rec := h.do(http.MethodPost, "/api/actions/site.restart/argv", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("argv preview returned %d: %s", rec.Code, rec.Body.String())
+	}
+	previewed := stringsOf(t, h.data(rec)["argv"])
+	if len(previewed) == 0 {
+		t.Fatal("the preview returned no argv")
+	}
+
+	// Now really run it, and compare with what ratline was actually handed.
+	if rec := h.do(http.MethodPost, "/api/actions/site.restart/run", body); rec.Code != http.StatusOK {
+		t.Fatalf("the run returned %d: %s", rec.Code, rec.Body.String())
+	}
+	executed := h.runner.lastCall(t)
+
+	if strings.Join(previewed, "\x00") != strings.Join(executed, "\x00") {
+		t.Errorf("the preview and the run disagree:\n  shown: %v\n  ran:   %v", previewed, executed)
+	}
+}
+
+// Asking what will run must not run it. The endpoint exists precisely so somebody
+// can look before committing, and a look with side effects is not a look.
+func TestTheArgvPreviewExecutesNothing(t *testing.T) {
+	h := newHarness(t, nil)
+	h.setup("ops@example.com", goodPassword)
+
+	before := len(h.runner.calls)
+	rec := h.do(http.MethodPost, "/api/actions/site.restart/argv",
+		map[string]any{"args": []string{"example.com"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("argv preview returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	for _, call := range h.runner.calls[before:] {
+		if len(call) > 0 && call[0] != "schema" {
+			t.Fatalf("the preview invoked ratline: %v", call)
+		}
+	}
+
+	// And it leaves no trace in the activity log, because nothing was done.
+	records, err := h.store.ListActions(context.Background(), store.ActionFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range records {
+		if rec.Action == "site restart" {
+			t.Fatalf("the preview recorded an action: %+v", rec)
+		}
+	}
+}
+
+// A secret is not needed to know the shape of a command, so it does not cross the
+// wire for a preview — and it could not reach argv even if it did.
+func TestTheArgvPreviewNeverCarriesASecret(t *testing.T) {
+	h := newHarness(t, nil)
+	h.setup("ops@example.com", goodPassword)
+
+	rec := h.do(http.MethodPost, "/api/actions/site.env.set/argv", map[string]any{
+		"args":       []string{"example.com"},
+		"has_secret": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("argv preview returned %d: %s", rec.Code, rec.Body.String())
+	}
+	argv := stringsOf(t, h.data(rec)["argv"])
+
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--stdin") {
+		t.Errorf("argv = %v, want it to show that a value arrives on stdin", argv)
+	}
+	// The sentinel the handler uses to make --stdin appear must never be in argv.
+	for _, a := range argv {
+		if a == "-" {
+			t.Fatalf("the stdin sentinel leaked into argv: %v", argv)
+		}
+	}
+}
+
+func stringsOf(t *testing.T, v any) []string {
+	t.Helper()
+	raw, ok := v.([]any)
+	if !ok {
+		t.Fatalf("argv = %#v, want a list", v)
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		s, ok := item.(string)
+		if !ok {
+			t.Fatalf("argv element %#v is not a string", item)
+		}
+		out = append(out, s)
+	}
+	return out
+}
