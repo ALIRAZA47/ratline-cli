@@ -37,32 +37,31 @@ type Manager struct {
 
 // Data is the unit template's input.
 type Data struct {
-	Domain          string
-	Owner           string
-	Group           string
-	Runtime         string
-	Slug            string
-	GeneratedAt     string
-	WorkingDir      string
-	EnvironmentFile string
-	Environment     []string
-	RuntimeDirName  string
-	SocketPath      string
-	UMask           string
-	ExecStart       string
-	ExecStartPost   []string
-	ExecReload      string
-	ExecStop        string
-	Type            string
-	PIDFile         string
-	RestartSec      string
-	TimeoutStopSec  string
-	StandardOutput  string
-	StandardError   string
-	Limits          []string
-	Hardening       []string
-	Relaxed         bool
-	RelaxedList     string
+	Domain         string
+	Owner          string
+	Group          string
+	Runtime        string
+	Slug           string
+	GeneratedAt    string
+	WorkingDir     string
+	Environment    []string
+	RuntimeDirName string
+	SocketPath     string
+	UMask          string
+	ExecStart      string
+	ExecStartPost  []string
+	ExecReload     string
+	ExecStop       string
+	Type           string
+	PIDFile        string
+	RestartSec     string
+	TimeoutStopSec string
+	StandardOutput string
+	StandardError  string
+	Limits         []string
+	Hardening      []string
+	Relaxed        bool
+	RelaxedList    string
 }
 
 // HardeningDirectives is the full sandbox ratline applies.
@@ -116,6 +115,31 @@ var defaultRelaxed = map[string][]string{
 	"python": {},
 }
 
+// wrapExec prefixes a unit's command with ratline-shell's exec mode, which loads the
+// site's .env and, for a job or worker, opens its log — as the service's own user.
+//
+// systemd's EnvironmentFile= and StandardOutput=append: are both opened by PID 1 as root
+// before User= takes effect, and both name paths inside a directory the tenant owns. A
+// tenant who swaps .env for a symlink to another tenant's and crash-loops their service
+// has root load somebody else's secrets into their environment; a symlink under logs/ is
+// a root-controlled append to any file on the box. Done by a process that already runs as
+// the tenant, neither read nor write can reach anything the tenant could not.
+//
+// The wrapper is the same root-owned binary the forced SSH command uses, so it is on
+// every server ratline manages and `ratline update` keeps it current.
+func (m *Manager) wrapExec(envFile, logFile, command string) string {
+	wrapper := m.Cfg.Paths.ShellWrapper
+	if wrapper == "" {
+		wrapper = "/usr/local/lib/ratline/ratline-shell"
+	}
+	parts := []string{wrapper, "exec", "--env-file", envFile}
+	if logFile != "" {
+		parts = append(parts, "--log-file", logFile)
+	}
+	parts = append(parts, "--", command)
+	return strings.Join(parts, " ")
+}
+
 // Render produces the unit file.
 func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions) ([]byte, error) {
 	// Every value written verbatim into the unit is refused if it carries a control
@@ -139,27 +163,26 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 	relaxed = append(relaxed, defaultRelaxed[site.Runtime]...)
 
 	d := &Data{
-		Domain:          site.Domain,
-		Owner:           site.Owner,
-		Group:           site.Owner,
-		Runtime:         site.Runtime,
-		Slug:            site.Slug,
-		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
-		WorkingDir:      opts.WorkingDir,
-		EnvironmentFile: filepath.Join(siteDir, ".env"),
-		Environment:     opts.Environment,
-		RuntimeDirName:  filepath.Join("ratline", site.Slug),
-		UMask:           m.Cfg.Defaults.Umask,
-		ExecStart:       execStart,
-		ExecStartPost:   opts.ExecStartPost,
-		ExecReload:      opts.ExecReload,
-		ExecStop:        opts.ExecStop,
-		Type:            orDefault(opts.Type, "exec"),
-		PIDFile:         opts.PIDFile,
-		RestartSec:      m.Cfg.Defaults.RestartSec.D().String(),
-		TimeoutStopSec:  m.Cfg.Defaults.StopTimeout.D().String(),
-		Relaxed:         len(relaxed) > 0,
-		RelaxedList:     strings.Join(relaxed, ", "),
+		Domain:         site.Domain,
+		Owner:          site.Owner,
+		Group:          site.Owner,
+		Runtime:        site.Runtime,
+		Slug:           site.Slug,
+		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
+		WorkingDir:     opts.WorkingDir,
+		Environment:    opts.Environment,
+		RuntimeDirName: filepath.Join("ratline", site.Slug),
+		UMask:          m.Cfg.Defaults.Umask,
+		ExecStart:      m.wrapExec(filepath.Join(siteDir, ".env"), "", execStart),
+		ExecStartPost:  opts.ExecStartPost,
+		ExecReload:     opts.ExecReload,
+		ExecStop:       opts.ExecStop,
+		Type:           orDefault(opts.Type, "exec"),
+		PIDFile:        opts.PIDFile,
+		RestartSec:     m.Cfg.Defaults.RestartSec.D().String(),
+		TimeoutStopSec: m.Cfg.Defaults.StopTimeout.D().String(),
+		Relaxed:        len(relaxed) > 0,
+		RelaxedList:    strings.Join(relaxed, ", "),
 	}
 	if d.WorkingDir == "" {
 		d.WorkingDir = filepath.Join(siteDir, "app")
@@ -711,12 +734,13 @@ func (m *Manager) Remove(ctx context.Context, site *state.Site) error {
 func (m *Manager) InstallLogrotate(ctx context.Context, site *state.Site) error {
 	siteDir := m.Cfg.SiteDir(site.Owner, site.Domain)
 	data := map[string]any{
-		"Domain":   site.Domain,
-		"Owner":    site.Owner,
-		"LogGroup": m.Cfg.Users.LogGroup,
-		"LogGlob":  filepath.Join(siteDir, "logs", "*.log"),
-		"Dynamic":  site.Dynamic(),
-		"Unit":     validate.UnitName(site.Owner, site.Domain),
+		"Domain":       site.Domain,
+		"Owner":        site.Owner,
+		"LogGroup":     m.Cfg.Users.LogGroup,
+		"LogGlob":      filepath.Join(siteDir, "logs", "*.log"),
+		"NginxLogGlob": filepath.Join(m.Cfg.SiteLogDir(site.Slug), "*.log"),
+		"Dynamic":      site.Dynamic(),
+		"Unit":         validate.UnitName(site.Owner, site.Domain),
 	}
 	tmpl, err := template.New("site.tmpl").ParseFS(templates.FS, "logrotate/site.tmpl")
 	if err != nil {

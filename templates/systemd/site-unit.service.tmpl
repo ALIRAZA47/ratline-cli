@@ -40,12 +40,9 @@ Type=oneshot
 User={{ .Owner }}
 Group={{ .Group }}
 WorkingDirectory={{ .WorkingDir }}
-{{- if .EnvironmentFile }}
-# The site's own .env, so a job reads the same DATABASE_URL the application does. Read by
-# PID 1 as root before privileges are dropped, which is how a 0600 file owned by the tenant
-# can hold secrets this still receives.
-EnvironmentFile=-{{ .EnvironmentFile }}
-{{- end }}
+# The site's own .env, so a job reads the same DATABASE_URL the application does. Loaded by
+# ratline-shell's exec mode in the ExecStart line, as this user, after systemd has switched
+# to User= — never by PID 1 as root, because the file sits in a directory the tenant owns.
 {{- range .Environment }}
 Environment={{ . }}
 {{- end }}
@@ -57,8 +54,12 @@ TimeoutStartSec={{ .TimeoutSec }}
 {{- end }}
 KillSignal=SIGTERM
 KillMode=mixed
-StandardOutput=append:{{ .LogFile }}
-StandardError=append:{{ .LogFile }}
+# Output goes to {{ .LogFile }}, opened by ratline-shell's exec mode as this user before
+# the command runs. StandardOutput=append: would have PID 1 open that path as root, and a
+# symlink in the tenant's logs directory would then be a root append to any file. The
+# journal receives only what the wrapper itself says before the redirect.
+StandardOutput=journal
+StandardError=journal
 SyslogIdentifier=ratline-{{ .Slug }}-{{ .Kind }}-{{ .UnitName }}
 
 # Resource limits, so a runaway job cannot take the site down with it.

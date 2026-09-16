@@ -100,11 +100,22 @@ func (c Creds) defaultsFileBody() string {
 	b.WriteString("# MySQL admin credentials for ratline. This grants full control of every\n")
 	b.WriteString("# database on the server, which is why this file is 0600 and root-owned.\n")
 	b.WriteString("[client]\n")
-	b.WriteString("user=" + c.User + "\n")
-	b.WriteString("password=" + c.Password + "\n")
+	b.WriteString("user=" + optionValue(c.User) + "\n")
+	b.WriteString("password=" + optionValue(c.Password) + "\n")
 	b.WriteString("host=" + host + "\n")
 	b.WriteString("port=" + port + "\n")
 	return b.String()
+}
+
+// optionValue quotes a value for a MySQL option file.
+//
+// Unquoted, the client reads `#` as the start of a comment, trims surrounding spaces and
+// turns a backslash sequence into a control character — so a valid password containing
+// any of those was stored one way and used another, and the credential never worked.
+// Double-quoted, only the backslash and the quote itself need escaping.
+func optionValue(v string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	return `"` + r.Replace(v) + `"`
 }
 
 // RenderDefaultsFile is the file body `db connect`/`db install` store at
@@ -303,6 +314,17 @@ func (m *Manager) CreateUser(ctx context.Context, database, username, role, pass
 			return "", err
 		}
 	}
+	// An account that already exists is somebody else's. CREATE USER IF NOT EXISTS
+	// would leave it alone, GRANT would widen it onto this database, and the password
+	// returned here would not be its password — three quiet lies in one statement.
+	exists, err := m.UserExists(ctx, username, "%")
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		return "", rlerr.Preconditionf("the MySQL user %s already exists", sqlAccount(username, "%")).
+			WithHint("choose another name, or grant the existing user access with: ratline db user role --engine mysql")
+	}
 	account := sqlAccount(username, "%")
 	sql := strings.Join([]string{
 		fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY %s;", account, sqlString(password)),
@@ -313,6 +335,21 @@ func (m *Manager) CreateUser(ctx context.Context, database, username, role, pass
 		return "", err
 	}
 	return password, nil
+}
+
+// UserExists asks the server whether an account is defined.
+func (m *Manager) UserExists(ctx context.Context, username, host string) (bool, error) {
+	if err := validate.MySQLUsername(username); err != nil {
+		return false, err
+	}
+	q := fmt.Sprintf("SELECT COUNT(*) FROM mysql.user WHERE User = %s AND Host = %s;",
+		sqlString(username), sqlString(host))
+	out, err := m.run(ctx, q, false)
+	if err != nil {
+		return false, err
+	}
+	n := strings.TrimSpace(out)
+	return n != "" && n != "0", nil
 }
 
 // SetPassword replaces a user's password and returns the new one.

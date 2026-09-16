@@ -57,6 +57,11 @@ func DatabaseName(name string) error {
 	if strings.ContainsAny(name, "\x00") {
 		return rlerr.Usagef("the database name contains a NUL byte")
 	}
+	// The name becomes its own argv element after --db; one beginning with a dash is
+	// the shape of a flag.
+	if strings.HasPrefix(name, "-") {
+		return rlerr.Usagef("the database name %q begins with a dash", name)
+	}
 	for _, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
@@ -99,6 +104,9 @@ func DatabaseUsername(name string) error {
 	// the name later.
 	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".") || strings.Contains(name, "..") {
 		return rlerr.Usagef("the database username has a misplaced dot: %q", name)
+	}
+	if strings.HasPrefix(name, "-") {
+		return rlerr.Usagef("the database username %q begins with a dash", name)
 	}
 	return nil
 }

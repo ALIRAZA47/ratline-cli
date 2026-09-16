@@ -151,6 +151,17 @@ func (b *Binaries) LoadOverridesFromEnv(environ []string) error {
 		if !filepath.IsAbs(path) {
 			return rlerr.Usagef("%s must be an absolute path, got %q", kv[:eq], path)
 		}
+		// Held to the same bar as a discovered binary: a regular, executable file
+		// nobody but its owner can write. An override reaching this process's
+		// environment is already root's doing, but a root-run wrapper that exported
+		// one by mistake should not be able to name a script in /tmp as useradd.
+		fi, err := os.Stat(path)
+		if err != nil {
+			return rlerr.Wrap(err, rlerr.CodeUsage, "%s names %s", kv[:eq], path)
+		}
+		if err := checkExecutable(path, fi); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeUsage, "%s is not usable", kv[:eq])
+		}
 		b.Set(name, path)
 	}
 	return nil

@@ -326,9 +326,11 @@ func TestADestructiveActionRefusesWithoutConfirmation(t *testing.T) {
 
 func TestEveryInvocationIsNonInteractiveAndMachineReadable(t *testing.T) {
 	cat := realCatalogue(t)
-	for _, verb := range []string{"site list", "site restart", "cert issue"} {
+	for verb, args := range map[string][]string{
+		"site list": nil, "site restart": {"example.com"}, "cert issue": {"example.com"},
+	} {
 		policy := policyFor(t, cat, verb)
-		argv, err := BuildArgv(cat, policy, Request{Verb: verb, Args: []string{"example.com"}})
+		argv, err := BuildArgv(cat, policy, Request{Verb: verb, Args: args})
 		if err != nil {
 			t.Fatalf("%s: %v", verb, err)
 		}
@@ -589,4 +591,65 @@ func indexOf(list []string, want string) int {
 
 func isVerbWord(s string) bool {
 	return !strings.HasPrefix(s, "-") && !strings.Contains(s, "=")
+}
+
+// ratline accepts more positionals than the panel's form shows — `site env set` takes a
+// KEY=VALUE one perfectly well — and an extra one is how a secret would reach
+// /proc/PID/cmdline and the panel's own action log. The count is enforced where the argv
+// is built, not only where the form is drawn.
+func TestExtraPositionalsAreRefused(t *testing.T) {
+	cat := realCatalogue(t)
+
+	policy := policyFor(t, cat, "site env set")
+	_, err := BuildArgv(cat, policy, Request{Verb: "site env set", Args: []string{"example.com", "DATABASE_URL=postgres://u:p@h/db"}})
+	if err == nil {
+		t.Fatal("a KEY=VALUE positional was accepted for site env set; the value would sit in the process table")
+	}
+	if _, err := BuildArgv(cat, policy, Request{Verb: "site env set", Args: []string{"example.com"}}); err != nil {
+		t.Fatalf("the declared positional was refused: %v", err)
+	}
+
+	if _, err := BuildArgv(cat, policyFor(t, cat, "site list"), Request{Verb: "site list", Args: []string{"example.com"}}); err == nil {
+		t.Error("a positional was accepted for a command that takes none")
+	}
+
+	// A usage line spelled with an ellipsis takes any number.
+	for verb, cmd := range cat.Leaves {
+		variadic := false
+		for _, a := range cmd.Args {
+			if strings.Contains(a, "...") {
+				variadic = true
+			}
+		}
+		if !variadic {
+			continue
+		}
+		policy, _ := PolicyFor(verb, cmd)
+		if policy.Denied {
+			continue
+		}
+		if _, err := BuildArgv(cat, policy, Request{Verb: verb, Args: []string{"a.example.com", "b.example.com", "c.example.com"}}); err != nil {
+			t.Errorf("%s declares a variadic positional but refused three: %v", verb, err)
+		}
+		break
+	}
+}
+
+// pflag stops reading flags at `--`, so a --config appended after the positionals is
+// handed to ratline as one more positional and the configured file is silently ignored —
+// for exactly the commands that name a site.
+func TestTheConfigFlagComesBeforeThePositionals(t *testing.T) {
+	c := &Client{ConfigPath: "/etc/ratline/other.yaml"}
+	got := c.globals("site", "show", "--json", "--", "example.com")
+	want := []string{"site", "show", "--json", "--config=/etc/ratline/other.yaml", "--", "example.com"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("globals = %v, want %v", got, want)
+	}
+	got = c.globals("site", "list", "--json")
+	if got[len(got)-1] != "--config=/etc/ratline/other.yaml" {
+		t.Errorf("with no positionals the flag should simply be appended: %v", got)
+	}
+	if got := (&Client{}).globals("site", "list"); len(got) != 2 {
+		t.Errorf("no ConfigPath, no flag: %v", got)
+	}
 }

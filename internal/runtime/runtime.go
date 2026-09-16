@@ -6,6 +6,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,8 +190,15 @@ func (c *Context) RuntimeBinDirs() []string {
 // guessed at, because a build that receives a half-interpreted value is worse than one
 // that receives nothing.
 func (c *Context) SiteEnv() []string {
-	body, err := os.ReadFile(filepath.Join(c.SiteDir, ".env"))
+	// Read as root, on the tenant's behalf, from a directory the tenant owns — so only a
+	// regular file the tenant owns is read, never a link they pointed at somebody else's
+	// .env. Refusing is said out loud: the build is about to run without the values it
+	// would otherwise have had, and a silent nil would look like an empty file.
+	body, err := system.ReadFileNoFollow(filepath.Join(c.SiteDir, ".env"), 1<<20, c.Identity.UID)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			c.Log.Warn("the site's .env was not loaded", "err", err)
+		}
 		return nil
 	}
 	var out []string

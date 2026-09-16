@@ -169,13 +169,16 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 		SPA:               site.SPA,
 		ClientMaxBodySize: orDefault(site.ClientMaxBodySize, m.Cfg.Defaults.ClientMaxBodySize),
 		AssetMaxAge:       m.Cfg.Nginx.AssetMaxAge,
-		AccessLog:         filepath.Join(siteDir, "logs", "access.log"),
-		ErrorLog:          filepath.Join(siteDir, "logs", "error.log"),
-		SnippetDir:        m.Cfg.Paths.NginxSnippets,
-		CustomInclude:     filepath.Join(m.Cfg.Paths.NginxCustom, site.Domain+".conf"),
-		ProxyReadTimeout:  m.Cfg.Defaults.ProxyReadTimeout.D().String(),
-		ProxyBuffering:    true,
-		HSTSMaxAge:        m.Cfg.Defaults.HSTSMaxAge,
+		// Under a root-owned directory, never under the tenant's home: nginx's master
+		// opens these as root on every reload, and a symlink a tenant swapped in would
+		// be a root append — of a request line the tenant chose — to any file.
+		AccessLog:        filepath.Join(m.Cfg.SiteLogDir(site.Slug), "access.log"),
+		ErrorLog:         filepath.Join(m.Cfg.SiteLogDir(site.Slug), "error.log"),
+		SnippetDir:       m.Cfg.Paths.NginxSnippets,
+		CustomInclude:    filepath.Join(m.Cfg.Paths.NginxCustom, site.Domain+".conf"),
+		ProxyReadTimeout: m.Cfg.Defaults.ProxyReadTimeout.D().String(),
+		ProxyBuffering:   true,
+		HSTSMaxAge:       m.Cfg.Defaults.HSTSMaxAge,
 	}
 
 	names := site.ServerNames()
@@ -622,7 +625,171 @@ func (m *Manager) EnsureSnippets(ctx context.Context) error {
 	if err := m.checkHTTPInclude(httpPath); err != nil {
 		return err
 	}
-	return nil
+	_, err = m.EnsureDefaultServer(ctx)
+	return err
+}
+
+// DefaultServerName is the file the catch-all server block lives in, under
+// paths.nginx_snippets and linked into /etc/nginx/conf.d.
+const DefaultServerName = "ratline-default.conf"
+
+// EnsureDefaultServer installs the server block that answers a request for a host
+// ratline does not manage with a closed connection. It reports whether the file on
+// disk changed, so a caller that is not about to reload nginx anyway knows to.
+//
+// Without a default_server, nginx answers an unmatched Host — the bare IP, a
+// scanner's name, somebody else's domain pointed here — with whichever tenant's site
+// sorts first, and answers an unmatched SNI with that site's certificate. Both hand a
+// tenant's content and a tenant's domain name to people who never named it.
+//
+// nginx refuses two default servers on one address, so an operator who already has
+// one in nginx.conf or a vhost of their own keeps it: the live configuration is read
+// with `nginx -T` and, if a default_server ratline did not write is present, nothing
+// is installed and the reason is logged. Refusing beats a `site add` that fails
+// `nginx -t` with "duplicate default server".
+func (m *Manager) EnsureDefaultServer(ctx context.Context) (changed bool, err error) {
+	path := filepath.Join(m.Cfg.Paths.NginxSnippets, DefaultServerName)
+	link := "/etc/nginx/conf.d/" + DefaultServerName
+
+	if n := m.foreignDefaultServers(ctx, path, link); n > 0 {
+		m.Log.Debug("an existing default_server is in place; not installing ratline's catch-all",
+			"count", n, "hint", "it must return 444 or equivalent for hosts it does not know")
+		return false, nil
+	}
+
+	major, minor, patch, ok := m.nginxVersion()
+	body, err := renderTemplate("nginx/ratline-default.conf.tmpl", map[string]any{
+		"RejectHandshake": rejectHandshakeSupported(major, minor, patch, ok),
+	})
+	if err != nil {
+		return false, err
+	}
+	if existing, rerr := system.ReadFileLimit(path, 1<<20); rerr == nil && string(existing) == string(body) {
+		changed = false
+	} else {
+		changed = true
+	}
+	if m.DryRun {
+		if changed {
+			m.Log.Info("would write the catch-all server block", "path", path)
+		}
+		return changed, nil
+	}
+	if !changed {
+		m.linkDefaultServer(path, link)
+		return false, nil
+	}
+
+	// Staged, verified, committed — the same shape as a vhost. The configuration is
+	// tested before the write so that a server whose nginx is already broken is not
+	// blamed on the catch-all (and is left alone: its `site add` will say what is
+	// wrong), and tested after, so that if the catch-all is what broke it, it is
+	// removed again rather than left to fail every later `nginx -t`.
+	if err := m.Test(ctx); err != nil {
+		m.Log.Debug("nginx's configuration is already invalid; not adding the catch-all to it", "err", err)
+		return false, nil
+	}
+	previous, hadPrevious := system.ReadFileLimit(path, 1<<20)
+	if err := system.WriteFileAtomic(path, body, 0o644, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+		return false, err
+	}
+	m.linkDefaultServer(path, link)
+	if err := m.Test(ctx); err != nil {
+		// Put back exactly what was there: the old file, or nothing.
+		if hadPrevious == nil {
+			_ = system.WriteFileAtomic(path, previous, 0o644, system.KeepUnchanged, system.KeepUnchanged)
+		} else {
+			_ = os.Remove(link)
+			_ = os.Remove(path)
+		}
+		return false, rlerr.Wrap(err, rlerr.CodeExternal, "nginx refused the catch-all server block, so it was not installed").
+			WithHint("nginx -t shows why; an existing default_server elsewhere is the usual cause")
+	}
+	return true, nil
+}
+
+// linkDefaultServer makes the catch-all load: conf.d is included into the http block by
+// the default nginx.conf on Debian and Ubuntu, so a symlink there is the least invasive
+// route — the same one the http-level snippet takes.
+func (m *Manager) linkDefaultServer(path, link string) {
+	if !system.IsDir("/etc/nginx/conf.d") {
+		m.Log.Warn("no /etc/nginx/conf.d, so the catch-all server block is not loaded",
+			"snippet", path, "fix", "add 'include "+path+";' inside the http block of /etc/nginx/nginx.conf")
+		return
+	}
+	if _, err := system.EnsureSymlink(path, link); err != nil {
+		m.Log.Warn("the catch-all server block is not linked into conf.d",
+			"snippet", path, "fix", "add 'include "+path+";' inside the http block of /etc/nginx/nginx.conf")
+	}
+}
+
+// ForeignDefaultServers is foreignDefaultServers for callers outside the package,
+// counting against ratline's own catch-all paths.
+func (m *Manager) ForeignDefaultServers(ctx context.Context) int {
+	return m.foreignDefaultServers(ctx,
+		filepath.Join(m.Cfg.Paths.NginxSnippets, DefaultServerName),
+		"/etc/nginx/conf.d/"+DefaultServerName)
+}
+
+// foreignDefaultServers counts default_server listen directives in the live nginx
+// configuration that did not come from ratline's own catch-all file.
+//
+// `nginx -T` prints the whole effective configuration with a
+// "# configuration file <path>:" line ahead of each file's contents, so each listen
+// line can be attributed to the file it came from. If nginx cannot dump its
+// configuration — not installed, or currently broken — the answer is zero and the
+// caller proceeds; a catch-all that fails to install is a warning in doctor, not a
+// reason to block provisioning a site.
+func (m *Manager) foreignDefaultServers(ctx context.Context, ownPaths ...string) int {
+	if m.Runner == nil {
+		return 0
+	}
+	res, err := m.Runner.Run(ctx, system.Cmd{Name: "nginx", Args: []string{"-T"}, Label: "nginx -T"})
+	if err != nil || res == nil {
+		return 0
+	}
+	return countForeignDefaultServers(res.Stdout+"\n"+res.Stderr, ownPaths...)
+}
+
+var nginxConfFileRe = regexp.MustCompile(`^# configuration file (\S+):$`)
+
+func countForeignDefaultServers(dump string, ownPaths ...string) int {
+	own := map[string]bool{}
+	for _, p := range ownPaths {
+		own[p] = true
+	}
+	current := ""
+	n := 0
+	for _, raw := range strings.Split(dump, "\n") {
+		line := strings.TrimSpace(raw)
+		if f := nginxConfFileRe.FindStringSubmatch(line); f != nil {
+			current = f[1]
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "listen") && strings.Contains(line, "default_server") && !own[current] {
+			n++
+		}
+	}
+	return n
+}
+
+// rejectHandshakeSupported reports whether this nginx has ssl_reject_handshake,
+// which arrived in 1.19.4. Unknown means no: a directive nginx does not recognise
+// makes it refuse the entire configuration, and that would take every site down.
+func rejectHandshakeSupported(major, minor, patch int, ok bool) bool {
+	if !ok {
+		return false
+	}
+	if major > 1 {
+		return true
+	}
+	if major < 1 {
+		return false
+	}
+	return minor > 19 || (minor == 19 && patch >= 4)
 }
 
 // http2Support picks the spelling of HTTP/2 this nginx understands.

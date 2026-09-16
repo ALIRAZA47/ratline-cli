@@ -215,13 +215,33 @@ func (u *Updater) Checksums(ctx context.Context, version string) (map[string]str
 		if len(fields) != 2 {
 			continue
 		}
-		// The sha256sum format prefixes binary entries with '*'.
-		sums[strings.TrimPrefix(fields[1], "*")] = strings.ToLower(fields[0])
+		// The sha256sum format prefixes binary entries with '*'. A first field that
+		// is not a SHA-256 digest is not a checksum for anything, and an asset it
+		// names is treated as unlisted rather than as matching a string that cannot
+		// match — which also keeps the mismatch message's digest prefix in bounds.
+		digest := strings.ToLower(fields[0])
+		if !isSHA256Hex(digest) {
+			continue
+		}
+		sums[strings.TrimPrefix(fields[1], "*")] = digest
 	}
 	if len(sums) == 0 && !u.AllowUnverified {
 		return nil, rlerr.Externalf("%s is empty or unparseable", url)
 	}
 	return sums, nil
+}
+
+// isSHA256Hex reports whether s is 64 lowercase hex digits.
+func isSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // Run performs the update. A nil Result with a nil error means the requested

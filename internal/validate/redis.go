@@ -44,6 +44,9 @@ func RedisKeyspace(name string) error {
 	if len(name) > 64 {
 		return rlerr.Usagef("the keyspace name is %d characters; keep it to 64 or fewer", len(name))
 	}
+	if strings.HasPrefix(name, "-") {
+		return rlerr.Usagef("the keyspace name %q begins with a dash", name)
+	}
 	return redisIdent(name, "keyspace name")
 }
 
@@ -54,6 +57,9 @@ func RedisUsername(name string) error {
 	}
 	if len(name) > 64 {
 		return rlerr.Usagef("the username is %d characters; keep it to 64 or fewer", len(name))
+	}
+	if strings.HasPrefix(name, "-") {
+		return rlerr.Usagef("the username %q begins with a dash", name)
 	}
 	// "default" is Redis's own always-present user; provisioning over it would take the
 	// server's own credential with it.

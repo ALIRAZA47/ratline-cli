@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -60,15 +61,14 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	n, err := s.Store.CountAccounts(r.Context())
-	if err != nil {
+	// A cheap early answer for the common case; the one that counts is inside
+	// CreateFirstAccount, where the count and the insert share a transaction so two
+	// requests racing for an empty table cannot both become the super admin.
+	if n, err := s.Store.CountAccounts(r.Context()); err != nil {
 		s.fail(w, err)
 		return
-	}
-	if n > 0 {
-		failStatus(w, http.StatusConflict, "already_set_up",
-			"this panel already has an account",
-			"ask a super admin to invite you")
+	} else if n > 0 {
+		s.alreadySetUp(w)
 		return
 	}
 	account, err := s.newAccount(req.Email, req.Name, req.Password, store.RoleSuperAdmin, "setup")
@@ -76,12 +76,22 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if err := s.Store.CreateAccount(r.Context(), account); err != nil {
+	if err := s.Store.CreateFirstAccount(r.Context(), account); err != nil {
+		if errors.Is(err, store.ErrAlreadySetUp) {
+			s.alreadySetUp(w)
+			return
+		}
 		s.fail(w, err)
 		return
 	}
 	s.Log.Info("the panel was set up", "email", account.Email)
 	s.issueSession(w, r, account)
+}
+
+func (s *Server) alreadySetUp(w http.ResponseWriter) {
+	failStatus(w, http.StatusConflict, "already_set_up",
+		"this panel already has an account",
+		"ask a super admin to invite you")
 }
 
 // newAccount validates and hashes, so the three places that create one — setup, an
@@ -176,8 +186,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if account.TOTPEnabled {
-		valid, err := auth.VerifyTOTP(account.TOTPSecret, req.Code, now)
-		if err != nil || !valid {
+		if !s.acceptTOTP(ctx, account, req.Code, now) {
 			s.rejectLogin(w, ctx, email, ip, now)
 			return
 		}
@@ -198,6 +207,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("signed in", "account", account.Email, "ip", ip)
 	s.issueSession(w, r, account)
+}
+
+// acceptTOTP verifies a code and spends its time step, so the same code cannot be
+// presented twice. A code that matches but was already used, or is older than one that
+// was, is treated exactly like a wrong one: the caller counts it as a failure.
+func (s *Server) acceptTOTP(ctx context.Context, account *store.Account, code string, now time.Time) bool {
+	step, valid, err := auth.VerifyTOTPStep(account.TOTPSecret, code, now)
+	if err != nil || !valid {
+		return false
+	}
+	fresh, err := s.Store.ConsumeTOTPStep(ctx, account.ID, step)
+	if err != nil {
+		s.Log.Error("could not record the second-factor step", "account", account.Email, "err", err)
+		return false
+	}
+	return fresh
 }
 
 func (s *Server) rejectLogin(w http.ResponseWriter, ctx context.Context, email, ip string, now time.Time) {

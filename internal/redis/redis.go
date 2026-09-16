@@ -166,7 +166,24 @@ func (m *Manager) runWithURI(ctx context.Context, uri string, commands []string,
 	if e := firstError(out); e != "" {
 		return "", rlerr.Externalf("Redis rejected a command: %s", e)
 	}
+	// It also exits 0 with nothing on stdout when it could not connect at all — the
+	// complaint goes to stderr — and "no error reply" from a server that was never
+	// reached is not success. An install that "verified" a server that never started,
+	// and a `db drop` that "flushed" keys nobody deleted, both came from trusting that.
+	if res != nil {
+		if e := strings.TrimSpace(res.Stderr); e != "" {
+			return "", rlerr.Externalf("redis-cli reported: %s", firstLine(e)).
+				WithHint("is the server running and reachable at %s:%s?", host, port)
+		}
+	}
 	return out, nil
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // Ping reports the server's version and whether it enforces authentication.
@@ -185,6 +202,12 @@ func (m *Manager) PingURI(ctx context.Context, uri string) (*ServerInfo, error) 
 		return nil, err
 	}
 	info := &ServerInfo{Version: infoField(out, "redis_version"), AuthEnabled: true}
+	if info.Version == "" {
+		// A positive answer is the only proof of a server. An empty INFO is what a
+		// connection that went nowhere looks like.
+		return nil, rlerr.Externalf("the Redis server did not answer INFO").
+			WithHint("check that redis-server is running and that the address is right")
+	}
 	return info, nil
 }
 
@@ -226,6 +249,17 @@ func (m *Manager) CreateKeyspaceUser(ctx context.Context, keyspace, username, ro
 		if password, err = GeneratePassword(); err != nil {
 			return "", err
 		}
+	}
+	// An existing user is somebody else's: `reset` would replace their password and
+	// keyspace and take their application down, and the password returned here would
+	// be the only one that works from then on. Refused, the way MongoDB's path refuses.
+	exists, err := m.UserExists(ctx, username)
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		return "", rlerr.Preconditionf("the Redis user %q already exists", username).
+			WithHint("choose another name, or remove it first: ratline db user remove --engine redis %s", username)
 	}
 	rule := aclRule(keyspace, role)
 	// resetkeys/resetchannels first, so a re-run cannot widen an existing user's reach.
@@ -290,9 +324,33 @@ func (m *Manager) FlushKeyspace(ctx context.Context, keyspace string) error {
 	if err := validate.RedisKeyspace(keyspace); err != nil {
 		return err
 	}
+	// Single-quoted for redis-cli's line splitter: the script is full of double quotes,
+	// and a double-quoted argument containing them was rejected as "Invalid argument(s)"
+	// — on stdout, exit 0, and nothing matched it, so `db drop` reported a flush that
+	// never happened and the next tenant given the name inherited the keys.
 	const script = `local c="0" repeat local r=redis.call("SCAN",c,"MATCH",ARGV[1],"COUNT",1000) c=r[1] if #r[2]>0 then redis.call("UNLINK",unpack(r[2])) end until c=="0" return 1`
-	_, err := m.run(ctx, []string{`EVAL "` + script + `" 0 ` + keyspace + ":*"}, true)
-	return err
+	out, err := m.run(ctx, []string{`EVAL '` + script + `' 0 ` + keyspace + ":*"}, true)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(out, "1") {
+		return rlerr.Externalf("Redis did not confirm the flush of %s:*", keyspace).
+			WithField("redis_output", strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// UserExists asks the server whether an ACL user is defined.
+func (m *Manager) UserExists(ctx context.Context, username string) (bool, error) {
+	if err := validate.RedisUsername(username); err != nil {
+		return false, err
+	}
+	out, err := m.run(ctx, []string{"ACL GETUSER " + username}, false)
+	if err != nil {
+		return false, err
+	}
+	trimmed := strings.TrimSpace(out)
+	return trimmed != "" && !strings.Contains(trimmed, "(nil)"), nil
 }
 
 // LiveUsers lists the ACL users the server actually has.

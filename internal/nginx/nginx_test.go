@@ -489,3 +489,105 @@ func TestAnUnobservableReloadDoesNotBlock(t *testing.T) {
 		t.Errorf("waited %s for an unobservable reload; it should return promptly", elapsed)
 	}
 }
+
+// Without a default_server nginx answers a request for a host it does not know — the
+// bare IP, a scanner's name, somebody else's domain — with whichever tenant's site
+// sorts first. The catch-all closes the connection instead.
+func TestTheCatchAllServesNothingToUnknownHosts(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		reject bool
+	}{{"modern nginx", true}, {"old nginx", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := renderTemplate("nginx/ratline-default.conf.tmpl", map[string]any{"RejectHandshake": tc.reject})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := string(out)
+			for _, want := range []string{
+				"# managed-by: ratline",
+				"listen 80 default_server;",
+				"listen [::]:80 default_server;",
+				"server_name _;",
+				"return 444;",
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("the catch-all is missing %q:\n%s", want, body)
+				}
+			}
+			has443 := strings.Contains(body, "listen 443 ssl default_server;")
+			hasReject := strings.Contains(body, "ssl_reject_handshake on;")
+			if has443 != tc.reject || hasReject != tc.reject {
+				t.Errorf("443 block present=%v reject=%v, want both %v — an unsupported directive would refuse the whole configuration",
+					has443, hasReject, tc.reject)
+			}
+			// It must never present a certificate, or need one: nothing named goes out.
+			if strings.Contains(body, "ssl_certificate") {
+				t.Error("the catch-all names a certificate; an unknown SNI should get no handshake, not somebody's cert")
+			}
+		})
+	}
+}
+
+// ssl_reject_handshake arrived in nginx 1.19.4. Emitting it to an older nginx is an
+// unknown directive, which refuses the entire configuration and takes every site down —
+// so unknown means no.
+func TestRejectHandshakeIsGatedOnNginxVersion(t *testing.T) {
+	for _, tc := range []struct {
+		major, minor, patch int
+		ok, want            bool
+	}{
+		{1, 18, 0, true, false}, // Ubuntu 22.04
+		{1, 19, 3, true, false},
+		{1, 19, 4, true, true},
+		{1, 22, 1, true, true}, // Debian bookworm
+		{1, 24, 0, true, true}, // Ubuntu 24.04
+		{1, 26, 0, true, true},
+		{2, 0, 0, true, true},
+		{0, 0, 0, false, false}, // version unknown
+	} {
+		if got := rejectHandshakeSupported(tc.major, tc.minor, tc.patch, tc.ok); got != tc.want {
+			t.Errorf("rejectHandshakeSupported(%d.%d.%d, ok=%v) = %v, want %v", tc.major, tc.minor, tc.patch, tc.ok, got, tc.want)
+		}
+	}
+}
+
+// nginx refuses two default servers on one address. An operator who already has one
+// keeps it: `nginx -T` attributes every listen line to its file, and any default_server
+// that is not ratline's own means ratline installs nothing rather than breaking every
+// later `site add` with "duplicate default server".
+func TestAnOperatorsOwnDefaultServerIsRespected(t *testing.T) {
+	own := "/etc/nginx/ratline/ratline-default.conf"
+	link := "/etc/nginx/conf.d/ratline-default.conf"
+	dump := func(files map[string]string) string {
+		var sb strings.Builder
+		for path, body := range files {
+			sb.WriteString("# configuration file " + path + ":\n" + body + "\n")
+		}
+		return sb.String()
+	}
+
+	// Only ratline's own catch-all present: nothing foreign.
+	if n := countForeignDefaultServers(dump(map[string]string{
+		"/etc/nginx/nginx.conf": "http {\n    include /etc/nginx/conf.d/*.conf;\n}\n",
+		link:                    "server {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n    return 444;\n}\n",
+	}), own, link); n != 0 {
+		t.Errorf("ratline's own catch-all was counted as foreign: %d", n)
+	}
+	// The operator's own default in nginx.conf: foreign, so ratline stands down.
+	if n := countForeignDefaultServers(dump(map[string]string{
+		"/etc/nginx/nginx.conf": "http {\n    server {\n        listen 80 default_server;\n        return 444;\n    }\n}\n",
+	}), own, link); n != 1 {
+		t.Errorf("an operator's default_server was not detected: %d", n)
+	}
+	// A commented-out one does not count.
+	if n := countForeignDefaultServers(dump(map[string]string{
+		"/etc/nginx/sites-enabled/old.conf": "server {\n    # listen 80 default_server;\n    listen 80;\n}\n",
+	}), own, link); n != 0 {
+		t.Errorf("a commented default_server was counted: %d", n)
+	}
+	// nginx -T unavailable or empty: zero, so provisioning is never blocked on it.
+	if n := countForeignDefaultServers("", own, link); n != 0 {
+		t.Errorf("an empty dump counted %d", n)
+	}
+}

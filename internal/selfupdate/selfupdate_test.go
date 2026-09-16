@@ -156,3 +156,26 @@ func TestAnUnlistedAssetIsRefused(t *testing.T) {
 	}
 	mustBeUntouched(t, target)
 }
+
+// A SHA256SUMS line whose first field is not a digest is not a checksum for anything.
+// It used to be stored as one and then sliced for the error message, which panicked
+// rather than refusing.
+func TestAMalformedChecksumLineIsNotAChecksum(t *testing.T) {
+	f := &fakeRelease{
+		asset:   "ratline-panel-linux-amd64",
+		body:    []byte("a perfectly readable file"),
+		sumLine: "abc  ratline-panel-linux-amd64",
+	}
+	srv := f.server()
+	defer srv.Close()
+	target := targetFile(t)
+
+	_, err := updaterFor(t, f, srv.URL, target, false).Run(context.Background(), "")
+	if err == nil {
+		t.Fatal("an asset with a malformed checksum line was installed")
+	}
+	if !strings.Contains(err.Error(), "checksum") && !strings.Contains(err.Error(), "unparseable") {
+		t.Errorf("error = %q, want it to be about the checksum file", err)
+	}
+	mustBeUntouched(t, target)
+}

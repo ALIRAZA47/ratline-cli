@@ -50,13 +50,17 @@ func (m *Manager) ScanUsage(ctx context.Context, since time.Time) (int, error) {
 		if at.After(latest) {
 			latest = at
 		}
+		if m.DryRun {
+			recorded++
+			continue
+		}
 		if err := m.State.RecordKeyUsage(ctx, fingerprint, at, ip, "publickey"); err != nil {
 			m.Log.Debug("could not record key usage", "fingerprint", fingerprint, "err", err)
 			continue
 		}
 		recorded++
 	}
-	if !latest.IsZero() {
+	if !latest.IsZero() && !m.DryRun {
 		if err := m.State.SetLastKeyUsageScan(ctx, latest); err != nil {
 			m.Log.Debug("could not record the scan watermark", "err", err)
 		}

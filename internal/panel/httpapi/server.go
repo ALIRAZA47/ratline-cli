@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime"
 	"net"
 	"net/http"
 	"strconv"
@@ -129,9 +130,10 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/", s.UI)
 	}
 
-	// Outermost first: an address that is not allowed to talk to the panel should
-	// be refused before anything reads its body.
-	return s.withRecovery(s.withAllowList(s.withSecurityHeaders(s.withRequestLog(mux))))
+	// Security headers outside the allow list, so even a 403 to a blocked address
+	// carries the CSP and nosniff a browser should see; the allow list still runs
+	// before anything reads a body.
+	return s.withRecovery(s.withSecurityHeaders(s.withAllowList(s.withRequestLog(mux))))
 }
 
 // Serve runs until the context is cancelled.
@@ -255,6 +257,14 @@ func failStatus(w http.ResponseWriter, status int, name, message, hint string) {
 // fields are refused rather than ignored: a client sending `dryrun` and meaning
 // `dry_run` should be told, not silently given a real mutation.
 func decode(w http.ResponseWriter, r *http.Request, into any) error {
+	// application/json or nothing. A browser will send text/plain cross-site without a
+	// preflight, and a JSON body decodes the same whatever the header says — so without
+	// this, another site's page could POST a sign-in as an account it holds and leave
+	// the visitor's browser holding the attacker's session. Requiring the JSON media type
+	// makes the request one CORS preflights, and the panel answers no preflight.
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		return rlerr.Usagef("the request body must be sent as application/json")
+	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {

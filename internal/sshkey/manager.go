@@ -254,7 +254,9 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions, keys []*PublicKey) (
 			ExpiresAt:   grant.ExpiresAt,
 		}
 		key.Options = Options(&grant)
-		if err := m.State.PutKey(ctx, key); err != nil {
+		if m.DryRun {
+			m.Log.Info("would record the key", "fingerprint", key.Fingerprint, "scope", key.Scope)
+		} else if err := m.State.PutKey(ctx, key); err != nil {
 			return nil, err
 		}
 		res.Keys = append(res.Keys, key)
@@ -452,12 +454,20 @@ func (m *Manager) Remove(ctx context.Context, opts RemoveOptions) ([]*state.Key,
 
 	scopes := map[string]string{}
 	for _, k := range matches {
-		if opts.Revoke {
+		switch {
+		case m.DryRun:
+			// The authorized_keys and RevokedKeys writes below are skipped by the
+			// Runner's dry run; the state row is not, and a rehearsed removal that
+			// recorded a revocation sshd never saw is the wrong way round.
+			m.Log.Info("would remove the key", "fingerprint", k.Fingerprint, "revoke", opts.Revoke)
+		case opts.Revoke:
 			if err := m.State.RevokeKey(ctx, k.ID); err != nil {
 				return nil, err
 			}
-		} else if err := m.State.DeleteKey(ctx, k.ID); err != nil {
-			return nil, err
+		default:
+			if err := m.State.DeleteKey(ctx, k.ID); err != nil {
+				return nil, err
+			}
 		}
 		scopes[k.Scope+"\x00"+k.Owner] = k.Scope
 	}
@@ -518,6 +528,11 @@ func (m *Manager) Prune(ctx context.Context, at time.Time) ([]*state.Key, error)
 	scopes := map[string]string{}
 	for _, k := range all {
 		if !k.Expired(at) {
+			continue
+		}
+		if m.DryRun {
+			m.Log.Info("would remove an expired key", "label", k.Label, "scope", k.Scope)
+			pruned = append(pruned, k)
 			continue
 		}
 		if err := m.State.DeleteKey(ctx, k.ID); err != nil {

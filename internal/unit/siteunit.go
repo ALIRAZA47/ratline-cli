@@ -35,26 +35,25 @@ import (
 
 // SiteUnitData is the template input for a job or worker.
 type SiteUnitData struct {
-	Domain          string
-	Owner           string
-	Group           string
-	Slug            string
-	Kind            string
-	UnitName        string
-	GeneratedAt     string
-	WorkingDir      string
-	EnvironmentFile string
-	Environment     []string
-	ExecStart       string
-	LogFile         string
-	TimeoutSec      string
-	RestartSec      string
-	Limits          []string
-	Hardening       []string
-	Relaxed         bool
-	RelaxedList     string
-	IsWorker        bool
-	SiteUnitName    string
+	Domain       string
+	Owner        string
+	Group        string
+	Slug         string
+	Kind         string
+	UnitName     string
+	GeneratedAt  string
+	WorkingDir   string
+	Environment  []string
+	ExecStart    string
+	LogFile      string
+	TimeoutSec   string
+	RestartSec   string
+	Limits       []string
+	Hardening    []string
+	Relaxed      bool
+	RelaxedList  string
+	IsWorker     bool
+	SiteUnitName string
 
 	// timer only
 	Schedule        string
@@ -116,6 +115,11 @@ func (m *Manager) RenderSiteUnit(site *state.Site, u *state.SiteUnit) (service, 
 			return nil, nil, err
 		}
 	}
+	// The schedule reaches OnCalendar= verbatim. The CLI has systemd judge it first,
+	// but import and clone reach here without that, and a newline in it is a directive.
+	if err := validate.NoControlChars("schedule", u.Schedule); err != nil {
+		return nil, nil, err
+	}
 
 	siteDir := m.Cfg.SiteDir(site.Owner, site.Domain)
 	relaxed := append([]string(nil), site.Relaxed...)
@@ -130,8 +134,7 @@ func (m *Manager) RenderSiteUnit(site *state.Site, u *state.SiteUnit) (service, 
 		UnitName:        u.Name,
 		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
 		WorkingDir:      filepath.Join(siteDir, "app"),
-		EnvironmentFile: filepath.Join(siteDir, ".env"),
-		ExecStart:       u.Command,
+		ExecStart:       m.wrapExec(filepath.Join(siteDir, ".env"), siteUnitLogPath(siteDir, u), u.Command),
 		LogFile:         siteUnitLogPath(siteDir, u),
 		RestartSec:      m.Cfg.Defaults.RestartSec.D().String(),
 		Relaxed:         len(relaxed) > 0,

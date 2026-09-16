@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,20 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 )
+
+// newLogsCommand is `ratline logs <domain>`, the top-level shortcut for
+// `ratline site logs <domain>`.
+//
+// Reading a site's log is the thing an operator does most often and least
+// deliberately — usually right after something broke — so it earns a verb at the top
+// level rather than one buried under `site`. It is the same command: built by the
+// same function, with the same flags, so the two cannot drift.
+func newLogsCommand(g *Globals) *cobra.Command {
+	cmd := newSiteLogsCommand(g)
+	cmd.GroupID = GroupSites
+	cmd.Short = "Tail a site's log (the same as 'site logs')"
+	return cmd
+}
 
 func newSiteLogsCommand(g *Globals) *cobra.Command {
 	var (
@@ -94,17 +109,24 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 				}
 				return err
 			}
-			if follow {
-				tail, err := g.Bins.Path("tail")
+			// nginx's logs live under root's directory; the application's is the tenant's
+			// own file inside the tenant's tree. That one is opened only if the tenant owns
+			// it and neither follows a symlink: this runs as root, and through the panel it
+			// would otherwise print any file a tenant cared to link a log to.
+			owner := system.KeepUnchanged
+			if which == "app" {
+				id, err := system.LookupIdentity(site.Owner)
 				if err != nil {
-					// tail is not in the registry by default; read the file once
-					// rather than failing outright.
-					g.Log.Warn("tail is unavailable, so the log cannot be followed")
-					return printTail(g, path, lines)
+					return err
 				}
-				return execInPlace(cmd.Context(), g, tail, []string{"-n", fmt.Sprint(lines), "-f", path})
+				owner = id.UID
 			}
-			return printTail(g, path, lines)
+			f, err := system.OpenFileNoFollow(path, owner)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return tailLog(cmd.Context(), g, f, lines, follow)
 		},
 	}
 	f := cmd.Flags()
@@ -133,19 +155,55 @@ func execInPlace(ctx context.Context, g *Globals, path string, args []string) er
 	return err
 }
 
-func printTail(g *Globals, path string, n int) error {
-	data, err := system.ReadFileLimit(path, 64<<20)
+// tailLog prints the last n lines of an open log and, with follow, keeps printing as it
+// grows until the context ends.
+//
+// In-process rather than exec'ing tail: tail opens the path by name, as root, and
+// follows a symlink there. The descriptor here was opened with O_NOFOLLOW and checked,
+// and nothing a tenant does to the path afterwards changes what it reads.
+func tailLog(ctx context.Context, g *Globals, f *os.File, n int, follow bool) error {
+	const window = 64 << 20
+	if fi, err := f.Stat(); err == nil && fi.Size() > window {
+		// Only the tail of a huge log, the same way tail itself behaves.
+		if _, err := f.Seek(fi.Size()-window, io.SeekStart); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "seeking in %s", f.Name())
+		}
+	}
+	data, err := io.ReadAll(f)
 	if err != nil {
-		return err
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "reading %s", f.Name())
 	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
+	if trimmed := strings.TrimRight(string(data), "\n"); trimmed != "" {
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) > n {
+			lines = lines[len(lines)-n:]
+		}
+		for _, l := range lines {
+			fmt.Fprintln(g.Stdout, l)
+		}
 	}
-	for _, l := range lines {
-		fmt.Fprintln(g.Stdout, l)
+	if !follow {
+		return nil
 	}
-	return nil
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	buf := make([]byte, 64<<10)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-tick.C:
+		}
+		for {
+			k, err := f.Read(buf)
+			if k > 0 {
+				_, _ = g.Stdout.Write(buf[:k])
+			}
+			if err != nil {
+				break
+			}
+		}
+	}
 }
 
 func newSiteDeployCommand(g *Globals) *cobra.Command {

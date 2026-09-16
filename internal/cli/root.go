@@ -173,6 +173,7 @@ func NewRootCommand(g *Globals) *cobra.Command {
 		newUserCommand(g),
 		newKeyCommand(g),
 		newSiteCommand(g),
+		newLogsCommand(g),
 		newCertCommand(g),
 		newRuntimeCommand(g),
 		newNewCommand(g),

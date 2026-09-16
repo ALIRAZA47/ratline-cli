@@ -204,9 +204,13 @@ func newKeyAddCommand(g *Globals) *cobra.Command {
 					return rlerr.Usagef("--isolation strict and --allow-shell contradict each other").
 						WithHint("a chroot exists to prevent a shell reaching outside it")
 				}
-				grant.SFTPOnly = true
-				g.Log.Warn("strict isolation adds a chroot; test the login before relying on it",
-					"site", grant.Site)
+				// Honest rather than reassuring. The chroot this promises needs a root-owned
+				// directory with the site bind-mounted inside it, and nothing sets that up:
+				// the flag used to set a field nothing read and log that a chroot had been
+				// added. A key that says it is confined and is not is worse than no key.
+				return rlerr.Preconditionf("strict isolation is not available in this release").
+					WithHint("a site-scoped key is confined by ratline-shell for rsync, scp -O and git; " +
+						"for kernel-enforced isolation use one system user per site")
 			default:
 				return rlerr.Usagef("--isolation must be default or strict, got %q", isolation)
 			}

@@ -79,8 +79,12 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, c 
 		s.fail(w, err)
 		return
 	}
+	if !s.reauthAllowed(w, r, c) {
+		return
+	}
 	valid, err := auth.VerifyPassword(c.Account.PasswordHash, req.Current)
 	if err != nil || !valid {
+		s.reauthFailed(r, c)
 		failStatus(w, http.StatusForbidden, "invalid_credentials",
 			"the current password is wrong", "")
 		return
@@ -150,12 +154,11 @@ func (s *Server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request, c *Ca
 		s.fail(w, rlerr.Preconditionf("no second factor has been started for this account"))
 		return
 	}
-	valid, err := auth.VerifyTOTP(c.Account.TOTPSecret, req.Code, s.now())
-	if err != nil {
-		s.fail(w, err)
+	if !s.reauthAllowed(w, r, c) {
 		return
 	}
-	if !valid {
+	if !s.acceptTOTP(r.Context(), c.Account, req.Code, s.now()) {
+		s.reauthFailed(r, c)
 		failStatus(w, http.StatusForbidden, "invalid_code",
 			"that code is not right", "check the clock on the device generating it")
 		return
@@ -186,14 +189,18 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request, c *Ca
 			WithHint("set security.require_totp to false in panel.yaml first"))
 		return
 	}
+	if !s.reauthAllowed(w, r, c) {
+		return
+	}
 	valid, err := auth.VerifyPassword(c.Account.PasswordHash, req.Password)
 	if err != nil || !valid {
+		s.reauthFailed(r, c)
 		failStatus(w, http.StatusForbidden, "invalid_credentials", "the password is wrong", "")
 		return
 	}
 	if c.Account.TOTPEnabled {
-		valid, err := auth.VerifyTOTP(c.Account.TOTPSecret, req.Code, s.now())
-		if err != nil || !valid {
+		if !s.acceptTOTP(r.Context(), c.Account, req.Code, s.now()) {
+			s.reauthFailed(r, c)
 			failStatus(w, http.StatusForbidden, "invalid_code", "that code is not right", "")
 			return
 		}
@@ -204,6 +211,40 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request, c *Ca
 	}
 	s.Log.Warn("a second factor was removed", "account", c.Account.Email)
 	ok(w, map[string]bool{"enabled": false})
+}
+
+// reauthAllowed is the sign-in throttle applied to the endpoints that re-check a
+// password or a code for somebody already signed in. It writes the 429 itself and
+// reports false when the caller should stop.
+//
+// Those endpoints exist for the case of a session in the wrong hands — a borrowed
+// laptop, a stolen cookie — and that is exactly who would sit at them guessing: the
+// current password, or a six-digit code to remove the second factor. Unthrottled, the
+// code is a few hours' work at argon2 speed. Counted per account and per address like
+// the front door, they get the same eight tries the front door gives.
+func (s *Server) reauthAllowed(w http.ResponseWriter, r *http.Request, c *Caller) bool {
+	since := s.now().Add(-s.Cfg.Security.LoginWindow.D())
+	byEmail, byIP, err := s.Store.FailedLoginsSince(r.Context(), c.Account.Email, c.IP, since)
+	if err != nil {
+		s.fail(w, err)
+		return false
+	}
+	limit := s.Cfg.Security.MaxFailedLogins
+	if byEmail >= limit || byIP >= limit {
+		w.Header().Set("Retry-After", "60")
+		failStatus(w, http.StatusTooManyRequests, "rate_limited",
+			"too many failed attempts; wait a few minutes",
+			"the window is "+s.Cfg.Security.LoginWindow.String())
+		return false
+	}
+	return true
+}
+
+// reauthFailed counts one more failure against the account and the address.
+func (s *Server) reauthFailed(r *http.Request, c *Caller) {
+	if err := s.Store.RecordLoginAttempt(r.Context(), c.Account.Email, c.IP, false, s.now()); err != nil {
+		s.Log.Debug("could not record the failed re-authentication", "err", err)
+	}
 }
 
 // sessionSummary describes one live session without the token that would let

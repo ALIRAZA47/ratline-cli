@@ -376,6 +376,14 @@ func (m *Manager) archiveRoot(ctx context.Context, archive string) (string, erro
 	if err != nil {
 		return "", rlerr.Wrap(err, rlerr.CodeExternal, "%s is not a readable tar archive", archive)
 	}
+	// The member *types* as well as their names. tar's own defences against a symlink
+	// member followed by a write through it, or a hard link to a file outside the
+	// archive, vary by version — and swapIn chowns everything extracted to the tenant,
+	// which for a hard link means chowning the file it shares an inode with. Only files
+	// and directories are backed up, so only files and directories are restored.
+	if err := m.refuseLinkMembers(ctx, archive); err != nil {
+		return "", err
+	}
 	roots := map[string]bool{}
 	for _, line := range strings.Split(res.Out(), "\n") {
 		name := strings.TrimSpace(line)
@@ -413,6 +421,39 @@ func (m *Manager) archiveRoot(ctx context.Context, archive string) (string, erro
 		return r, nil
 	}
 	return "", rlerr.Preconditionf("%s is empty", archive)
+}
+
+// refuseLinkMembers rejects an archive holding anything but regular files and
+// directories: symbolic links, hard links, devices and FIFOs. The verbose listing's
+// first character is the type, the same letter ls prints.
+func (m *Manager) refuseLinkMembers(ctx context.Context, archive string) error {
+	res, err := m.Runner.Run(ctx, system.Cmd{
+		Name: "tar", Args: []string{"--list", "--verbose", "--file", archive}, Timeout: 10 * time.Minute,
+		Label: "tar --list --verbose",
+	})
+	if err != nil {
+		return rlerr.Wrap(err, rlerr.CodeExternal, "%s is not a readable tar archive", archive)
+	}
+	for _, line := range strings.Split(res.Out(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch line[0] {
+		case '-', 'd':
+		case 'l':
+			return rlerr.Preconditionf("%s contains a symbolic link: %s", archive, line).
+				WithHint("ratline's own backups hold files and directories only; extracting a link as root " +
+					"is how an archive writes outside the directory it is restored into")
+		case 'h':
+			return rlerr.Preconditionf("%s contains a hard link: %s", archive, line).
+				WithHint("a hard link shares its target's inode, and the restore would hand the tenant " +
+					"ownership of whatever that is")
+		default:
+			return rlerr.Preconditionf("%s contains an entry that is not a file or a directory: %s", archive, line)
+		}
+	}
+	return nil
 }
 
 // untar extracts into a directory that already exists.

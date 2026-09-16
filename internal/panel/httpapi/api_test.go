@@ -14,6 +14,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/cli"
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel"
+	"github.com/ALIRAZA47/ratline-cli/internal/panel/auth"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/jobs"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/rl"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/store"
@@ -1046,4 +1047,141 @@ func stringsOf(t *testing.T, v any) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// Somebody who saw a code over a shoulder has until the end of the skew window to use
+// it after its owner did — unless the step is spent on first use.
+func TestATOTPCodeCannotBeReplayed(t *testing.T) {
+	h := newHarness(t, nil)
+	h.setup("ops@example.com", goodPassword)
+	secret, _ := h.data(h.do(http.MethodPost, "/api/me/totp/start", nil))["secret"].(string)
+	code, err := codeFor(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := h.do(http.MethodPost, "/api/me/totp/confirm", map[string]string{"code": code}); rec.Code != http.StatusOK {
+		t.Fatalf("could not enrol: %d %s", rec.Code, rec.Body.String())
+	}
+	// Enrolment spent that step; the next code is for the sign-in.
+	h.server.now = func() time.Time { return time.Now().UTC().Add(time.Minute) }
+	code, err = auth.TOTPCode(secret, h.server.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.cookie, h.csrf = "", ""
+	login := map[string]string{"email": "ops@example.com", "password": goodPassword, "code": code}
+	if rec := h.do(http.MethodPost, "/api/auth/login", login); rec.Code != http.StatusOK {
+		t.Fatalf("the first sign-in with the code returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.do(http.MethodPost, "/api/auth/login", login); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("the same code signed in twice (%d)", rec.Code)
+	}
+}
+
+// The endpoints that re-check a password for somebody already signed in are exactly
+// where a stolen session would sit guessing. They get the front door's limit.
+func TestReauthenticationIsThrottledLikeSignIn(t *testing.T) {
+	h := newHarness(t, func(c *panel.Config) { c.Security.MaxFailedLogins = 3 })
+	h.setup("ops@example.com", goodPassword)
+
+	for i := 0; i < 3; i++ {
+		rec := h.do(http.MethodPost, "/api/me/password",
+			map[string]string{"current": "wrong", "new": "another perfectly reasonable passphrase"})
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("guess %d returned %d, want 403", i+1, rec.Code)
+		}
+	}
+	rec := h.do(http.MethodPost, "/api/me/password",
+		map[string]string{"current": goodPassword, "new": "another perfectly reasonable passphrase"})
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("the fourth attempt returned %d, want 429 — with the right password, so "+
+			"the limit is on attempts", rec.Code)
+	}
+	// And a TOTP removal attempt is behind the same counter.
+	rec = h.do(http.MethodPost, "/api/me/totp/disable", map[string]string{"password": goodPassword, "code": "000000"})
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("removing the second factor was not throttled: %d", rec.Code)
+	}
+}
+
+// A text/plain POST is one a browser sends cross-site without a preflight, and the
+// JSON inside decodes the same. Refusing anything but application/json is what turns a
+// cross-site sign-in into a request the browser will not make.
+func TestABodyWithoutTheJSONContentTypeIsRefused(t *testing.T) {
+	h := newHarness(t, nil)
+	h.setup("ops@example.com", goodPassword)
+	body := `{"email":"ops@example.com","password":"` + goodPassword + `"}`
+	for _, ct := range []string{"", "text/plain", "application/x-www-form-urlencoded"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		rec := httptest.NewRecorder()
+		h.http.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("content type %q: returned %d, want 400", ct, rec.Code)
+		}
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == h.server.Cfg.Session.CookieName && c.Value != "" {
+				t.Errorf("content type %q: a session cookie was set", ct)
+			}
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rec := httptest.NewRecorder()
+	h.http.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("application/json with a charset parameter was refused: %d", rec.Code)
+	}
+}
+
+// The logs page picks which of a site's logs to read — application, nginx access or
+// error, or the journal — and each maps to exactly one ratline flag. A stream that is
+// not one of those is refused rather than passed through.
+func TestSiteLogsStreamSelectsTheRatlineFlag(t *testing.T) {
+	h := newHarness(t, nil)
+	h.setup("ops@example.com", goodPassword)
+	h.runner.reply = "GET / 200\nGET /style.css 200\n"
+
+	for stream, flag := range map[string]string{
+		"app":     "--app",
+		"access":  "--access",
+		"error":   "--error",
+		"journal": "--journal",
+	} {
+		rec := h.do(http.MethodGet, "/api/sites/example.com/logs?stream="+stream+"&lines=50", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("stream %q returned %d: %s", stream, rec.Code, rec.Body.String())
+		}
+		data := h.data(rec)
+		if data["text"] != "GET / 200\nGET /style.css 200\n" {
+			t.Errorf("stream %q did not return the log text: %v", stream, data["text"])
+		}
+		argv := strings.Join(h.runner.lastCall(t), " ")
+		if !strings.Contains(argv, "site logs") || !strings.Contains(argv, flag) {
+			t.Errorf("stream %q invoked %q, want it to carry %q", stream, argv, flag)
+		}
+		if !strings.Contains(argv, "--lines=50") {
+			t.Errorf("stream %q did not pass the line count: %q", stream, argv)
+		}
+		// --follow would hold the request open with no way for the browser to end it.
+		if strings.Contains(argv, "--follow") {
+			t.Errorf("stream %q passed --follow: %q", stream, argv)
+		}
+	}
+
+	// No stream is the application log, the same default as the CLI.
+	rec := h.do(http.MethodGet, "/api/sites/example.com/logs", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the default stream returned %d", rec.Code)
+	}
+	if !strings.Contains(strings.Join(h.runner.lastCall(t), " "), "--app") {
+		t.Error("the default stream is not the application log")
+	}
+
+	// A stream that is not one of the four is a 400, not a silently-wrong read.
+	if rec := h.do(http.MethodGet, "/api/sites/example.com/logs?stream=/etc/passwd", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("a bogus stream returned %d, want 400", rec.Code)
+	}
 }

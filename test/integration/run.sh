@@ -217,6 +217,24 @@ hdr=$(curl -sSI -H 'Host: static.test' http://127.0.0.1/index.html)
 contains "the index is not cached" "no-cache" "$hdr"
 contains "the security headers are set" "X-Content-Type-Options" "$hdr"
 
+# A request for a host ratline does not manage — the bare IP, a scanner's name, a
+# domain somebody else pointed here — must not be answered with a tenant's site.
+# Without a default_server that is exactly what nginx does. 444 closes the connection
+# with no response, which curl reports as an empty reply (exit 52) and status 000.
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: nobody.invalid' http://127.0.0.1/ 2>/dev/null || true)
+[ "$code" = "000" ] && ok "an unknown host is served nothing (connection closed)" \
+    || bad "unknown host catch-all" "got HTTP $code; a tenant's site is being served to strangers"
+code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null || true)
+[ "$code" = "000" ] && ok "the bare IP is served nothing" || bad "bare IP catch-all" "got HTTP $code"
+# And the site itself is untouched by the catch-all.
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/)
+[ "$code" = "200" ] && ok "a known host still gets its site" || bad "known host after catch-all" "got $code"
+# A tenant may not serve a file of root's through a symlink in their document root.
+ln -sf /etc/passwd /home/alice/static.test/public/leak
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/leak)
+[ "$code" = "403" ] && ok "a symlink out of the tenant's tree is refused" || bad "symlink out of tree" "got $code"
+rm -f /home/alice/static.test/public/leak
+
 # The ACME challenge must be served even before any certificate exists.
 echo -n token123 > /var/www/ratline-acme/.well-known/acme-challenge/token123
 got=$(curl -sS -H 'Host: static.test' http://127.0.0.1/.well-known/acme-challenge/token123)
@@ -2274,7 +2292,7 @@ job_unit=$(cat /etc/systemd/system/ratline-alice-jobs_test-job-nightly.service)
 contains "the job runs as the tenant" "User=alice" "$job_unit"
 contains "the job has a memory ceiling" "MemoryMax=" "$job_unit"
 contains "the job is sandboxed" "ProtectSystem=strict" "$job_unit"
-contains "the job reads the site's env" "EnvironmentFile=-/home/alice/jobs.test/.env" "$job_unit"
+contains "the job reads the site's env" "exec --env-file /home/alice/jobs.test/.env" "$job_unit"
 contains "the job is oneshot, so runs cannot overlap" "Type=oneshot" "$job_unit"
 
 # Running it now is how you find out a job works without waiting until 3am.

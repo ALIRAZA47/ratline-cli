@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -136,6 +137,10 @@ func (app *App) install(ctx context.Context, opts installOptions) error {
 
 	if opts.noStart {
 		app.printf("\nNot started, as asked. Start it with:\n  systemctl start %s\n", install.UnitName)
+		// The account exists whether or not the service is up, and its password is
+		// shown once; returning without it would create an administrator nobody can
+		// sign in as.
+		app.reportAdmin(created)
 		return nil
 	}
 	if app.DryRun {
@@ -240,6 +245,28 @@ func (app *App) ensureFirstAdmin(ctx context.Context, st *store.Store, opts inst
 }
 
 func (app *App) reportAdmin(created *createdAdmin) {
+	if app.JSON {
+		// printf is silent under --json, and a generated password is the one output
+		// of an install that cannot be recovered afterwards. It goes in the envelope.
+		data := map[string]any{"admin_created": created != nil && created.Password != "" || created != nil && created.Existing == 0}
+		if created != nil {
+			data["admin_email"] = created.Email
+			data["existing_accounts"] = created.Existing
+			if created.Password != "" {
+				data["admin_password"] = created.Password
+			}
+		}
+		if err := app.emitJSON("install", data); err != nil {
+			app.Log.Error("could not write the install result", "err", err)
+		}
+		return
+	}
+	if app.Quiet && created != nil && created.Password != "" {
+		// --quiet suppresses everything but errors, and this is not a thing to
+		// suppress: without it the account cannot be used.
+		fmt.Fprintf(app.Stdout, "%s %s\n", created.Email, created.Password)
+		return
+	}
 	switch {
 	case created == nil:
 		app.printf("\nNo account exists yet, as asked. Whoever reaches the panel first\n")

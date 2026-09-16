@@ -14,7 +14,6 @@ package jobs
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -127,7 +126,9 @@ func (m *Manager) Submit(ctx context.Context, spec Spec) error {
 	// The argv is recorded before the job runs, so a queue somebody is looking at
 	// says what each entry is about to do rather than only what it did.
 	if argv, err := m.argv(ctx, spec); err == nil {
-		job.Argv = strings.Join(argv, " ")
+		// Through the same redaction ratline's audit trail uses: this row is shown to
+		// every admin, and a value-carrying argument does not belong in it.
+		job.Argv = log.ArgvString(argv)
 	}
 	if err := m.store.CreateJob(ctx, job); err != nil {
 		return err

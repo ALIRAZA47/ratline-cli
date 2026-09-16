@@ -52,21 +52,30 @@ func TOTPCode(secret string, at time.Time) (string, error) {
 }
 
 // VerifyTOTP reports whether a code is valid for the secret at that moment.
+func VerifyTOTP(secret, code string, at time.Time) (bool, error) {
+	_, ok, err := VerifyTOTPStep(secret, code, at)
+	return ok, err
+}
+
+// VerifyTOTPStep is VerifyTOTP that also says which time step the code was for, so the
+// caller can refuse to accept that step, or an earlier one, a second time.
 //
 // The comparison is constant-time and every candidate step is checked, rather than
 // returning on the first match: a loop that exits early tells an attacker measuring
-// the response *which* step matched, and the whole cost here is three HMACs.
-func VerifyTOTP(secret, code string, at time.Time) (bool, error) {
+// the response *which* step matched, and the whole cost here is three HMACs. The step
+// is selected in constant time too, for the same reason.
+func VerifyTOTPStep(secret, code string, at time.Time) (step uint64, ok bool, err error) {
 	code = strings.TrimSpace(strings.ReplaceAll(code, " ", ""))
 	if len(code) != totpDigits {
-		return false, nil
+		return 0, false, nil
 	}
 	key, err := decodeSecret(secret)
 	if err != nil {
-		return false, err
+		return 0, false, err
 	}
 	counter := uint64(at.UTC().Unix()) / uint64(totpPeriod.Seconds())
 	match := 0
+	var matched uint64
 	for i := -totpSkew; i <= totpSkew; i++ {
 		c := counter
 		if i < 0 {
@@ -77,9 +86,13 @@ func VerifyTOTP(secret, code string, at time.Time) (bool, error) {
 		} else {
 			c += uint64(i)
 		}
-		match |= subtle.ConstantTimeCompare([]byte(hotp(key, c)), []byte(code))
+		eq := subtle.ConstantTimeCompare([]byte(hotp(key, c)), []byte(code))
+		match |= eq
+		// The counter is seconds since 1970 divided by thirty, which fits an int on
+		// every platform Go targets for the next few thousand years.
+		matched = uint64(subtle.ConstantTimeSelect(eq, int(c), int(matched)))
 	}
-	return match == 1, nil
+	return matched, match == 1, nil
 }
 
 // TOTPURI is the otpauth:// URI an authenticator app reads from a QR code.

@@ -670,25 +670,26 @@ func (m *Manager) buildTree(ctx context.Context, site *state.Site, id *system.Id
 		}
 	}
 
-	// The log files are created up front so that logrotate's create directive and
-	// nginx's append both find what they expect.
-	for _, name := range []string{"access.log", "error.log", "app.log"} {
-		path := filepath.Join(siteDir, "logs", name)
-		if system.Exists(path) {
-			continue
-		}
-		if err := system.WriteFileAtomic(path, nil, 0o640, id.UID, logGID); err != nil {
+	// The application's own log is created up front, owned by the tenant, so that
+	// logrotate's create directive and PM2's out_file both find what they expect.
+	// nginx's logs are not here: see EnsureNginxLogDir.
+	appLog := filepath.Join(siteDir, "logs", "app.log")
+	if !system.Exists(appLog) {
+		if err := system.WriteFileAtomic(appLog, nil, 0o640, id.UID, logGID); err != nil {
 			return err
 		}
 	}
+	if err := m.EnsureNginxLogDir(site); err != nil {
+		return err
+	}
 
-	// .env is 0600 and owned by the tenant. systemd reads it as root before
-	// dropping privileges, which is what lets it hold secrets nginx can never
-	// serve — and it is outside the document root by construction.
+	// .env is 0600 and owned by the tenant. The service loads it as that user,
+	// through ratline-shell's exec mode, which is what lets it hold secrets nginx
+	// can never serve — and it is outside the document root by construction.
 	envPath := filepath.Join(siteDir, ".env")
 	if !system.Exists(envPath) {
 		header := "# Environment for " + site.Domain + "\n" +
-			"# Loaded by systemd before privileges are dropped. Never served by nginx.\n" +
+			"# Loaded into the service's environment as " + site.Owner + ". Never served by nginx.\n" +
 			"# Manage it with: ratline site env set " + site.Domain + " KEY=VALUE\n"
 		if err := system.WriteFileAtomic(envPath, []byte(header), 0o600, id.UID, id.GID); err != nil {
 			return err

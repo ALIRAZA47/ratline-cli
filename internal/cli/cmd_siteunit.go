@@ -478,7 +478,18 @@ func newSiteUnitLogsCommand(g *Globals, kind string) *cobra.Command {
 			// run perfectly well.
 			path := unit.SiteUnitLogPath(g.Cfg, site, u)
 			if system.Exists(path) {
-				return printTail(g, path, lines)
+				// The tenant's own file, in the tenant's directory, read as root: opened
+				// without following a symlink and only if the tenant owns it.
+				id, err := system.LookupIdentity(site.Owner)
+				if err != nil {
+					return err
+				}
+				f, err := system.OpenFileNoFollow(path, id.UID)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				return tailLog(ctx, g, f, lines, false)
 			}
 			// Nothing there yet is the ordinary case for a job that has never fired. But a
 			// unit that failed before it could open its log file leaves its complaint in

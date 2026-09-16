@@ -129,4 +129,10 @@ var migrations = [][]string{
 			updated_at TEXT NOT NULL
 		)`,
 	},
+	// 2 — the last TOTP time step a code was accepted for. RFC 6238 says a verifier must
+	// not accept the same one-time code twice; without this column a code somebody saw
+	// over a shoulder was good for the whole ninety-second window after its owner used it.
+	{
+		`ALTER TABLE accounts ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`,
+	},
 }

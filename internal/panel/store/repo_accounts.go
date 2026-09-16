@@ -11,7 +11,14 @@ import (
 )
 
 const accountColumns = `id, email, name, role, password_hash, totp_secret, totp_enabled,
-	disabled, created_at, created_by, updated_at, last_login_at, last_login_ip`
+	disabled, created_at, created_by, updated_at, last_login_at, last_login_ip, totp_last_step`
+
+// querier is what *sql.DB and *sql.Tx have in common, so that a guard can be written
+// once and run either on its own or inside the transaction that acts on its answer.
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
 
 // NormalizeEmail lowercases and trims an address so that one person cannot hold two
 // accounts by capitalising differently. Stored normalised, compared normalised.
@@ -19,6 +26,33 @@ func NormalizeEmail(s string) string { return strings.ToLower(strings.TrimSpace(
 
 // CreateAccount inserts an account. The caller has already hashed the password.
 func (s *Store) CreateAccount(ctx context.Context, a *Account) error {
+	return insertAccount(ctx, s.db, a)
+}
+
+// ErrAlreadySetUp is what CreateFirstAccount returns when it was not the first.
+var ErrAlreadySetUp = errors.New("the panel already has an account")
+
+// CreateFirstAccount inserts the panel's first account, and only if there is none.
+//
+// The count and the insert are one transaction, begun with a write lock (the store
+// opens every transaction BEGIN IMMEDIATE), so two setup requests arriving together
+// cannot both see an empty table: the second waits for the first to commit and then
+// sees its row. UNIQUE(email) alone would let two different addresses both claim the
+// panel, and the operator who won would not know they were not alone.
+func (s *Store) CreateFirstAccount(ctx context.Context, a *Account) error {
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts`).Scan(&n); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "counting accounts")
+		}
+		if n > 0 {
+			return ErrAlreadySetUp
+		}
+		return insertAccount(ctx, tx, a)
+	})
+}
+
+func insertAccount(ctx context.Context, q querier, a *Account) error {
 	a.Email = NormalizeEmail(a.Email)
 	if !ValidRole(a.Role) {
 		return rlerr.Usagef("%q is not a role", a.Role)
@@ -27,12 +61,12 @@ func (s *Store) CreateAccount(ctx context.Context, a *Account) error {
 		a.CreatedAt = time.Now().UTC()
 	}
 	a.UpdatedAt = a.CreatedAt
-	_, err := s.db.ExecContext(ctx,
+	_, err := q.ExecContext(ctx,
 		`INSERT INTO accounts (`+accountColumns+`)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.Email, a.Name, a.Role, a.PasswordHash, a.TOTPSecret, boolToInt(a.TOTPEnabled),
 		boolToInt(a.Disabled), formatTime(a.CreatedAt), a.CreatedBy, formatTime(a.UpdatedAt),
-		formatTime(a.LastLoginAt), a.LastLoginIP)
+		formatTime(a.LastLoginAt), a.LastLoginIP, a.TOTPLastStep)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return rlerr.Preconditionf("an account already exists for %s", a.Email).
@@ -50,7 +84,7 @@ func scanAccount(sc interface{ Scan(...any) error }) (*Account, error) {
 		created, updated, lastLogin string
 	)
 	err := sc.Scan(&a.ID, &a.Email, &a.Name, &a.Role, &a.PasswordHash, &a.TOTPSecret, &totp,
-		&disabled, &created, &a.CreatedBy, &updated, &lastLogin, &a.LastLoginIP)
+		&disabled, &created, &a.CreatedBy, &updated, &lastLogin, &a.LastLoginIP, &a.TOTPLastStep)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +112,11 @@ func (s *Store) FindAccountByEmail(ctx context.Context, email string) (*Account,
 
 // FindAccount looks an account up by id.
 func (s *Store) FindAccount(ctx context.Context, id string) (*Account, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE id = ?`, id)
+	return findAccount(ctx, s.db, id)
+}
+
+func findAccount(ctx context.Context, q querier, id string) (*Account, error) {
+	row := q.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE id = ?`, id)
 	a, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, notFound("account", id)
@@ -119,10 +157,11 @@ func (s *Store) CountAccounts(ctx context.Context) (int, error) {
 }
 
 // countActiveSuperAdmins is the guard behind every change that could remove the last
-// person able to grant access back.
-func (s *Store) countActiveSuperAdmins(ctx context.Context, excluding string) (int, error) {
+// person able to grant access back. It runs inside the transaction that acts on it,
+// or two super admins demoting each other at the same moment would both pass.
+func countActiveSuperAdmins(ctx context.Context, q querier, excluding string) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM accounts WHERE role = ? AND disabled = 0 AND id <> ?`,
 		RoleSuperAdmin, excluding).Scan(&n)
 	if err != nil {
@@ -146,39 +185,44 @@ func (s *Store) SetAccountRole(ctx context.Context, id, role string) error {
 	if !ValidRole(role) {
 		return rlerr.Usagef("%q is not a role", role)
 	}
-	a, err := s.FindAccount(ctx, id)
-	if err != nil {
-		return err
-	}
-	if a.Role == RoleSuperAdmin && role != RoleSuperAdmin {
-		n, err := s.countActiveSuperAdmins(ctx, id)
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		a, err := findAccount(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if n == 0 {
-			return errLastSuperAdmin("demoting " + a.Email)
+		if a.Role == RoleSuperAdmin && role != RoleSuperAdmin {
+			n, err := countActiveSuperAdmins(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return errLastSuperAdmin("demoting " + a.Email)
+			}
 		}
-	}
-	return s.touch(ctx, id, `role = ?`, role)
+		return touch(ctx, tx, id, `role = ?`, role)
+	})
 }
 
 // SetAccountDisabled disables or re-enables an account, refusing to disable the last
 // super admin.
 func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool) error {
-	a, err := s.FindAccount(ctx, id)
-	if err != nil {
-		return err
-	}
-	if disabled && a.Role == RoleSuperAdmin {
-		n, err := s.countActiveSuperAdmins(ctx, id)
+	err := s.Tx(ctx, func(tx *sql.Tx) error {
+		a, err := findAccount(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if n == 0 {
-			return errLastSuperAdmin("disabling " + a.Email)
+		if disabled && a.Role == RoleSuperAdmin {
+			n, err := countActiveSuperAdmins(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return errLastSuperAdmin("disabling " + a.Email)
+			}
 		}
-	}
-	if err := s.touch(ctx, id, `disabled = ?`, boolToInt(disabled)); err != nil {
+		return touch(ctx, tx, id, `disabled = ?`, boolToInt(disabled))
+	})
+	if err != nil {
 		return err
 	}
 	if disabled {
@@ -192,21 +236,44 @@ func (s *Store) SetAccountDisabled(ctx context.Context, id string, disabled bool
 
 // SetPassword replaces the stored hash and signs every other browser out.
 func (s *Store) SetPassword(ctx context.Context, id, hash string) error {
-	if err := s.touch(ctx, id, `password_hash = ?`, hash); err != nil {
+	if err := touch(ctx, s.db, id, `password_hash = ?`, hash); err != nil {
 		return err
 	}
 	return s.DeleteSessionsFor(ctx, id)
 }
 
-// SetTOTP stores a secret and whether it has been confirmed.
+// SetTOTP stores a secret and whether it has been confirmed. A new secret starts the
+// replay record over: its steps have nothing to do with the old one's.
 func (s *Store) SetTOTP(ctx context.Context, id, secret string, enabled bool) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE accounts SET totp_secret = ?, totp_enabled = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE accounts SET totp_secret = ?, totp_enabled = ?, totp_last_step = 0, updated_at = ? WHERE id = ?`,
 		secret, boolToInt(enabled), now(), id)
 	if err != nil {
 		return rlerr.Wrap(err, rlerr.CodeGeneric, "updating the second factor")
 	}
 	return affectedOne(res, "account", id)
+}
+
+// ConsumeTOTPStep records that a code for the given time step was accepted, and
+// reports false if one for that step or a later one already had been.
+//
+// One conditional UPDATE rather than a read and a write, so two requests presenting
+// the same code at the same moment cannot both succeed: whichever runs first changes
+// the row and the other finds nothing to change. RFC 6238 §5.2 requires a verifier to
+// refuse a second use of an OTP; refusing anything not newer than the last accepted
+// step also closes the one-step-behind code the skew window would otherwise still take.
+func (s *Store) ConsumeTOTPStep(ctx context.Context, id string, step uint64) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?`,
+		int64(step), id, int64(step))
+	if err != nil {
+		return false, rlerr.Wrap(err, rlerr.CodeGeneric, "recording the second-factor step")
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, rlerr.Wrap(err, rlerr.CodeGeneric, "checking the update")
+	}
+	return n == 1, nil
 }
 
 // RecordLogin stamps a successful sign-in.
@@ -222,29 +289,31 @@ func (s *Store) RecordLogin(ctx context.Context, id, ip string, at time.Time) er
 
 // DeleteAccount removes an account and everything that referenced it.
 func (s *Store) DeleteAccount(ctx context.Context, id string) error {
-	a, err := s.FindAccount(ctx, id)
-	if err != nil {
-		return err
-	}
-	if a.Role == RoleSuperAdmin {
-		n, err := s.countActiveSuperAdmins(ctx, id)
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		a, err := findAccount(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if n == 0 {
-			return errLastSuperAdmin("deleting " + a.Email)
+		if a.Role == RoleSuperAdmin {
+			n, err := countActiveSuperAdmins(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return errLastSuperAdmin("deleting " + a.Email)
+			}
 		}
-	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, id)
-	if err != nil {
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "deleting the account")
-	}
-	return affectedOne(res, "account", id)
+		res, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, id)
+		if err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "deleting the account")
+		}
+		return affectedOne(res, "account", id)
+	})
 }
 
 // touch applies a single-column update and moves updated_at.
-func (s *Store) touch(ctx context.Context, id, assignment string, value any) error {
-	res, err := s.db.ExecContext(ctx,
+func touch(ctx context.Context, q querier, id, assignment string, value any) error {
+	res, err := q.ExecContext(ctx,
 		`UPDATE accounts SET `+assignment+`, updated_at = ? WHERE id = ?`, value, now(), id)
 	if err != nil {
 		return rlerr.Wrap(err, rlerr.CodeGeneric, "updating the account")

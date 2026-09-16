@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 )
 
@@ -27,67 +29,69 @@ const KeepUnchanged = -1
 // The parent directory must already exist: creating it here would mean guessing
 // its mode and owner, and every caller knows better than this function does.
 func WriteFileAtomic(path string, data []byte, mode fs.FileMode, uid, gid int) error {
-	dir := filepath.Dir(path)
-	// Lstat, not Stat: the parent must be a real directory, not a symlink. ratline writes
-	// as root into directories a tenant owns — a site's .env, its logs, its manifest — and
-	// a tenant with shell access could replace one of those directories with a symlink to,
-	// say, /etc/cron.d between operations. Stat would follow it and this write would land
-	// wherever the tenant pointed, as root. A ratline directory is never legitimately a
-	// symlink, so refusing one costs nothing and closes that redirection.
-	fi, err := os.Lstat(dir)
+	clean := filepath.Clean(path)
+	dir, base := filepath.Dir(clean), filepath.Base(clean)
+	if base == "." || base == string(filepath.Separator) {
+		return rlerr.Genericf("cannot write %q: it is not a file path", path)
+	}
+	// The parent is opened once, component by component, refusing any symlink root did
+	// not create, and everything below happens relative to that descriptor. ratline
+	// writes as root into directories a tenant owns — a site's .env, its manifest, the
+	// tenant's authorized_keys — and a tenant with shell access can replace one of
+	// those directories with a link to, say, /etc/cron.d between any two operations by
+	// path. Checking with Lstat and then creating by path left exactly that window;
+	// holding the directory open closes it, because the kernel cannot be talked into
+	// re-resolving a descriptor.
+	d, err := OpenDirNoFollow(dir)
 	if err != nil {
-		return rlerr.Wrap(err, rlerr.CodePrecondition, "cannot write %s", path).
-			WithHint("its parent directory %s does not exist yet", dir)
+		if notExist(err) {
+			return rlerr.Wrap(err, rlerr.CodePrecondition, "cannot write %s", path).
+				WithHint("its parent directory %s does not exist yet", dir)
+		}
+		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return rlerr.Preconditionf("refusing to write %s: its parent %s is a symlink", path, dir).
-			WithHint("ratline never writes through a symlinked directory; something replaced " +
-				"a real directory with a link to somewhere else")
-	}
-	if !fi.IsDir() {
-		return rlerr.Preconditionf("cannot write %s: %s is not a directory", path, dir)
-	}
+	defer d.Close()
 
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".ratline-*")
+	tmp, tmpName, err := createTempAt(d, "."+base+".ratline-")
 	if err != nil {
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "creating a temporary file next to %s", path)
+		return err
 	}
-	tmpName := tmp.Name()
 	cleanup := true
 	defer func() {
 		if cleanup {
-			_ = os.Remove(tmpName)
+			_ = unix.Unlinkat(int(d.Fd()), tmpName, 0)
 		}
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "writing %s", tmpName)
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "writing %s", tmp.Name())
 	}
 	// Set the mode and owner before the rename so the file is never briefly
-	// visible at the wrong permissions under its real name.
+	// visible at the wrong permissions under its real name. Both act on the
+	// descriptor, never on the name.
 	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode %04o on %s", mode.Perm(), tmpName)
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode %04o on %s", mode.Perm(), tmp.Name())
 	}
 	if uid != KeepUnchanged || gid != KeepUnchanged {
 		if err := tmp.Chown(uid, gid); err != nil {
 			tmp.Close()
-			return rlerr.Wrap(err, rlerr.CodeGeneric, "setting ownership %d:%d on %s", uid, gid, tmpName)
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "setting ownership %d:%d on %s", uid, gid, tmp.Name())
 		}
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "flushing %s", tmpName)
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "flushing %s", tmp.Name())
 	}
 	if err := tmp.Close(); err != nil {
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "closing %s", tmpName)
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "closing %s", tmp.Name())
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return rlerr.Wrap(err, rlerr.CodeGeneric, "renaming %s into place as %s", tmpName, path)
+	if err := unix.Renameat(int(d.Fd()), tmpName, int(d.Fd()), base); err != nil {
+		return rlerr.Wrap(err, rlerr.CodeGeneric, "renaming %s into place as %s", tmp.Name(), path)
 	}
 	cleanup = false
-	return fsyncDir(dir)
+	return fsyncDirFile(d)
 }
 
 // WriteFileAtomicPreserve writes data while keeping the existing file's mode and
@@ -110,33 +114,73 @@ func WriteFileAtomicPreserve(path string, data []byte, fallbackMode fs.FileMode)
 // It reports whether it created it, which the rollback stack uses to decide
 // whether removing it on failure is safe.
 func EnsureDir(path string, mode fs.FileMode, uid, gid int) (bool, error) {
-	// Lstat so a symlink is seen as a symlink, not as whatever it points at. A tenant who
-	// replaced a site subdirectory with a link to /etc would otherwise have ratline accept
-	// the link as "the directory already exists" and then write through it as root.
-	fi, err := os.Lstat(path)
+	clean := filepath.Clean(path)
+	parent, base := filepath.Dir(clean), filepath.Base(clean)
+	if base == "." || base == string(filepath.Separator) {
+		return false, rlerr.Genericf("cannot create %q: it is not a directory path", path)
+	}
+	d, err := OpenDirNoFollow(parent)
+	if err != nil {
+		if notExist(err) {
+			return false, rlerr.Wrap(err, rlerr.CodePrecondition, "cannot create %s", path).
+				WithHint("its parent directory %s does not exist yet", parent)
+		}
+		return false, err
+	}
+	defer d.Close()
+	dfd := int(d.Fd())
+
+	// AT_SYMLINK_NOFOLLOW so a symlink is seen as a symlink, not as whatever it points
+	// at. A tenant who replaced a site subdirectory with a link to /etc would otherwise
+	// have ratline accept the link as "the directory already exists" and then write
+	// through it as root.
+	var st unix.Stat_t
+	err = unix.Fstatat(dfd, base, &st, unix.AT_SYMLINK_NOFOLLOW)
 	switch {
 	case err == nil:
-		if fi.Mode()&os.ModeSymlink != 0 {
+		switch st.Mode & unix.S_IFMT {
+		case unix.S_IFLNK:
 			return false, rlerr.Preconditionf("%s is a symlink, not a directory", path).
 				WithHint("ratline will not treat a symlink as one of its directories; " +
 					"remove it if it was put there by mistake")
-		}
-		if !fi.IsDir() {
+		case unix.S_IFDIR:
+			return false, nil
+		default:
 			return false, rlerr.Preconditionf("%s exists but is not a directory", path)
 		}
-		return false, nil
-	case !errors.Is(err, fs.ErrNotExist):
+	case !errors.Is(err, unix.ENOENT):
 		return false, rlerr.Wrap(err, rlerr.CodeGeneric, "inspecting %s", path)
 	}
-	if err := os.Mkdir(path, mode); err != nil {
+
+	if err := unix.Mkdirat(dfd, base, uint32(mode.Perm())); err != nil {
 		return false, rlerr.Wrap(err, rlerr.CodeGeneric, "creating %s", path)
 	}
+	// The mode and owner are set on a descriptor for the directory just made, never on
+	// the path. Between Mkdir and a chmod or chown by path, the owner of the parent can
+	// rename the new directory away and put a symlink in its place; chown following
+	// that link would hand a tenant ownership of whatever it pointed at, as root. The
+	// descriptor is opened with O_NOFOLLOW, and what it refers to is checked to be a
+	// directory this process created before anything is changed about it.
+	f, err := openAt(d, base, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return true, rlerr.Wrap(err, rlerr.CodePrecondition, "%s was replaced before it could be secured", path)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return true, rlerr.Wrap(err, rlerr.CodeGeneric, "inspecting %s", path)
+	}
+	sys, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || !fi.IsDir() || int(sys.Uid) != os.Geteuid() {
+		return true, rlerr.Preconditionf("%s was replaced by something else while it was being created", path).
+			WithHint("something is rearranging this directory tree underneath ratline")
+	}
 	// Mkdir's mode is filtered by the process umask, so set it explicitly.
-	if err := os.Chmod(path, mode); err != nil {
+	if err := f.Chmod(mode); err != nil {
 		return true, rlerr.Wrap(err, rlerr.CodeGeneric, "setting mode %04o on %s", mode.Perm(), path)
 	}
 	if uid != KeepUnchanged || gid != KeepUnchanged {
-		if err := os.Chown(path, uid, gid); err != nil {
+		if err := f.Chown(uid, gid); err != nil {
 			return true, rlerr.Wrap(err, rlerr.CodeGeneric, "setting ownership %d:%d on %s", uid, gid, path)
 		}
 	}
@@ -372,6 +416,12 @@ func fsyncDir(dir string) error {
 		return rlerr.Wrap(err, rlerr.CodeGeneric, "opening %s to flush it", dir)
 	}
 	defer f.Close()
+	return fsyncDirFile(f)
+}
+
+// fsyncDirFile is fsyncDir for a directory that is already open.
+func fsyncDirFile(f *os.File) error {
+	dir := f.Name()
 	if err := f.Sync(); err != nil {
 		// Some platforms and filesystems refuse fsync on a directory. The
 		// rename itself has already happened, so this is not worth failing on.

@@ -70,6 +70,11 @@ func (s *Server) handleJobStream(w http.ResponseWriter, r *http.Request, c *Call
 	// format requires — an embedded newline would end the event early and the rest
 	// would be read as a field name.
 	send := func(event, data string) {
+		// The event-stream parser ends a line on a bare CR as well as on LF, so a CR in
+		// a transcript would let the rest of the line be read as a new field — an
+		// `event: state` a build printed. NUL is the manager's own end-of-job marker and
+		// has no business in output at all.
+		data = sseLineBreaks.Replace(data)
 		for _, line := range strings.Split(data, "\n") {
 			// Not HTML. The content type is text/event-stream, the browser hands
 			// each line to an EventSource listener as a string, and nothing here
@@ -155,6 +160,10 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request, c *Calle
 	}
 	ok(w, list)
 }
+
+// sseLineBreaks folds every line terminator the event-stream format recognises into
+// the one this handler splits on, and drops the manager's marker byte.
+var sseLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\x00", "")
 
 // errNotStreamable is the one case a job stream cannot be served: a ResponseWriter
 // that cannot flush, which in practice means a middleware wrapper that forgot to pass

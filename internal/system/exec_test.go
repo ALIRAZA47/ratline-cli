@@ -283,19 +283,38 @@ func TestBinariesMissingCommandNamesTheFix(t *testing.T) {
 }
 
 func TestBinariesEnvOverride(t *testing.T) {
+	// A real executable: the override is held to the same regular-file, executable,
+	// not-group-writable bar as a discovered binary, so a bare path no longer counts.
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "ssh-keygen")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	b := NewBinaries()
-	if err := b.LoadOverridesFromEnv([]string{"RATLINE_BIN_SSH_KEYGEN=/opt/fake/ssh-keygen"}); err != nil {
+	if err := b.LoadOverridesFromEnv([]string{"RATLINE_BIN_SSH_KEYGEN=" + fake}); err != nil {
 		t.Fatalf("LoadOverridesFromEnv = %v", err)
 	}
 	got, err := b.Path("ssh-keygen")
 	if err != nil {
 		t.Fatalf("Path = %v", err)
 	}
-	if got != "/opt/fake/ssh-keygen" {
+	if got != fake {
 		t.Errorf("Path = %q, want the override", got)
 	}
 	if err := b.LoadOverridesFromEnv([]string{"RATLINE_BIN_NGINX=relative/path"}); err == nil {
 		t.Error("LoadOverridesFromEnv accepted a relative path")
+	}
+	// A path that is not there, or not executable, is refused rather than trusted — a
+	// root-run wrapper that exported one by mistake cannot name a script as useradd.
+	if err := b.LoadOverridesFromEnv([]string{"RATLINE_BIN_USERADD=" + filepath.Join(dir, "absent")}); err == nil {
+		t.Error("a missing override path was accepted")
+	}
+	plain := filepath.Join(dir, "plain")
+	if err := os.WriteFile(plain, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.LoadOverridesFromEnv([]string{"RATLINE_BIN_USERADD=" + plain}); err == nil {
+		t.Error("a non-executable override was accepted")
 	}
 }
 

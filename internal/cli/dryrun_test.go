@@ -83,6 +83,8 @@ func TestDryRunLeavesTheDatabaseUntouched(t *testing.T) {
 		{"site", "add", "bun.example.com", "--user", "acme", "--runtime", "bun",
 			"--entry", "src/index.tsx", "--bun", "1.2"},
 		{"user", "add", "beta"},
+		{"user", "disable", "acme"},
+		{"user", "enable", "acme"},
 		{"db", "install"},
 		{"db", "access", "allow", "203.0.113.19"},
 		{"db", "access", "revoke", "203.0.113.19"},

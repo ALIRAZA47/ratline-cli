@@ -129,6 +129,7 @@ SSH KEYS
 
 SITES
   site         Create and manage sites
+  logs         Tail a site's log (the same as 'site logs')
   new          Provision a whole stack in one command
 
 CERTIFICATES
@@ -320,6 +321,42 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Use "ratline site [command] --help" for more information about a command.
+```
+
+### `ratline logs`
+
+```
+Where the application log comes from depends on how the site is supervised.
+
+Under PM2 — the default for node — the application's stdout is captured by
+PM2 into logs/app.log, and the journal holds only PM2's own messages. So
+--app reads the file, and --journal is there for when the question is about
+the unit itself: a failed start, or an OOM kill.
+
+Without PM2 the application writes straight to the journal, and --app reads
+that.
+
+Usage:
+  ratline logs <domain> [flags]
+
+Flags:
+      --access      The nginx access log
+      --app         The application log (the default for a dynamic site)
+      --error       The nginx error log
+      --follow      Keep printing as lines arrive
+  -h, --help        help for logs
+      --journal     The systemd journal for the unit rather than the application's own log
+      --lines int   How many lines to show (default 100)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
 ```
 
 ### `ratline new`
@@ -2182,9 +2219,9 @@ Global Flags:
 #### `ratline site env`
 
 ```
-Values live in the site's .env, which is 0600 and owned by the tenant. systemd
-reads it as root before dropping privileges, so the application receives values
-nginx can never serve.
+Values live in the site's .env, which is 0600 and owned by the tenant. The
+service loads it as that user when it starts, so the application receives values
+nginx can never serve and root never reads a file the tenant controls.
 
 Values are masked in output unless --reveal, and redacted in the audit log.
 

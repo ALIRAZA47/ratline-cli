@@ -32,7 +32,10 @@ func (b *buffer) Write(p []byte) (int, error) {
 		if i < 0 {
 			break
 		}
-		line := strings.TrimRight(text[:i], "\r")
+		// NUL never belongs in a transcript, and a line beginning with one is how the
+		// manager marks the end of a job to a stream's subscribers — so output cannot
+		// be allowed to spell that marker.
+		line := strings.ReplaceAll(strings.TrimRight(text[:i], "\r"), "\x00", "")
 		text = text[i+1:]
 		b.append(line)
 		complete = append(complete, line)

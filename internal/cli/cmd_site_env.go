@@ -1,9 +1,10 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -39,9 +40,12 @@ func (g *Globals) openEnvFile(site *state.Site) (*envFile, error) {
 		e.uid, e.gid = id.UID, id.GID
 	}
 
-	data, err := system.ReadFileLimit(path, 1<<20)
+	// Opened without following a symlink, and only if the tenant owns it: this runs as
+	// root inside a directory the tenant controls, and `site env list --reveal` through
+	// the panel would otherwise print whatever file a tenant linked .env to.
+	data, err := system.ReadFileNoFollow(path, 1<<20, e.uid)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return e, nil
 		}
 		return nil, err
@@ -129,9 +133,9 @@ func newSiteEnvCommand(g *Globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "env",
 		Short: "Manage a site's environment variables",
-		Long: "Values live in the site's .env, which is 0600 and owned by the tenant. systemd\n" +
-			"reads it as root before dropping privileges, so the application receives values\n" +
-			"nginx can never serve.\n\n" +
+		Long: "Values live in the site's .env, which is 0600 and owned by the tenant. The\n" +
+			"service loads it as that user when it starts, so the application receives values\n" +
+			"nginx can never serve and root never reads a file the tenant controls.\n\n" +
 			"Values are masked in output unless --reveal, and redacted in the audit log.",
 	}
 	cmd.AddCommand(

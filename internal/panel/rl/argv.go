@@ -2,6 +2,7 @@ package rl
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,6 +127,20 @@ func BuildArgv(cat *Catalogue, policy Policy, req Request) ([]string, error) {
 		argv = append(argv, rendered...)
 	}
 
+	// No more positionals than the command declares. ratline would accept extras —
+	// `site env set` takes a KEY=VALUE positional perfectly well — and an extra one is
+	// exactly how a secret would get into /proc/PID/cmdline and the panel's own action
+	// log, where every tenant and every admin can read it. The policy's list wins over
+	// the usage line, for the same reason it does when the form is drawn.
+	positionals := cmd.Args
+	if len(policy.Args) > 0 {
+		positionals = policy.Args
+	}
+	if max := maxPositionals(positionals); len(req.Args) > max {
+		return nil, rlerr.Usagef("ratline %s takes at most %d positional argument(s); %d were given", req.Verb, max, len(req.Args)).
+			WithHint("everything else is a flag, or a value that travels on standard input")
+	}
+
 	if len(req.Args) > 0 {
 		argv = append(argv, "--")
 		for i, a := range req.Args {
@@ -143,6 +158,17 @@ func BuildArgv(cat *Catalogue, policy Policy, req Request) ([]string, error) {
 		return nil, err
 	}
 	return argv, nil
+}
+
+// maxPositionals counts the positionals a usage line declares; one spelled with an
+// ellipsis (`[domain...]`) takes any number.
+func maxPositionals(names []string) int {
+	for _, n := range names {
+		if strings.Contains(n, "...") {
+			return math.MaxInt
+		}
+	}
+	return len(names)
 }
 
 // renderFlag turns one typed value into zero, one or several argv elements.
@@ -228,6 +254,10 @@ func asString(name string, v any) (string, error) {
 		return strings.TrimSpace(t), nil
 	case bool:
 		return strconv.FormatBool(t), nil
+	case int:
+		return strconv.Itoa(t), nil
+	case int64:
+		return strconv.FormatInt(t, 10), nil
 	case float64:
 		// Every number in a JSON body arrives as a float64.
 		if t == float64(int64(t)) {
@@ -262,6 +292,12 @@ func asInt(name string, v any) (int64, error) {
 	switch t := v.(type) {
 	case nil:
 		return 0, nil
+	case int:
+		// A value composed by the panel's own Go code (the logs line count, say)
+		// rather than decoded from a JSON body, where every number is a float64.
+		return int64(t), nil
+	case int64:
+		return t, nil
 	case float64:
 		if t != float64(int64(t)) {
 			return 0, rlerr.Usagef("--%s expects a whole number", name)
