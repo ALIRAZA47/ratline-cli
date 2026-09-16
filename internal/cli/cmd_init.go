@@ -211,6 +211,7 @@ func (g *Globals) ensureDirectories() error {
 		{g.Cfg.Paths.RuntimesDir, 0o755},
 		{g.Cfg.Paths.NginxSnippets, 0o755},
 		{g.Cfg.Paths.NginxCustom, 0o755},
+		{g.Cfg.Paths.NginxLogDir, 0o755},
 		{g.Cfg.Paths.ACMEWebroot, 0o755},
 		// Every level has to be listed. The leaf was 0755 and its parent was created
 		// implicitly under the 0027 provisioning umask, landing at 0750 — so nginx,

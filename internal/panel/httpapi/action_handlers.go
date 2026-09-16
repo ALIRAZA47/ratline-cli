@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/auth"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/jobs"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/rl"
@@ -255,7 +256,8 @@ func (s *Server) execute(w http.ResponseWriter, r *http.Request, c *Caller, dryR
 		return
 	}
 	cmdErr := out.Err()
-	s.record(ctx, c, action.Verb, target, strings.Join(out.Argv, " "), dryRun,
+	// Redacted the way ratline's own audit trail is: every admin can read this row.
+	s.record(ctx, c, action.Verb, target, log.ArgvString(out.Argv), dryRun,
 		cmdErr == nil, out.ExitCode, cmdErr, out.Duration)
 
 	// Any mutation may have changed what a listing would say, and the catalogue

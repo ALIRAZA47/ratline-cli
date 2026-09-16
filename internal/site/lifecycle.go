@@ -485,6 +485,9 @@ func (m *Manager) Delete(ctx context.Context, name string, purge bool, backupDir
 		if err := os.RemoveAll(siteDir); err != nil {
 			return rlerr.Wrap(err, rlerr.CodeGeneric, "removing %s", siteDir)
 		}
+		if err := os.RemoveAll(m.Cfg.SiteLogDir(site.Slug)); err != nil {
+			return rlerr.Wrap(err, rlerr.CodeGeneric, "removing %s", m.Cfg.SiteLogDir(site.Slug))
+		}
 	} else if !purge {
 		m.Log.Info("the site directory was kept", "path", siteDir, "remove_with", "--purge")
 	}
@@ -650,13 +653,34 @@ func (m *Manager) ReapplyUnit(ctx context.Context, site *state.Site) (err error)
 }
 
 // LogPaths returns a site's log files.
+//
+// nginx's live under the root-owned directory EnsureNginxLogDir creates; the
+// application's own log lives with the site, written by the tenant.
 func (m *Manager) LogPaths(site *state.Site) map[string]string {
-	logDir := filepath.Join(m.Cfg.SiteDir(site.Owner, site.Domain), "logs")
+	nginxDir := m.Cfg.SiteLogDir(site.Slug)
 	return map[string]string{
-		"access": filepath.Join(logDir, "access.log"),
-		"error":  filepath.Join(logDir, "error.log"),
-		"app":    filepath.Join(logDir, "app.log"),
+		"access": filepath.Join(nginxDir, "access.log"),
+		"error":  filepath.Join(nginxDir, "error.log"),
+		"app":    filepath.Join(m.Cfg.SiteDir(site.Owner, site.Domain), "logs", "app.log"),
 	}
+}
+
+// EnsureNginxLogDir creates the root-owned directory nginx logs a site into.
+//
+// nginx's master process opens access_log and error_log as root when it loads its
+// configuration, which is every reload. Those paths used to live under <site>/logs, a
+// directory the tenant owns, so a tenant could rename access.log away, put a symlink
+// to /root/.bashrc in its place, and have root append a log line — carrying a request
+// path of their choosing — to it on the next reload. Here the directory is root's:
+// the tenant can read it through their group and cannot rename anything in it.
+//
+// Safe to run twice, and run from reconcile so that a site created before this
+// directory existed gets one before its vhost is re-rendered to point at it.
+func (m *Manager) EnsureNginxLogDir(site *state.Site) error {
+	// The work lives on the nginx manager, which also does it from Apply, so that no
+	// path that renders a vhost can forget it. This remains for the callers that want
+	// the directory before any vhost exists: site add's tree build, and reconcile.
+	return m.Nginx.EnsureLogDir(site)
 }
 
 // UnitName is the systemd unit for a site.

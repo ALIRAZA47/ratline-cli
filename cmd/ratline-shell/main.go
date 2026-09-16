@@ -56,6 +56,13 @@ func main() {
 }
 
 func run() int {
+	// Two jobs, one binary: the forced command for a scoped SSH key, and the process a
+	// site's systemd unit starts. They share nothing but the install path, which is
+	// the point — both have to be a root-owned executable that is already on every
+	// server ratline manages.
+	if len(os.Args) > 1 && os.Args[1] == "exec" {
+		return runExec(os.Args[2:])
+	}
 	opts, err := parseFlags(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ratline-shell: %v\n", err)

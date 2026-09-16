@@ -416,6 +416,13 @@ func (m *Manager) SetDisabled(ctx context.Context, name string, disabled bool) e
 	}); err != nil {
 		return err
 	}
+	if m.DryRun {
+		// The Runner skipped the usermod calls above; the state row sits below it and
+		// has to be skipped by hand, or a rehearsal marks the account disabled while it
+		// still logs in.
+		m.Log.Info("would record the account's state", "user", name, "disabled", disabled)
+		return nil
+	}
 	return m.State.SetUserDisabled(ctx, name, disabled)
 }
 
@@ -569,6 +576,10 @@ func (m *Manager) SetPassword(ctx context.Context, name, password string) error 
 		Name: "usermod", Args: []string{"--unlock", name}, Mutates: true,
 	}); err != nil {
 		return err
+	}
+	if m.DryRun {
+		m.Log.Info("would record that password login is enabled", "user", name)
+		return nil
 	}
 	u, err := m.State.GetUser(ctx, name)
 	if err != nil {

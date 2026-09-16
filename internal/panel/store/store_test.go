@@ -383,3 +383,52 @@ func TestRoleOrdering(t *testing.T) {
 		t.Error("an unknown role satisfies an admin requirement, which is the wrong default")
 	}
 }
+
+// RFC 6238 §5.2: a verifier must not accept the same one-time code twice. The step is
+// spent in one conditional update, so two requests carrying the same code at the same
+// moment cannot both win.
+func TestATOTPStepIsSpentOnce(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	a := account(t, st, "ops@example.com", RoleAdmin)
+
+	fresh, err := st.ConsumeTOTPStep(ctx, a.ID, 100)
+	if err != nil || !fresh {
+		t.Fatalf("the first use of step 100 = %v, %v; want accepted", fresh, err)
+	}
+	if fresh, _ := st.ConsumeTOTPStep(ctx, a.ID, 100); fresh {
+		t.Error("the same step was accepted twice")
+	}
+	if fresh, _ := st.ConsumeTOTPStep(ctx, a.ID, 99); fresh {
+		t.Error("an earlier step was accepted after a later one; the skew window would replay it")
+	}
+	if fresh, _ := st.ConsumeTOTPStep(ctx, a.ID, 101); !fresh {
+		t.Error("the next step was refused")
+	}
+	// A new secret has nothing to do with the old one's steps.
+	if err := st.SetTOTP(ctx, a.ID, "NEWSECRET", false); err != nil {
+		t.Fatal(err)
+	}
+	if fresh, _ := st.ConsumeTOTPStep(ctx, a.ID, 50); !fresh {
+		t.Error("enrolling a new secret did not reset the replay record")
+	}
+}
+
+// The count and the insert are one transaction: a second request that also saw an
+// empty table does not get to create a second first account.
+func TestOnlyTheFirstAccountCanBeCreatedAsFirst(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	first := &Account{ID: "a", Email: "a@example.com", Role: RoleSuperAdmin, PasswordHash: "hash"}
+	if err := st.CreateFirstAccount(ctx, first); err != nil {
+		t.Fatalf("the first account was refused: %v", err)
+	}
+	second := &Account{ID: "b", Email: "b@example.com", Role: RoleSuperAdmin, PasswordHash: "hash"}
+	err := st.CreateFirstAccount(ctx, second)
+	if !errors.Is(err, ErrAlreadySetUp) {
+		t.Fatalf("a second 'first' account: err = %v, want ErrAlreadySetUp", err)
+	}
+	if n, _ := st.CountAccounts(ctx); n != 1 {
+		t.Errorf("accounts = %d, want 1", n)
+	}
+}

@@ -233,13 +233,30 @@ export function SiteDetail() {
   );
 }
 
+const LOG_STREAMS = [
+  { value: 'app', label: 'Application' },
+  { value: 'access', label: 'Access (nginx)' },
+  { value: 'error', label: 'Error (nginx)' },
+  { value: 'journal', label: 'Journal (systemd)' },
+] as const;
+
+type LogStream = (typeof LOG_STREAMS)[number]['value'];
+
+const STREAM_LEDE: Record<LogStream, string> = {
+  app: "The application's own output: its stdout under systemd, or PM2's capture in logs/app.log.",
+  access: "nginx's access log for this site, one line per request it served.",
+  error: "nginx's error log for this site: the upstream failures and 502s.",
+  journal: 'The systemd journal for the unit itself: a failed start, an OOM kill, a crash loop.',
+};
+
 export function SiteLogs() {
   const { domain = '' } = useParams();
   const [lines, setLines] = useState(200);
+  const [stream, setStream] = useState<LogStream>('app');
   const [filter, setFilter] = useState('');
   const { data, error, loading, reload } = useApi<{ text: string }>(
-    `/api/sites/${encodeURIComponent(domain)}/logs?lines=${lines}`,
-    [lines],
+    `/api/sites/${encodeURIComponent(domain)}/logs?lines=${lines}&stream=${stream}`,
+    [lines, stream],
   );
 
   // Filtered here rather than server-side, because ratline's logs command has no
@@ -256,13 +273,26 @@ export function SiteLogs() {
     <Page
       title={`${domain} · logs`}
       back={{ to: `/sites/${encodeURIComponent(domain)}`, label: domain }}
-      lede="The tail of whatever ratline considers this site's log — the journal, PM2's capture, or nginx's access log, depending on how it is supervised."
+      lede={STREAM_LEDE[stream]}
       actions={
         <>
           <select
             className="field w-auto"
+            value={stream}
+            onChange={(e) => setStream(e.target.value as LogStream)}
+            aria-label="Which log"
+          >
+            {LOG_STREAMS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="field w-auto"
             value={lines}
             onChange={(e) => setLines(Number(e.target.value))}
+            aria-label="How many lines"
           >
             {[100, 200, 500, 1000, 2000].map((n) => (
               <option key={n} value={n}>
@@ -278,7 +308,7 @@ export function SiteLogs() {
     >
       <ErrorBox error={error} />
 
-      <Card title="What is being tailed">
+      <Card title={LOG_STREAMS.find((x) => x.value === stream)?.label ?? 'Log'}>
         <div className="flex flex-wrap items-end gap-3">
           <label className="block min-w-48 flex-1">
             <span className="label">Filter these lines</span>
@@ -291,8 +321,7 @@ export function SiteLogs() {
             />
           </label>
           <p className="hint mb-2 max-w-prose flex-1">
-            Whatever ratline considers this site&rsquo;s log — the journal, PM2&rsquo;s capture or
-            nginx&rsquo;s access log, depending on how it is supervised.
+            {STREAM_LEDE[stream]}
             {hiddenLines > 0 && ` ${hiddenLines} lines hidden by the filter.`}
           </p>
         </div>

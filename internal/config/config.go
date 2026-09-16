@@ -87,12 +87,17 @@ type Paths struct {
 	NginxSitesEnabled   string `yaml:"nginx_sites_enabled"`
 	NginxSnippets       string `yaml:"nginx_snippets"`
 	NginxCustom         string `yaml:"nginx_custom"`
-	SystemdDir          string `yaml:"systemd_dir"`
-	LogrotateDir        string `yaml:"logrotate_dir"`
-	ACMEWebroot         string `yaml:"acme_webroot"`
-	LetsEncryptDir      string `yaml:"letsencrypt_dir"`
-	ImportedCerts       string `yaml:"imported_certs"`
-	DNSCredentials      string `yaml:"dns_credentials"`
+	// NginxLogDir holds one root-owned directory per site for nginx's access and error
+	// logs. nginx's master opens those paths as root on every reload, so they cannot
+	// live anywhere a tenant can rename: a symlink swapped in under <site>/logs would
+	// be a root append to any file on the box.
+	NginxLogDir    string `yaml:"nginx_log_dir"`
+	SystemdDir     string `yaml:"systemd_dir"`
+	LogrotateDir   string `yaml:"logrotate_dir"`
+	ACMEWebroot    string `yaml:"acme_webroot"`
+	LetsEncryptDir string `yaml:"letsencrypt_dir"`
+	ImportedCerts  string `yaml:"imported_certs"`
+	DNSCredentials string `yaml:"dns_credentials"`
 	// MongoURIFile holds the admin connection string. A file rather than a setting
 	// in this one, held to the same 0600 rule as the DNS credentials: it is the
 	// root password for every database on the server, and config.yaml is a file
@@ -343,6 +348,7 @@ func (c *Config) Validate() error {
 		"paths.nginx_sites_enabled":   c.Paths.NginxSitesEnabled,
 		"paths.nginx_snippets":        c.Paths.NginxSnippets,
 		"paths.nginx_custom":          c.Paths.NginxCustom,
+		"paths.nginx_log_dir":         c.Paths.NginxLogDir,
 		"paths.systemd_dir":           c.Paths.SystemdDir,
 		"paths.acme_webroot":          c.Paths.ACMEWebroot,
 		"paths.letsencrypt_dir":       c.Paths.LetsEncryptDir,
@@ -354,6 +360,12 @@ func (c *Config) Validate() error {
 		"paths.shell_wrapper":         c.Paths.ShellWrapper,
 		"paths.logrotate_dir":         c.Paths.LogrotateDir,
 		"paths.backup_dir":            c.Paths.BackupDir,
+		// The credential files too: a relative one resolves against the root process's
+		// working directory, and `mysql --defaults-extra-file=<relative>` would read
+		// whatever sits there.
+		"paths.mongo_uri_file":      c.Paths.MongoURIFile,
+		"paths.mysql_defaults_file": c.Paths.MySQLDefaultsFile,
+		"paths.redis_uri_file":      c.Paths.RedisURIFile,
 	} {
 		if p == "" {
 			add("%s is empty", name)
@@ -523,6 +535,12 @@ func (c *Config) RuntimeDir(user, domain string) string {
 // SocketPath is the Unix socket nginx proxies to.
 func (c *Config) SocketPath(user, domain string) string {
 	return filepath.Join(c.RuntimeDir(user, domain), "app.sock")
+}
+
+// SiteLogDir is the root-owned directory nginx logs a site into, readable by the
+// tenant through the group and writable by nobody but root.
+func (c *Config) SiteLogDir(slug string) string {
+	return filepath.Join(c.Paths.NginxLogDir, slug)
 }
 
 // VhostPath is a site's nginx configuration file.

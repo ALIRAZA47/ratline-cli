@@ -42,8 +42,8 @@ func TestUnitInvariants(t *testing.T) {
 		"Group=alice",
 		"WorkingDirectory=/home/alice/api.example.com/app",
 		// The tenant's secrets reach the application without nginx ever being
-		// able to serve them.
-		"EnvironmentFile=-/home/alice/api.example.com/.env",
+		// able to serve them — loaded as the tenant by the wrapper, never by PID 1.
+		"ExecStart=/usr/local/lib/ratline/ratline-shell exec --env-file /home/alice/api.example.com/.env -- /home/alice/api.example.com/venv/bin/gunicorn app.main:app",
 		"RuntimeDirectory=ratline/alice-api_example_com",
 		"RuntimeDirectoryMode=0750",
 		"Restart=always",
@@ -373,4 +373,28 @@ func TestEveryInstalledUnitIsRecognisedAsOurOwn(t *testing.T) {
 			t.Errorf("%s is installed by EnsureTimers but not recognised by IsOwnUnit", name)
 		}
 	}
+}
+
+// EnvironmentFile= is read by PID 1 as root before User= applies, from a path inside a
+// directory the tenant owns; append: opens a log there the same way. Neither may appear
+// in a unit: a symlink swapped in by the tenant would be resolved by root.
+func TestNoUnitHasPIDOneOpenATenantPath(t *testing.T) {
+	out := directivesOnly(render(t, pythonSite(), "/home/alice/api.example.com/venv/bin/gunicorn app.main:app", RenderOptions{}))
+	for _, forbidden := range []string{"EnvironmentFile=", "StandardOutput=append:", "StandardError=append:", "StandardOutput=file:", "StandardOutput=truncate:"} {
+		if strings.Contains(out, forbidden) {
+			t.Errorf("the unit has PID 1 open a tenant path via %s:\n%s", forbidden, out)
+		}
+	}
+}
+
+// directivesOnly drops comment lines, which is what systemd does before reading a unit.
+func directivesOnly(unit string) string {
+	var keep []string
+	for _, line := range strings.Split(unit, "\n") {
+		if t := strings.TrimSpace(line); t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		keep = append(keep, line)
+	}
+	return strings.Join(keep, "\n")
 }

@@ -54,6 +54,12 @@ func Email(s string) error {
 	if len(s) > 254 {
 		return rlerr.Usagef("the email address is longer than 254 characters")
 	}
+	// The address becomes its own argv element after --email; one that begins with a
+	// dash is the shape of another flag, and refusing it here is cheaper than trusting
+	// every downstream parser to.
+	if strings.HasPrefix(s, "-") {
+		return rlerr.Usagef("invalid email address %q: it begins with a dash", s)
+	}
 	if !emailRe.MatchString(s) {
 		return rlerr.Usagef("invalid email address %q", s).
 			WithHint("this is the ACME contact address, for example admin@example.com")

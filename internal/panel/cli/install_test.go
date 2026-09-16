@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -244,5 +245,36 @@ func TestGeneratedPasswordsAreUsableAndDistinct(t *testing.T) {
 				t.Errorf("the alphabet includes %q, which is misread: %s", r, p)
 			}
 		}
+	}
+}
+
+// Under --json the human-readable lines are silent, and the generated password is the one
+// output an install cannot reproduce afterwards. It has to be in the envelope.
+func TestInstallJSONCarriesTheGeneratedPassword(t *testing.T) {
+	app, st := testApp(t)
+	app.JSON = true
+	created, err := app.ensureFirstAdmin(context.Background(), st,
+		installOptions{adminEmail: "dana@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.reportAdmin(created)
+
+	if _, err := app.Stdout.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(app.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		OK   bool           `json:"ok"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("the output is not a JSON envelope: %v\n%s", err, body)
+	}
+	if !env.OK || env.Data["admin_password"] != created.Password || env.Data["admin_email"] != "dana@example.com" {
+		t.Errorf("the envelope does not carry the credentials: %s", body)
 	}
 }

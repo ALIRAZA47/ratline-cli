@@ -98,13 +98,26 @@ func (c *Client) loadCatalogue(ctx context.Context) (*Catalogue, error) {
 }
 
 // globals prefixes an invocation with the flags the panel always sets.
+//
+// The flag goes before the `--` that BuildArgv puts ahead of the positionals: pflag
+// stops reading flags at `--`, so appended after it the flag would be handed to
+// ratline as one more positional and the configured file silently ignored — for
+// exactly the commands that name a site, and not for the ones that do not.
 func (c *Client) globals(args ...string) []string {
-	out := make([]string, 0, len(args)+2)
-	out = append(out, args...)
-	if c.ConfigPath != "" {
-		out = append(out, "--config="+c.ConfigPath)
+	out := make([]string, 0, len(args)+1)
+	if c.ConfigPath == "" {
+		return append(out, args...)
 	}
-	return out
+	flag := "--config=" + c.ConfigPath
+	for i, a := range args {
+		if a == "--" {
+			out = append(out, args[:i]...)
+			out = append(out, flag)
+			return append(out, args[i:]...)
+		}
+	}
+	out = append(out, args...)
+	return append(out, flag)
 }
 
 // Outcome is what one invocation produced.
@@ -187,10 +200,18 @@ func (c *Client) RunText(ctx context.Context, cat *Catalogue, policy Policy, req
 		return "", err
 	}
 	out, err := c.exec(ctx, argv, "", c.ReadTimeout, nil)
-	if err != nil {
+	if out == nil {
+		// The binary did not run at all — the only genuinely fatal case. A parse
+		// error is not: this output is a log, never an envelope, so exec reporting
+		// "that was not JSON" is expected and its stdout is exactly what we want.
 		return "", err
 	}
 	if out.ExitCode != 0 {
+		// A failing read still prints its error as an envelope on stdout under --json,
+		// so prefer the typed error ratline gave; fall back to the exit code and log.
+		if e := out.Err(); e != nil {
+			return "", e
+		}
 		return "", rlerr.Externalf("ratline %s exited %d", req.Verb, out.ExitCode).
 			WithHint("%s", lastLines(out.Logs, 2))
 	}

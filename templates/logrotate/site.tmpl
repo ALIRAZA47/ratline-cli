@@ -1,5 +1,28 @@
 # managed-by: ratline
 # Logs for {{ .Domain }}
+
+# nginx's logs. Written by nginx's master as root into a directory only root can
+# modify, which is why they are not under the tenant's home: a file there could be
+# swapped for a symlink, and nginx would follow it as root. Rotated as root — no `su`,
+# because nobody but root can write the directory — and created with the tenant's
+# group so the tenant can still read them.
+{{ .NginxLogGlob }} {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 root {{ .Owner }}
+    sharedscripts
+    postrotate
+        # nginx keeps its log files open, so it has to be told to reopen them.
+        # A reload rather than a restart, so no request is dropped.
+        [ -f /run/nginx.pid ] && kill -USR1 "$(cat /run/nginx.pid)" 2>/dev/null || true
+    endscript
+}
+
+# The application's own logs, written by the tenant into the tenant's directory.
 {{ .LogGlob }} {
     daily
     rotate 14
@@ -10,14 +33,11 @@
     # The tenant owns their logs; the log-reading group can read them.
     create 0640 {{ .Owner }} {{ .LogGroup }}
     su {{ .Owner }} {{ .LogGroup }}
+{{- if .Dynamic }}
     sharedscripts
     postrotate
-        # nginx keeps its log files open, so it has to be told to reopen them.
-        # A reload rather than a restart, so no request is dropped.
-        [ -f /run/nginx.pid ] && kill -USR1 "$(cat /run/nginx.pid)" 2>/dev/null || true
-{{- if .Dynamic }}
         # The application writes its own log; gunicorn reopens on SIGUSR1 too.
         systemctl kill --signal=SIGUSR1 {{ .Unit }} 2>/dev/null || true
-{{- end }}
     endscript
+{{- end }}
 }

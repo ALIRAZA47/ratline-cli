@@ -82,3 +82,21 @@ func TestPublishDoesNotBlockOnASlowSubscriber(t *testing.T) {
 	}()
 	<-done // would hang for ever if publish blocked
 }
+
+// A line beginning with NUL is how the manager tells a stream's subscribers the job
+// ended, so a build's output must never be able to spell it.
+func TestOutputCannotSpellTheEndOfJobMarker(t *testing.T) {
+	var got []string
+	b := &buffer{limit: 1 << 16, onLine: func(l string) { got = append(got, l) }}
+	if _, err := b.Write([]byte("\x00failed\nplain\x00text\n")); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range got {
+		if strings.Contains(l, "\x00") {
+			t.Errorf("a published line carries NUL: %q", l)
+		}
+	}
+	if len(got) != 2 || got[0] != "failed" || got[1] != "plaintext" {
+		t.Errorf("lines = %q", got)
+	}
+}

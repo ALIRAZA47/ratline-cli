@@ -31,7 +31,7 @@ every other tenant, so ratline never does it, and `doctor` reports a home whose 
 has drifted.
 
 `.env` is `0600`, owned by the tenant, and lives outside every document root.
-systemd reads it as root before dropping privileges, which is how a file no web
+the service loads it as the tenant when it starts, which is how a file no web
 server can serve still reaches the application. nginx additionally denies dotfiles,
 `.git`, `node_modules`, lockfiles and a list of extensions, so a misconfigured
 document root does not become a data breach.

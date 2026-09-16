@@ -76,6 +76,14 @@ func CheckExecutablePermissions(path string) error {
 			filepath.Base(path), dir, dfi.Mode().Perm()).
 			WithHint("install ratline in a root-owned directory such as /usr/local/bin")
 	}
+	// A directory owned by somebody other than root is theirs to rearrange whatever
+	// its mode says: they can rename the binary away and put another in its place,
+	// and the self-check inside the replacement never runs.
+	if st, ok := dfi.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
+		return rlerr.Preconditionf("%s lives in %s, which is owned by UID %d rather than root",
+			filepath.Base(path), dir, st.Uid).
+			WithHint("install ratline in a root-owned directory such as /usr/local/bin")
+	}
 	return nil
 }
 

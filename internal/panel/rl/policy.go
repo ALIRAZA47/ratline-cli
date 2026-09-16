@@ -279,6 +279,7 @@ var policies = map[string]Policy{
 	// Both write files for a shell or a man reader, neither of which is here.
 	"man":    {Denied: true, DeniedWhy: "it generates man pages for a terminal"},
 	"schema": {Denied: true, DeniedWhy: "the panel reads it already; it is how these forms are built"},
+	"logs":   {Denied: true, DeniedWhy: "the panel shows a site's logs on its own page; this is the same as 'site logs'"},
 }
 
 // defaultPolicy is what an unclassified command gets.

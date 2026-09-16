@@ -259,3 +259,34 @@ func TestChownTreeDoesNotFollowSymlinks(t *testing.T) {
 		t.Error("the symlink was removed")
 	}
 }
+
+// A restore extracts an untrusted archive as root and then chowns everything in it to
+// the tenant. A symlink member is a write-through-a-link waiting to happen, and a hard
+// link shares its target's inode — chowning it hands the tenant a file outside the
+// archive. Only files and directories are backed up, so only those are accepted back.
+func TestRestoreRefusesLinkMembers(t *testing.T) {
+	for _, tc := range []struct{ name, verbose, wantErr string }{
+		{"symlink", "lrwxrwxrwx root/root 0 2026-01-01 00:00 example.com/link -> /etc/passwd\n", "symbolic link"},
+		{"hardlink", "hrw-r--r-- root/root 0 2026-01-01 00:00 example.com/hard link to /root/x\n", "hard link"},
+		{"device", "crw-r--r-- root/root 0 2026-01-01 00:00 example.com/dev\n", "not a file or a directory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, runner := restoreManager(t)
+			runner.ExpectOutput("tar --list --verbose --file /backups/a.tar.gz", tc.verbose)
+			err := mgr.refuseLinkMembers(context.Background(), "/backups/a.tar.gz")
+			if err == nil {
+				t.Fatalf("a %s member was accepted", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("the refusal should mention %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+	// Files and directories are fine.
+	mgr, runner := restoreManager(t)
+	runner.ExpectOutput("tar --list --verbose --file /backups/a.tar.gz",
+		"drwxr-xr-x root/root 0 2026-01-01 00:00 example.com/\n-rw-r--r-- root/root 5 2026-01-01 00:00 example.com/.env\n")
+	if err := mgr.refuseLinkMembers(context.Background(), "/backups/a.tar.gz"); err != nil {
+		t.Errorf("a plain file-and-directory archive was refused: %v", err)
+	}
+}

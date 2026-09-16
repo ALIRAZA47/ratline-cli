@@ -31,6 +31,10 @@ paths:
   # Anything an operator puts here is included by the generated vhost and is
   # never regenerated, so hand-written additions survive `ratline reconcile`.
   nginx_custom: /etc/nginx/ratline/custom
+  # One root-owned directory per site for nginx's access and error logs. nginx opens
+  # them as root, so they live outside the tenant's home, where nothing can be swapped
+  # for a symlink underneath it; the tenant reads them through their group.
+  nginx_log_dir: /var/log/nginx/ratline
   systemd_dir: /etc/systemd/system
   logrotate_dir: /etc/logrotate.d
   # One shared HTTP-01 webroot for every site, served before any redirect so

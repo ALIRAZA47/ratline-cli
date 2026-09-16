@@ -37,6 +37,28 @@ type mysqlServerFake struct {
 
 // run answers a mysql invocation. It reads the SQL from stdin and the credentials from the
 // staged defaults-file named in argv.
+// unquoteClientOptions mirrors how the mysql client reads a [client] option file:
+// a double-quoted value runs to the matching quote with backslash escapes, so the
+// stored `password="p\"w"` is the credential `p"w`.
+func unquoteClientOptions(body string) string {
+	var out strings.Builder
+	for _, line := range strings.Split(body, "\n") {
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			out.WriteString(line + "\n")
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
+			inner := val[1 : len(val)-1]
+			r := strings.NewReplacer(`\"`, `"`, `\\`, `\`)
+			val = r.Replace(inner)
+		}
+		out.WriteString(strings.TrimSpace(key) + "=" + val + "\n")
+	}
+	return out.String()
+}
+
 func (f *mysqlServerFake) run(c system.Cmd) (*system.Result, error) {
 	var defaults string
 	for _, a := range c.Args {
@@ -45,7 +67,9 @@ func (f *mysqlServerFake) run(c system.Cmd) (*system.Result, error) {
 		}
 	}
 	body, _ := os.ReadFile(defaults)
-	creds := string(body)
+	// The real mysql client strips the quotes ratline now writes around option values,
+	// so the fake parses the file the same way before matching credentials.
+	creds := unquoteClientOptions(string(body))
 	sql := ""
 	if c.Stdin != nil {
 		var sb strings.Builder

@@ -1,0 +1,32 @@
+# managed-by: ratline
+#
+# The catch-all. A request whose Host header — or, on 443, whose SNI — names no site
+# ratline manages must be answered with nothing: the server's bare IP address, a
+# scanner's random name, a domain somebody else pointed here. Without a server block
+# marked default_server, nginx answers such a request with whichever tenant's site
+# happens to sort first, which serves that tenant's content to people who never asked
+# for it and lets anyone reach a site by IP without knowing its name.
+#
+# 444 is nginx's "close the connection without a response". Nothing is served and
+# nothing is learned.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+{{- if .RejectHandshake }}
+
+# The same on 443. Without a default, an unmatched SNI is answered with the first TLS
+# vhost's certificate — which both names a tenant's domain to whoever asked and serves
+# their content under a hostname they do not own. ssl_reject_handshake refuses the
+# handshake instead, so no certificate is presented at all. It needs nginx 1.19.4;
+# on anything older this block is left out rather than written as a directive nginx
+# would refuse, which would take every site down with it.
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+{{- end }}

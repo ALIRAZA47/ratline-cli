@@ -49,6 +49,7 @@ type Account struct {
 	Role         string    `json:"role"`
 	PasswordHash string    `json:"-"`
 	TOTPSecret   string    `json:"-"`
+	TOTPLastStep int64     `json:"-"`
 	TOTPEnabled  bool      `json:"totp_enabled"`
 	Disabled     bool      `json:"disabled"`
 	CreatedAt    time.Time `json:"created_at"`

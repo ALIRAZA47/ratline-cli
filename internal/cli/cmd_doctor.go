@@ -160,11 +160,52 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		}
 	}
 
+	// With sites to protect, there has to be a server block that answers unknown hosts
+	// with nothing; otherwise the bare IP serves whichever tenant sorts first.
+	if len(sites) > 0 && g.Bins.Available("nginx") {
+		def := filepath.Join(g.Cfg.Paths.NginxSnippets, nginx.DefaultServerName)
+		if !system.Exists(def) && nginxMgr.ForeignDefaultServers(ctx) == 0 {
+			add("problem", "nginx", "default server",
+				"no default_server: a request for an unknown host, or for the bare IP, is served a tenant's site",
+				"ratline reconcile --fix")
+		}
+	}
+
 	for _, s := range sites {
 		siteDir := g.Cfg.SiteDir(s.Owner, s.Domain)
 		vhost := g.Cfg.VhostPath(s.Domain)
 		if !system.Exists(vhost) {
 			add("problem", "drift", s.Domain, "no nginx configuration at "+vhost, "ratline reconcile --fix")
+		} else if body, err := system.ReadFileLimit(vhost, 1<<20); err == nil &&
+			strings.Contains(string(body), "access_log "+filepath.Join(siteDir, "logs")) {
+			// Rendered before nginx's logs moved out of the tenant's tree. nginx opens
+			// them as root on every reload, so a symlink the tenant put there is a root
+			// append to any file.
+			add("problem", "drift", s.Domain,
+				"nginx logs into "+filepath.Join(siteDir, "logs")+", which the tenant owns and can redirect",
+				"ratline reconcile --fix")
+		}
+		if s.Dynamic() {
+			if body, err := system.ReadFileLimit(g.Cfg.UnitPath(s.Owner, s.Domain), 1<<20); err == nil &&
+				unitHasDirective(string(body), "EnvironmentFile=") {
+				add("problem", "drift", s.Domain,
+					"the service unit has PID 1 read .env as root (EnvironmentFile=), from a directory the tenant owns",
+					"ratline reconcile --fix, then ratline site restart "+s.Domain)
+			}
+		}
+		if units, err := st.ListSiteUnits(ctx, s.Domain, ""); err == nil {
+			for _, u := range units {
+				path := filepath.Join(g.Cfg.Paths.SystemdDir, unit.SiteUnitName(s.Slug, u.Kind, u.Name))
+				body, err := system.ReadFileLimit(path, 1<<20)
+				if err != nil {
+					continue
+				}
+				if unitHasDirective(string(body), "EnvironmentFile=") || unitHasDirective(string(body), "StandardOutput=append:") {
+					add("problem", "drift", s.Domain,
+						"the "+u.Kind+" "+u.Name+" has PID 1 open paths under "+siteDir+" as root",
+						"ratline reconcile --fix")
+				}
+			}
 		}
 		if s.Enabled && !system.IsSymlink(g.Cfg.VhostLink(s.Domain)) {
 			add("problem", "drift", s.Domain, "enabled in state but not linked into sites-enabled", "ratline reconcile --fix")
@@ -598,6 +639,18 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 	return findings, nil
 }
 
+// unitHasDirective reports whether a unit file sets a directive, ignoring comments —
+// which is how systemd reads it, and what keeps a comment that mentions the
+// directive from counting.
+func unitHasDirective(body, prefix string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func newReconcileCommand(g *Globals) *cobra.Command {
 	var fix bool
 	cmd := &cobra.Command{
@@ -660,7 +713,13 @@ func newReconcileCommand(g *Globals) *cobra.Command {
 			if err := mgr.Unit.EnsureTarget(cmd.Context()); err != nil {
 				return err
 			}
+			restart := 0
 			for _, s := range sites {
+				// Before the vhost, which is about to name files in it.
+				if err := mgr.EnsureNginxLogDir(s); err != nil {
+					g.Log.Error("could not create the nginx log directory", "domain", s.Domain, "err", err)
+					continue
+				}
 				cert, _ := st.CertificateForSite(cmd.Context(), s.Domain)
 				rb := system.NewRollback(g.Log)
 				if err := mgr.Nginx.Apply(cmd.Context(), s, cert, rb); err != nil {
@@ -671,7 +730,39 @@ func newReconcileCommand(g *Globals) *cobra.Command {
 				if err := mgr.Unit.InstallLogrotate(cmd.Context(), s); err != nil {
 					g.Log.Warn("could not write the logrotate policy", "domain", s.Domain, "err", err)
 				}
+				// The units too: a unit rendered by an older release has PID 1 read .env
+				// and open logs as root from the tenant's tree. Re-rendering installs the
+				// current shape and reloads systemd; it takes effect on the next restart,
+				// which is the operator's call rather than reconcile's.
+				if s.Dynamic() {
+					if err := mgr.ReapplyUnit(cmd.Context(), s); err != nil {
+						g.Log.Error("could not re-render the service unit", "domain", s.Domain, "err", err)
+					} else {
+						restart++
+					}
+				}
+				units, err := st.ListSiteUnits(cmd.Context(), s.Domain, "")
+				if err != nil {
+					return err
+				}
+				for _, u := range units {
+					service, timer, err := mgr.Unit.RenderSiteUnit(s, u)
+					if err != nil {
+						g.Log.Error("could not render a "+u.Kind, "domain", s.Domain, "name", u.Name, "err", err)
+						continue
+					}
+					urb := system.NewRollback(g.Log)
+					if err := mgr.Unit.InstallSiteUnit(cmd.Context(), s, u, service, timer, urb); err != nil {
+						g.Log.Error("could not re-install a "+u.Kind, "domain", s.Domain, "name", u.Name, "err", err)
+						continue
+					}
+					urb.Commit()
+				}
 				repaired++
+			}
+			if restart > 0 && !g.DryRun {
+				g.Log.Info("service units were re-rendered; each takes effect on its next restart",
+					"count", restart, "apply_with", "ratline site restart <domain>")
 			}
 			// Release port allocations no site uses any more.
 			ports, err := st.ListPorts(cmd.Context())

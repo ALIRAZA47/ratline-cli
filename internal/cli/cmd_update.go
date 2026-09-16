@@ -81,10 +81,18 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u := &updater{g: g, baseURL: strings.TrimRight(orDefault2(baseURL, updateBaseURL), "/"),
 				allowUnverified: unverified}
+			// --dry-run has to be honoured here, by hand. The updater downloads,
+			// verifies and renames with plain file operations rather than through the
+			// Runner, so the Runner's dry-run mode does not reach it — and a rehearsal
+			// that replaced the root binary, unlocked, was what the panel's Preview
+			// button did. A dry run reports, exactly as --check does.
 			switch {
+			case rollback && g.DryRun:
+				g.Log.Info("would restore the previous binaries; nothing was changed")
+				return nil
 			case rollback:
 				return u.rollback(cmd.Context())
-			case check:
+			case check || g.DryRun:
 				return u.check(cmd.Context(), version)
 			default:
 				return u.run(cmd.Context(), version)
@@ -196,6 +204,23 @@ func (u *updater) run(ctx context.Context, want string) error {
 	// header, and leaves a hand-edited unit alone.
 	installedUnits := ""
 	if mgr, merr := u.g.siteManager(ctx); merr == nil {
+		// The same rule for nginx's catch-all server as for the timers below: a server
+		// that upgraded rather than installed fresh has no default_server until
+		// something writes one, and a `site add` that never happens again would never
+		// write it. Reloaded only when the file actually changed, and gracefully.
+		if changed, derr := mgr.Nginx.EnsureDefaultServer(ctx); derr != nil {
+			u.g.Log.Warn("could not install nginx's catch-all server block", "err", derr,
+				"fix", "ratline reconcile --fix, then ratline doctor")
+		} else if changed && u.g.Bins.Available("nginx") {
+			if terr := mgr.Nginx.Test(ctx); terr != nil {
+				u.g.Log.Warn("nginx refused the configuration with the catch-all in it; leaving nginx as it was",
+					"err", terr, "fix", "nginx -t, then ratline reconcile --fix")
+			} else if rerr := mgr.Nginx.Reload(ctx); rerr != nil {
+				u.g.Log.Warn("could not reload nginx for the catch-all server block", "err", rerr)
+			} else {
+				u.g.Log.Info("installed nginx's catch-all server block: requests for unknown hosts now get nothing")
+			}
+		}
 		if terr := mgr.Unit.EnsureTimers(ctx); terr != nil {
 			// Not fatal: the binary is already replaced and working, and a timer that
 			// could not be installed is a warning rather than a reason to roll back a

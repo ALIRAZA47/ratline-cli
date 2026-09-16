@@ -184,13 +184,33 @@ func (s *Server) handleSiteLogs(w http.ResponseWriter, r *http.Request, c *Calle
 		}
 		lines = n
 	}
-	text, err := s.readText(r.Context(), c.Account.Role, "site logs",
-		[]string{domain}, map[string]any{"lines": lines})
+	// Which log: the application's, nginx's access or error log, or the unit's
+	// journal — the same choice `ratline site logs` offers as flags. The stream is
+	// checked against a closed set here, and each maps to exactly one boolean flag,
+	// so the query string can only ever pick one of the four. --follow is never
+	// passed: it would hold the request open with no way for the browser to stop it.
+	stream := r.URL.Query().Get("stream")
+	flags := map[string]any{"lines": lines}
+	switch stream {
+	case "", "app":
+		stream = "app"
+		flags["app"] = true
+	case "access":
+		flags["access"] = true
+	case "error":
+		flags["error"] = true
+	case "journal":
+		flags["journal"] = true
+	default:
+		s.fail(w, rlerr.Usagef("stream must be app, access, error or journal"))
+		return
+	}
+	text, err := s.readText(r.Context(), c.Account.Role, "site logs", []string{domain}, flags)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	ok(w, map[string]any{"domain": domain, "lines": lines, "text": text})
+	ok(w, map[string]any{"domain": domain, "lines": lines, "stream": stream, "text": text})
 }
 
 // handleSiteEnv lists a site's environment keys. Values are masked by ratline unless

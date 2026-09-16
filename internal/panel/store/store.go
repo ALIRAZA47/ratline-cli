@@ -42,11 +42,17 @@ func Open(path string) (*Store, error) {
 	if _, err := system.EnsureDir(dir, 0o750, system.KeepUnchanged, system.KeepUnchanged); err != nil {
 		return nil, err
 	}
+	// _txlock=immediate: every transaction takes the write lock as it begins rather
+	// than when it first writes. A check-then-write guard — "is this the last super
+	// admin?", "does any account exist yet?" — is only a guard if the check and the
+	// write are serialised against every other writer; with a deferred BEGIN, two of
+	// them read the same answer and both write.
 	dsn := "file:" + path +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=foreign_keys(1)" +
 		"&_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(NORMAL)"
+		"&_pragma=synchronous(NORMAL)" +
+		"&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, rlerr.Wrap(err, rlerr.CodeGeneric, "opening the panel database at %s", path)
@@ -76,7 +82,7 @@ func Open(path string) (*Store, error) {
 
 // OpenMemory returns an ephemeral store, for tests.
 func OpenMemory() (*Store, error) {
-	db, err := sql.Open("sqlite", "file::memory:?_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", "file::memory:?_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}

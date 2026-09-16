@@ -42,7 +42,7 @@ func TestAJobCarriesTheSitesIsolation(t *testing.T) {
 		"User=alice",
 		"Group=alice",
 		"WorkingDirectory=/home/alice/api.example.com/app",
-		"EnvironmentFile=-/home/alice/api.example.com/.env",
+		"exec --env-file /home/alice/api.example.com/.env",
 		"MemoryMax=",
 		"MemoryAccounting=true",
 		"CPUQuota=",
@@ -188,11 +188,11 @@ func TestTheGeneratedNamesAreDistinctAndStable(t *testing.T) {
 		t.Errorf("%q is not a timer name", timer)
 	}
 
-	// The template writes StandardOutput to this path and `site cron logs` reads it. When
+	// The wrapper opens this path for the job's output and `site cron logs` reads it. When
 	// those disagreed, a job that had just run reported "Nothing logged yet".
 	service, _ := renderJob(t, pythonSite(), aJob())
 	want := SiteUnitLogPath(testManager().Cfg, pythonSite(), aJob())
-	if !strings.Contains(service, "StandardOutput=append:"+want) {
+	if !strings.Contains(service, "--log-file "+want+" -- ") {
 		t.Errorf("the unit writes somewhere other than %s:\n%s", want, service)
 	}
 }
@@ -390,5 +390,20 @@ func TestAJobMemoryMaxRejectsControlChars(t *testing.T) {
 	good.MemoryMax = "512M"
 	if _, _, err := m.RenderSiteUnit(pythonSite(), good); err != nil {
 		t.Errorf("a legitimate memory-max was rejected: %v", err)
+	}
+}
+
+// The same rule for jobs and workers: the wrapper, running as the tenant, loads .env and
+// opens the log; PID 1 opens nothing under the tenant's home.
+func TestNoJobUnitHasPIDOneOpenATenantPath(t *testing.T) {
+	raw, _ := renderJob(t, pythonSite(), aJob())
+	service := directivesOnly(raw)
+	for _, forbidden := range []string{"EnvironmentFile=", "StandardOutput=append:", "StandardError=append:"} {
+		if strings.Contains(service, forbidden) {
+			t.Errorf("the job unit has PID 1 open a tenant path via %s:\n%s", forbidden, service)
+		}
+	}
+	if !strings.Contains(service, "ExecStart=/usr/local/lib/ratline/ratline-shell exec --env-file /home/alice/api.example.com/.env --log-file /home/alice/api.example.com/logs/job-nightly.log -- ") {
+		t.Errorf("the job is not started through the wrapper:\n%s", service)
 	}
 }

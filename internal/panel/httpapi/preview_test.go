@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -111,14 +112,15 @@ func (p *previewRunner) Run(_ context.Context, c system.Cmd) (*system.Result, er
 		}
 		return &system.Result{Args: c.Args, Stdout: string(raw)}, nil
 	case strings.HasPrefix(verb, "status"):
-		return canned(c, previewStatus)
+		return canned(c, previewStatus())
 	case strings.HasPrefix(verb, "site list"):
-		return canned(c, previewSites)
+		return canned(c, previewSites())
 	case strings.HasPrefix(verb, "site show"):
-		return canned(c, `{"domain":"api.example.com","owner":"acme","runtime":"python",
+		return canned(c, fmt.Sprintf(`{"domain":"api.example.com","owner":"acme","runtime":"python",
 			"unit":"ratline-acme-api-example-com.service","state":"active","socket":
 			"/run/ratline/acme-api-example-com/app.sock","app_module":"app.main:app",
-			"workers":3,"tls":"letsencrypt, 68 days","last_deploy_at":"2026-08-20T09:14:00Z"}`)
+			"workers":3,"tls":"letsencrypt, %d days","last_deploy_at":%q}`,
+			apiCertDays, ago(apiDeployAgo)))
 	case strings.HasPrefix(verb, "site env list"):
 		return canned(c, `{"domain":"api.example.com","env":{"DATABASE_URL":"********",
 			"LOG_LEVEL":"info","SENTRY_DSN":"********"},"revealed":false}`)
@@ -129,11 +131,12 @@ func (p *previewRunner) Run(_ context.Context, c system.Cmd) (*system.Result, er
 			{"name":"acme","home":"/home/acme","shell":"/bin/bash","disabled":false},
 			{"name":"blog","home":"/home/blog","shell":"/usr/sbin/nologin","disabled":false}]}`)
 	case strings.HasPrefix(verb, "cert list"):
-		return canned(c, `{"certificates":[
-			{"name":"api.example.com","source":"letsencrypt","not_after":"2026-11-04T00:00:00Z",
+		return canned(c, fmt.Sprintf(`{"certificates":[
+			{"name":"api.example.com","source":"letsencrypt","not_after":%q,
 			 "attached_sites":["api.example.com"]},
-			{"name":"www.example.com","source":"letsencrypt","not_after":"2026-09-09T00:00:00Z",
-			 "attached_sites":["www.example.com"]}]}`)
+			{"name":"www.example.com","source":"letsencrypt","not_after":%q,
+			 "attached_sites":["www.example.com"]}]}`,
+			expiresIn(apiCertDays), expiresIn(wwwCertDays)))
 	case strings.HasPrefix(verb, "key list"):
 		return canned(c, `{"keys":[
 			{"label":"dana laptop","scope":"user","user":"acme","fingerprint":"SHA256:9xK2…"},
@@ -163,7 +166,36 @@ func canned(c system.Cmd, data string) (*system.Result, error) {
 		`"version":"v0.14.1","data":` + data + `}`}, nil
 }
 
-const previewStatus = `{"hostname":"vps-fra-01","version":"v0.14.1","os":"Ubuntu 24.04",
+// Every date the fixture states is an offset from now rather than a literal, so a
+// preview run long after this was written still agrees with itself. Literals do
+// not stay coherent: two screens read the same certificate by different routes —
+// the Overview band takes days_remaining as given, the certificates list computes
+// the days from not_after — so a not_after that has quietly gone past says the
+// certificate expired on one page and has twelve days left on the other.
+const (
+	day = 24 * time.Hour
+
+	// The one certificate near enough to expiry to raise the attention band, and
+	// the one comfortably beyond it.
+	wwwCertDays = 12
+	apiCertDays = 68
+
+	apiDeployAgo = 7*day + 6*time.Hour
+	wwwDeployAgo = 15*day + 4*time.Hour
+)
+
+// ago renders a past instant the way ratline renders a timestamp.
+func ago(d time.Duration) string { return time.Now().Add(-d).UTC().Format(time.RFC3339) }
+
+// expiresIn is a not_after that many whole days out. The extra half day is for the
+// interface, which floors: a certificate exactly twelve days away reads as eleven
+// a moment after the response is written.
+func expiresIn(days int) string {
+	return time.Now().Add(time.Duration(days)*day + 12*time.Hour).UTC().Format(time.RFC3339)
+}
+
+func previewStatus() string {
+	return fmt.Sprintf(`{"hostname":"vps-fra-01","version":"v0.14.1","os":"Ubuntu 24.04",
 	"uptime":"18 days","users":2,"keys":4,"sites":3,"certificates":2,"jobs":1,"workers":1,
 	"problems":1,
 	"sites_detail":[
@@ -175,16 +207,21 @@ const previewStatus = `{"hostname":"vps-fra-01","version":"v0.14.1","os":"Ubuntu
 	   "detail":"the unit exited 1 four times in a minute","tls":"none",
 	   "needs_attention":true}],
 	"certificates_detail":[
-	  {"name":"www.example.com","status":"expiring","days_remaining":12}],
+	  {"name":"www.example.com","status":"expiring","days_remaining":%[1]d}],
 	"warnings":["edge.example.com is failing to start",
-	            "www.example.com renews in 12 days and its last attempt failed"]}`
+	            "www.example.com renews in %[1]d days and its last attempt failed"]}`,
+		wwwCertDays)
+}
 
-const previewSites = `{"sites":[
+func previewSites() string {
+	return fmt.Sprintf(`{"sites":[
 	{"domain":"api.example.com","user":"acme","runtime":"python","enabled":true,
-	 "last_deploy_at":"2026-08-27T09:14:00Z"},
+	 "last_deploy_at":%q},
 	{"domain":"www.example.com","user":"acme","runtime":"static","enabled":true,
-	 "last_deploy_at":"2026-08-19T16:02:00Z"},
-	{"domain":"edge.example.com","user":"blog","runtime":"bun","enabled":false}]}`
+	 "last_deploy_at":%q},
+	{"domain":"edge.example.com","user":"blog","runtime":"bun","enabled":false}]}`,
+		ago(apiDeployAgo), ago(wwwDeployAgo))
+}
 
 const previewLogs = `staging the nginx vhost
 nginx -t: configuration file /etc/nginx/nginx.conf test is successful

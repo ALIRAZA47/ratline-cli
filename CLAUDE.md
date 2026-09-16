@@ -260,6 +260,18 @@ environment. No script is built from user input and the admin URI never appears 
   sits below it and has to be guarded by hand, so every new one needs
   `if m.DryRun { log "would …" } else { write }`. Assert the state row, not just the file
   on disk: checking only the nginx symlink is what let the enable/disable case through.
+- **The unit suite on macOS does not catch Linux-only syscall gaps.** `syscall.Dup2` does
+  not exist on linux/arm64 (that architecture only has `dup3`), so a file that built and
+  passed every test on a Mac failed CI's arm64 job at `go vet`. Before pushing anything
+  that touches `syscall` or `x/sys`, cross-compile the way CI does:
+  `GOOS=linux GOARCH=arm64 go vet ./...` and the same for amd64. Prefer
+  `golang.org/x/sys/unix`, which papers over such gaps, to the standard `syscall` package.
+- **Every path that renders a vhost has to create what the vhost names.** nginx's log
+  directory was created by `site add` and `reconcile`, and `site restore` — which builds
+  its tree a different way — rendered a vhost pointing at a directory nothing had made,
+  so `nginx -t` failed every restore. The creation now lives in `nginx.Apply` itself.
+  When a template starts naming a new path, put its creation where the template is
+  applied, not in the one caller you happen to be looking at.
 - **A mutation test only counts if the mutation applied.** Two edits to the panel's policy
   and argv code silently did not match (gofmt had realigned the strings), so the tests
   "passed" while proving nothing. Check the file changed before believing the result — the

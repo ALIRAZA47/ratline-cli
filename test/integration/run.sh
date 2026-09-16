@@ -217,6 +217,34 @@ hdr=$(curl -sSI -H 'Host: static.test' http://127.0.0.1/index.html)
 contains "the index is not cached" "no-cache" "$hdr"
 contains "the security headers are set" "X-Content-Type-Options" "$hdr"
 
+# A request for a host ratline does not manage — the bare IP, a scanner's name, a
+# domain somebody else pointed here — must not be answered with a tenant's site.
+# Without a default_server that is exactly what nginx does. 444 closes the connection
+# with no response, which curl reports as an empty reply (exit 52) and status 000.
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: nobody.invalid' http://127.0.0.1/ 2>/dev/null || true)
+[ "$code" = "000" ] && ok "an unknown host is served nothing (connection closed)" \
+    || bad "unknown host catch-all" "got HTTP $code; a tenant's site is being served to strangers"
+code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null || true)
+[ "$code" = "000" ] && ok "the bare IP is served nothing" || bad "bare IP catch-all" "got HTTP $code"
+# And the site itself is untouched by the catch-all.
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/)
+[ "$code" = "200" ] && ok "a known host still gets its site" || bad "known host after catch-all" "got $code"
+# A tenant may not serve a file of root's through a symlink in their document root.
+# The status is not the thing to check: this site is --spa, so when nginx refuses the
+# link the fallback answers with index.html and a 200. What must never happen is the
+# target's contents going out.
+# The link has to be the tenant's. This harness runs as root, and a root-owned link to a
+# root-owned file passes if_not_owner legitimately (same owner both ends) — which is
+# how the first version of this check "served /etc/passwd": it never modelled a tenant.
+ln -sf /etc/passwd /home/alice/static.test/public/leak
+chown -h alice:alice /home/alice/static.test/public/leak
+body=$(curl -sS -H 'Host: static.test' http://127.0.0.1/leak)
+case "$body" in
+    *root:x:0*) bad "symlink out of tree" "/etc/passwd was served through a tenant's symlink" ;;
+    *) ok "a symlink out of the tenant's tree is not served" ;;
+esac
+rm -f /home/alice/static.test/public/leak
+
 # The ACME challenge must be served even before any certificate exists.
 echo -n token123 > /var/www/ratline-acme/.well-known/acme-challenge/token123
 got=$(curl -sS -H 'Host: static.test' http://127.0.0.1/.well-known/acme-challenge/token123)
@@ -2274,7 +2302,7 @@ job_unit=$(cat /etc/systemd/system/ratline-alice-jobs_test-job-nightly.service)
 contains "the job runs as the tenant" "User=alice" "$job_unit"
 contains "the job has a memory ceiling" "MemoryMax=" "$job_unit"
 contains "the job is sandboxed" "ProtectSystem=strict" "$job_unit"
-contains "the job reads the site's env" "EnvironmentFile=-/home/alice/jobs.test/.env" "$job_unit"
+contains "the job reads the site's env" "exec --env-file /home/alice/jobs.test/.env" "$job_unit"
 contains "the job is oneshot, so runs cannot overlap" "Type=oneshot" "$job_unit"
 
 # Running it now is how you find out a job works without waiting until 3am.

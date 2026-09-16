@@ -70,6 +70,13 @@ server {
 {{- end }}
     server_name {{ .ServerNames }};
 
+    # A tenant owns their document root and can put a symlink in it. nginx's worker
+    # follows one to wherever it points, so a link to a world-readable file of root's
+    # — /etc/passwd — would be served to the internet as if it were the site's own.
+    # if_not_owner serves a link only when it and its target belong to the same user,
+    # which a tenant's own release layout does and a link out of their tree does not.
+    disable_symlinks if_not_owner from=$document_root;
+
 {{- if .TLS }}
 
     ssl_certificate     {{ .CertPath }};

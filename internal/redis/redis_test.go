@@ -14,8 +14,9 @@ import (
 )
 
 type capRunner struct {
-	calls []capCall
-	out   string
+	calls  []capCall
+	out    string
+	stderr string
 }
 
 type capCall struct {
@@ -30,7 +31,7 @@ func (r *capRunner) Run(_ context.Context, c system.Cmd) (*system.Result, error)
 		_, _ = io.Copy(&sb, c.Stdin)
 	}
 	r.calls = append(r.calls, capCall{args: append([]string(nil), c.Args...), env: append([]string(nil), c.Env...), stdin: sb.String()})
-	return &system.Result{Stdout: r.out}, nil
+	return &system.Result{Stdout: r.out, Stderr: r.stderr}, nil
 }
 
 func (r *capRunner) last() capCall { return r.calls[len(r.calls)-1] }
@@ -152,5 +153,41 @@ func TestFirstErrorDetectsRedisReplies(t *testing.T) {
 	}
 	if firstError("OK\nPONG\n") != "" {
 		t.Error("false positive on clean output")
+	}
+}
+
+// redis-cli exits 0 with an empty stdout when it cannot connect — the complaint is on
+// stderr — so "no error reply" is not proof anything happened. Trusting it made an
+// install "verify" a server that never started and a drop "flush" keys nobody deleted.
+func TestAConnectionFailureIsNotSuccess(t *testing.T) {
+	m, r := testManager(t, "")
+	r.stderr = "Could not connect to Redis at 127.0.0.1:6379: Connection refused"
+	_, err := m.PingURI(context.Background(), "redis://:adminpass@127.0.0.1:6379")
+	if err == nil {
+		t.Fatal("a server that could not be reached was reported as answering")
+	}
+}
+
+// An empty INFO reply is what a connection that went nowhere looks like; a server is
+// proven by a positive answer, not by the absence of an error.
+func TestPingRequiresAVersion(t *testing.T) {
+	m, r := testManager(t, "")
+	r.out = "" // INFO returns nothing
+	if _, err := m.PingURI(context.Background(), "redis://:adminpass@127.0.0.1:6379"); err == nil {
+		t.Fatal("a server that returned no version was accepted")
+	}
+}
+
+// Creating a user that already exists would reset another tenant's password and
+// keyspace with `ACL SETUSER ... reset`, taking their application down.
+func TestCreatingAnExistingRedisUserIsRefused(t *testing.T) {
+	m, r := testManager(t, "")
+	r.out = "shop_app" // ACL GETUSER returns a definition
+	_, err := m.CreateKeyspaceUser(context.Background(), "shop", "shop_app", "readWrite", "")
+	if err == nil {
+		t.Fatal("an existing Redis user was overwritten")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error = %v, want it to say the user exists", err)
 	}
 }

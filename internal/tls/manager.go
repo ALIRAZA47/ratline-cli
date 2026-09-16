@@ -368,6 +368,10 @@ func (m *Manager) Delete(ctx context.Context, name string, keepFiles bool) error
 			m.Log.Warn("certbot could not remove the lineage; the state row was removed anyway", "err", err)
 		}
 	}
+	if m.DryRun {
+		m.Log.Info("would forget the certificate", "name", name)
+		return nil
+	}
 	return m.State.DeleteCertificate(ctx, name)
 }
 
@@ -396,6 +400,10 @@ func (m *Manager) Revoke(ctx context.Context, name, reason string) error {
 	}); err != nil {
 		return m.translateCertbotError(err, nil, cert.Name)
 	}
+	if m.DryRun {
+		m.Log.Info("would detach and forget the certificate", "name", name)
+		return nil
+	}
 	if err := m.State.DetachCertificate(ctx, name); err != nil {
 		return err
 	}
@@ -404,6 +412,10 @@ func (m *Manager) Revoke(ctx context.Context, name, reason string) error {
 
 // SetAutoRenew turns automatic renewal on or off.
 func (m *Manager) SetAutoRenew(ctx context.Context, name string, on bool) error {
+	if m.DryRun {
+		m.Log.Info("would set automatic renewal", "name", name, "on", on)
+		return nil
+	}
 	return m.State.SetAutoRenew(ctx, name, on)
 }
 

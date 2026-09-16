@@ -189,6 +189,18 @@ func (app *App) runChecks(ctx context.Context) []check {
 			Detail: "loopback only; reach it through an SSH tunnel"})
 	}
 
+	// Forwarded headers. The panel believes X-Forwarded-For from whoever connects to
+	// its port when trust_proxy is on, and the port is loopback — which every tenant
+	// on this host can reach. A tenant who sets the header walks past allow_from and
+	// gets a fresh per-address sign-in budget on every request.
+	if app.Cfg.Listen.TrustProxy && len(app.Cfg.Security.AllowFrom) > 0 {
+		add(check{Name: "allow_from", OK: false,
+			Detail: "security.allow_from is judged on X-Forwarded-For, which any local process — " +
+				"including a tenant's — can set when it connects to " + app.Cfg.Listen.Address,
+			Fix: "treat allow_from as a convenience, not a control; the password and the second " +
+				"factor are the lock, and require_totp is the setting that matters"})
+	}
+
 	// The second factor, which is the difference between one stolen password and a
 	// server.
 	if app.Cfg.Security.RequireTOTP {

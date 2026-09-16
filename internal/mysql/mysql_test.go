@@ -158,3 +158,32 @@ func TestDefaultDatabaseName(t *testing.T) {
 		}
 	}
 }
+
+// A password containing a '#', a space or a backslash is valid, but written unquoted
+// into the [client] section the client would read only part of it — so it was created
+// with the whole password and stored with a truncated one, and never worked again.
+func TestTheDefaultsFileQuotesAwkwardCredentials(t *testing.T) {
+	body := RenderDefaultsFile(Creds{User: "admin", Password: `p#ss "wo\rd`, Host: "127.0.0.1", Port: "3306"})
+	if !strings.Contains(body, `password="p#ss \"wo\\rd"`) {
+		t.Errorf("the password was not quoted and escaped:\n%s", body)
+	}
+	// A value with no special characters is still quoted, which the client accepts.
+	plain := RenderDefaultsFile(Creds{User: "admin", Password: "simplepass", Host: "h", Port: "3306"})
+	if !strings.Contains(plain, `password="simplepass"`) {
+		t.Errorf("a plain password was not quoted:\n%s", plain)
+	}
+}
+
+// Creating a user that already exists would silently widen that account onto a new
+// database and return a password that is not its password.
+func TestCreatingAnExistingMySQLUserIsRefused(t *testing.T) {
+	m, r := testManager(t, "1") // SELECT COUNT(*) returns 1
+	_, err := m.CreateUser(context.Background(), "shop", "shop_app", "readWrite", "")
+	if err == nil {
+		t.Fatal("an existing MySQL account was widened onto another database")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error = %v, want it to say the account exists", err)
+	}
+	_ = r
+}

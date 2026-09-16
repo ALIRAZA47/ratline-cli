@@ -32,11 +32,11 @@ PIDFile={{ .PIDFile }}
 User={{ .Owner }}
 Group={{ .Group }}
 WorkingDirectory={{ .WorkingDir }}
-{{- if .EnvironmentFile }}
-# Read by PID 1 as root before privileges are dropped, which is how a 0600 .env
-# owned by the tenant can hold secrets the application still receives.
-EnvironmentFile=-{{ .EnvironmentFile }}
-{{- end }}
+# The site's .env is loaded by ratline-shell's exec mode, in the ExecStart line, after
+# systemd has already switched to User=. EnvironmentFile= would have PID 1 read it as
+# root — and .env lives in a directory the tenant owns, so a symlink there would be a
+# root read of whatever it pointed at. Values in the file override Environment= below,
+# the same order systemd applies.
 {{- range .Environment }}
 Environment={{ . }}
 {{- end }}

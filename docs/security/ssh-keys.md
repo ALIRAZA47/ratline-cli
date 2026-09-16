@@ -52,18 +52,24 @@ sshd's forced command plus the `ratline-shell` wrapper, which:
 
 - refuses an interactive login outright, with a message explaining what the key
   *can* do
-- dispatches sftp to `internal-sftp` rooted at the site directory
 - accepts `rsync --server`, `git-upload-pack`, `git-receive-pack` and `scp`, and
   nothing else
 - refuses `--rsh`, `--daemon`, `--remote-option`, `--upload-pack` and every other
   flag that would turn an allowed program into an arbitrary one
-- resolves every path argument, following symlinks, and refuses anything outside
-  the site directory
-- writes every invocation to the audit log with the key id, the remote address and
-  the requested command
+- resolves every path argument on those commands, following symlinks, and refuses
+  anything outside the site directory
 
-This reliably stops accidents. A contractor's rsync cannot reach a sibling site; a
-misconfigured CI job cannot overwrite the wrong directory.
+For `rsync`, `scp` and `git` this confines the session to the site directory. **SFTP
+is the exception.** `internal-sftp` runs with the site as its starting directory, but
+`-d` is not a chroot: an ordinary SFTP client can still `cd ..` and reach anything the
+owner's UID can — which is every site that user owns, and their `~/.ssh`. Give a
+contractor who only needs file transfer their own system user, or a `git`/`rsync`
+workflow rather than SFTP; a modern `scp` speaks the SFTP protocol, so pass `scp -O`
+to keep it on the confined path. Kernel-enforced isolation is one system user per
+site.
+
+This reliably stops accidents on the rsync and git paths. A contractor's rsync cannot
+reach a sibling site; a misconfigured CI job cannot overwrite the wrong directory.
 
 It does **not** stop someone who already has code execution as that UID. If they
 can run arbitrary code — through the application, a dependency, or a bug in the

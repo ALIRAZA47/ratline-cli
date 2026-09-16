@@ -18,7 +18,7 @@ RUN cd panel/web && npm run build
 # "go.mod requires go >= 1.25.0 (running go 1.22.12; GOTOOLCHAIN=local)" — the
 # official images set GOTOOLCHAIN=local, so there is no silent toolchain download to
 # paper over a stale pin. Bump this whenever go.mod's `go` line moves.
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
