@@ -113,6 +113,7 @@ export function JobDetail() {
     <Page
       title={data.action}
       lede={data.target ? `Target: ${data.target}` : undefined}
+      back={{ to: '/jobs', label: 'Jobs' }}
       actions={
         <Link className="btn" to="/jobs">
           All jobs

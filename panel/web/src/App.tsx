@@ -1,5 +1,5 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { Layout, Page } from './components/Layout';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Layout } from './components/Layout';
 import { useSession } from './lib/session';
 import { Accept, SignIn, Setup } from './pages/SignIn';
 import { Overview } from './pages/Overview';
@@ -10,7 +10,7 @@ import { Activity } from './pages/Activity';
 import { Team } from './pages/Team';
 import { AccountPage } from './pages/Account';
 import { ActionPage, Actions } from './pages/Actions';
-import { Card, Spinner } from './components/ui';
+import { Spinner } from './components/ui';
 
 /**
  * The guard.
@@ -67,13 +67,21 @@ export default function App() {
 
 function NotFound() {
   return (
-    <Page title="Not here" lede="That page does not exist in the panel.">
-      <Card>
-        <p className="text-sm text-[var(--fg-muted)]">
-          If you were looking for a ratline command, every one you are allowed to run is under
-          All commands.
-        </p>
-      </Card>
-    </Page>
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
+      <span className="mono text-2xs uppercase tracking-widest text-[var(--fg-faint)]">404</span>
+      <h1 className="text-xl font-semibold tracking-tight">No such page</h1>
+      <p className="max-w-[46ch] text-sm text-[var(--fg-muted)]">
+        The link may be from an older version of the panel, or the thing it pointed at has been
+        deleted. Nothing was changed.
+      </p>
+      <div className="mt-1 flex flex-wrap justify-center gap-2">
+        <Link className="btn btn-primary" to="/">
+          Back to Server
+        </Link>
+        <Link className="btn" to="/actions">
+          All commands
+        </Link>
+      </div>
+    </div>
   );
 }

@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Page } from '../components/Layout';
 import { ActionForm } from '../components/ActionForm';
+import { MoreMenu } from '../components/MoreMenu';
 import { useApi } from '../lib/hooks';
 import type { Action, Tenant } from '../lib/types';
 import { Badge, Card, Cell, Empty, ErrorBox, Facts, Row, Spinner, Table } from '../components/ui';
+import { WarningIcon } from '../components/icons';
 import { factsFrom, firstArg } from './Sites';
 
 /**
@@ -25,6 +27,7 @@ function ResourceList<T extends Record<string, unknown>>({
   columns,
   primary,
   rowLink,
+  banner,
 }: {
   title: string;
   lede: string;
@@ -44,6 +47,8 @@ function ResourceList<T extends Record<string, unknown>>({
   /** The action opened by the page's main button. */
   primary?: { id: string; label: string };
   rowLink?: (row: T) => string;
+  /** Rendered above the table — for a resource whose rows can need a decision. */
+  banner?: (rows: T[]) => React.ReactNode;
 }) {
   const list = useApi<Record<string, T[]>>(endpoint);
   const actions = useApi<Action[]>(`/api/actions?group=${group}`);
@@ -57,14 +62,22 @@ function ResourceList<T extends Record<string, unknown>>({
       title={title}
       lede={lede}
       actions={
-        primary && (
-          <button
-            className="btn btn-primary"
-            onClick={() => setOpenAction(openAction === primary.id ? null : primary.id)}
-          >
-            {openAction === primary.id ? 'Cancel' : primary.label}
-          </button>
-        )
+        <>
+          {primary && (
+            <button
+              className="btn btn-primary"
+              onClick={() => setOpenAction(openAction === primary.id ? null : primary.id)}
+            >
+              {openAction === primary.id ? 'Cancel' : primary.label}
+            </button>
+          )}
+          <MoreMenu
+            actions={(actions.data ?? []).filter((a) => a.id !== primary?.id)}
+            loading={actions.loading}
+            onPick={setOpenAction}
+            empty={`No other ${title.toLowerCase()} commands are available to you.`}
+          />
+        </>
       }
     >
       {openAction && (
@@ -86,6 +99,7 @@ function ResourceList<T extends Record<string, unknown>>({
       )}
 
       <ErrorBox error={list.error} />
+      {banner && rows.length > 0 && banner(rows)}
       {list.loading && !list.data ? (
         <Spinner />
       ) : rows.length === 0 ? (
@@ -114,26 +128,6 @@ function ResourceList<T extends Record<string, unknown>>({
         </Card>
       )}
 
-      <Card title={`Everything ${title.toLowerCase()} can do`}>
-        {actions.loading && <Spinner />}
-        <div className="flex flex-wrap gap-1.5">
-          {(actions.data ?? []).map((a) => (
-            <button
-              key={a.id}
-              className="btn btn-ghost text-xs"
-              title={a.summary}
-              onClick={() => setOpenAction(a.id === openAction ? null : a.id)}
-            >
-              <span className="mono">{a.verb}</span>
-              {a.destructive && <span className="text-[var(--danger)]">•</span>}
-              {a.min_role === 'superadmin' && <span className="text-[var(--fg-faint)]">◆</span>}
-            </button>
-          ))}
-        </div>
-        <p className="hint mt-2">
-          • cannot be undone by running another command · ◆ super admin only
-        </p>
-      </Card>
     </Page>
   );
 }
@@ -171,22 +165,22 @@ export function TenantDetail() {
   const action = useApi<Action>(openAction ? `/api/actions/${openAction}` : null);
 
   return (
-    <Page title={name} lede="A tenant sandbox and everything ratline records about it.">
+    <Page
+      title={name}
+      lede="A tenant sandbox and everything ratline records about it."
+      back={{ to: '/tenants', label: 'Tenants' }}
+      actions={
+        <MoreMenu
+          actions={actions.data ?? []}
+          loading={actions.loading}
+          onPick={setOpenAction}
+          label="Commands"
+          empty="No tenant commands are available to you."
+        />
+      }
+    >
       <ErrorBox error={tenant.error} />
       {tenant.loading && !tenant.data && <Spinner />}
-
-      <div className="flex flex-wrap gap-1.5">
-        {(actions.data ?? []).map((a) => (
-          <button
-            key={a.id}
-            className={`btn text-xs ${openAction === a.id ? 'btn-primary' : 'btn-ghost'}`}
-            title={a.summary}
-            onClick={() => setOpenAction(openAction === a.id ? null : a.id)}
-          >
-            <span className="mono">{a.verb}</span>
-          </button>
-        ))}
-      </div>
 
       {openAction && (
         <Card>
@@ -220,6 +214,7 @@ export function Certificates() {
       dataKey="certificates"
       group="certs"
       primary={{ id: 'cert.issue', label: 'Issue' }}
+      banner={(rows) => <ExpiringSoon rows={rows} />}
       columns={[
         { head: 'Name', cell: (c) => <span className="mono text-xs">{String(c.name ?? '')}</span> },
         { head: 'Source', cell: (c) => <Badge>{String(c.source ?? '')}</Badge> },
@@ -238,6 +233,57 @@ export function Certificates() {
       ]}
     />
   );
+}
+
+/**
+ * Certificates near expiry, said once at the top rather than left for the reader
+ * to find by comparing four dates against today.
+ *
+ * An expiry is the only fact on a resource list with a deadline attached, which is
+ * why this is the only list that gets a band. The renewal timer usually handles it;
+ * this is for when it has not.
+ */
+function ExpiringSoon({ rows }: { rows: Record<string, unknown>[] }) {
+  const soon = rows
+    .map((row) => ({ name: String(row.name ?? ''), days: daysUntil(row.not_after) }))
+    .filter((c): c is { name: string; days: number } => c.days !== null && c.days <= 21)
+    .sort((a, b) => a.days - b.days);
+
+  if (soon.length === 0) return null;
+
+  return (
+    <section className="rounded-[var(--radius-card)] border border-[var(--warn)]/30 bg-[var(--warn-soft)] px-3.5 py-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[var(--warn)]">
+          <WarningIcon />
+        </span>
+        <h2 className="text-sm font-semibold">
+          {soon.length === 1 ? 'One certificate is near expiry' : `${soon.length} certificates are near expiry`}
+        </h2>
+      </div>
+      <ul className="mt-2 space-y-1 text-sm">
+        {soon.map((c) => (
+          <li key={c.name}>
+            <span className="mono text-xs font-medium">{c.name}</span>
+            <span className="text-[var(--fg-muted)]">
+              {' — '}
+              {c.days <= 0
+                ? 'has expired'
+                : `expires in ${c.days} ${c.days === 1 ? 'day' : 'days'}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Whole days from now until an RFC 3339 date, or null if it is not one. */
+function daysUntil(value: unknown): number | null {
+  if (typeof value !== 'string' || value === '') return null;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return null;
+  return Math.floor((at.getTime() - Date.now()) / 86400000);
 }
 
 export function Keys() {

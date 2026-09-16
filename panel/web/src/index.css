@@ -270,3 +270,47 @@ body {
     overflow-y: auto;
   }
 }
+
+/**
+ * The indeterminate bar under a job that is still running.
+ *
+ * Deliberately not a percentage. A job is a stream of ratline's own output with no
+ * total to divide by — a bar filling to 62% would be a number the panel made up
+ * about somebody's deploy. This says "still going" and claims nothing else.
+ */
+@keyframes ratline-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.running-bar {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--bg-sunken);
+}
+
+.running-bar::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inline-size: 25%;
+  border-radius: 9999px;
+  background: var(--accent);
+  animation: ratline-indeterminate 1.4s ease-in-out infinite;
+}
+
+/* Somebody who has asked for less motion gets a static bar, not a crawling one. */
+@media (prefers-reduced-motion: reduce) {
+  .running-bar::after {
+    animation: none;
+    inline-size: 100%;
+    opacity: 0.35;
+  }
+}
+

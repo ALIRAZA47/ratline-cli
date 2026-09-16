@@ -66,10 +66,15 @@ export function Actions() {
         </Card>
       )}
 
-      {!openAction &&
-        groups.map(([group, list]) => (
+      {/* Multi-column rather than a stack of full-width cards: the groups are
+          read by scanning for a verb, and three short columns are a shorter scan
+          than one long one. Columns rather than a grid so a group with fifteen
+          commands does not stretch the row its neighbours sit in. */}
+      {!openAction && (
+        <div className="columns-1 gap-4 md:columns-2 xl:columns-3 [&>*]:mb-4 [&>*]:break-inside-avoid">
+          {groups.map(([group, list]) => (
           <Card key={group} title={group}>
-            <ul className="grid gap-1.5 sm:grid-cols-2">
+            <ul className="grid gap-1.5">
               {list.map((a) => (
                 <li key={a.id}>
                   <button
@@ -89,7 +94,9 @@ export function Actions() {
               ))}
             </ul>
           </Card>
-        ))}
+          ))}
+        </div>
+      )}
 
       {!openAction && groups.length === 0 && !loading && (
         <Card>
@@ -105,7 +112,10 @@ export function ActionPage() {
   const { id = '' } = useParams();
   const { data, error, loading } = useApi<Action>(`/api/actions/${id}`);
   return (
-    <Page title={data?.title ?? id.replace(/\./g, ' ')}>
+    <Page
+      title={data?.title ?? id.replace(/\./g, ' ')}
+      back={{ to: '/actions', label: 'All commands' }}
+    >
       <ErrorBox error={error} title="That action is not available to you" />
       {loading && !data && <Spinner />}
       {data && (
