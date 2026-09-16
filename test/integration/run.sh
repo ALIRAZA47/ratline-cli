@@ -233,7 +233,11 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127
 # The status is not the thing to check: this site is --spa, so when nginx refuses the
 # link the fallback answers with index.html and a 200. What must never happen is the
 # target's contents going out.
+# The link has to be the tenant's. This harness runs as root, and a root-owned link to a
+# root-owned file passes if_not_owner legitimately (same owner both ends) — which is
+# how the first version of this check "served /etc/passwd": it never modelled a tenant.
 ln -sf /etc/passwd /home/alice/static.test/public/leak
+chown -h alice:alice /home/alice/static.test/public/leak
 body=$(curl -sS -H 'Host: static.test' http://127.0.0.1/leak)
 case "$body" in
     *root:x:0*) bad "symlink out of tree" "/etc/passwd was served through a tenant's symlink" ;;
