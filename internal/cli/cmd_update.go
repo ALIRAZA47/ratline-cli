@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"time"
@@ -57,6 +58,7 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 		check      bool
 		rollback   bool
 		unverified bool
+		noPanel    bool
 	)
 	cmd := &cobra.Command{
 		Use:     "update",
@@ -72,7 +74,10 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 			"the previous binary is kept beside it for --rollback.\n\n" +
 			"No site is interrupted. Sites are systemd units running an interpreter; they do\n" +
 			"not exec this binary, so replacing it cannot drop a request.\n\n" +
-			"The web panel updates itself the same way, separately: 'ratline-panel update'.",
+			"The web panel, if it is installed here, is taken to the same release in the\n" +
+			"same run — it updates itself, so it refuses while one of its jobs is running\n" +
+			"and restarts its own service afterwards. --no-panel leaves it alone, and\n" +
+			"'ratline-panel update' still works on its own.",
 		Example: "  ratline update                       # to the latest release\n" +
 			"  ratline update --check               # is there one? change nothing\n" +
 			"  ratline update --version 1.2.0\n" +
@@ -80,7 +85,7 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 			"  ratline update --base-url https://mirror.example.internal/ratline",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u := &updater{g: g, baseURL: strings.TrimRight(orDefault2(baseURL, updateBaseURL), "/"),
-				allowUnverified: unverified}
+				allowUnverified: unverified, noPanel: noPanel}
 			// --dry-run has to be honoured here, by hand. The updater downloads,
 			// verifies and renames with plain file operations rather than through the
 			// Runner, so the Runner's dry-run mode does not reach it — and a rehearsal
@@ -106,6 +111,8 @@ func newUpdateCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&rollback, "rollback", false, "Restore the binary this command last replaced")
 	f.BoolVar(&unverified, "allow-unverified", false,
 		"Install even when the release publishes no SHA256SUMS (refused by default)")
+	f.BoolVar(&noPanel, "no-panel", false,
+		"Leave ratline-panel alone; update only ratline itself")
 	return Mutating(cmd)
 }
 
@@ -138,10 +145,17 @@ func (u *updater) artefacts() ([]selfupdate.Artefact, error) {
 type updater struct {
 	// latestAPI is injectable so the release-lookup failure modes can be tested
 	// without reaching github; empty means the real endpoint.
-	latestAPI       string
-	g               *Globals
-	baseURL         string
-	allowUnverified bool
+	latestAPI string
+	// noPanel leaves the web panel alone. For somebody who upgrades the two
+	// deliberately, or whose panel is managed by something else.
+	noPanel bool
+	// panelBinaryOverride names the panel binary instead of searching for it.
+	// Tests only: a search that walks /usr/local/bin would find the developer's own
+	// install and try to update it.
+	panelBinaryOverride string
+	g                   *Globals
+	baseURL             string
+	allowUnverified     bool
 }
 
 // engine builds the shared updater with ratline's own artefacts, verification and
@@ -168,29 +182,146 @@ func (u *updater) check(ctx context.Context, want string) error {
 	current := buildinfo.Version
 	same := selfupdate.SameVersion(current, target)
 
+	// Reported, not run: a check that changed the panel would not be a check.
+	panelInstalled := !u.noPanel && u.panelBinary() != ""
+
 	if u.g.JSON {
 		return u.g.EmitJSON(map[string]any{
 			"current": current, "latest": target, "update_available": !same,
+			"panel_installed": panelInstalled,
 		})
 	}
 	if same {
 		u.g.Printf("ratline %s is current.\n", current)
+		if panelInstalled {
+			u.g.Printf("ratline-panel is installed here; 'ratline update' checks it too.\n")
+		}
 		return nil
 	}
 	u.g.Printf("ratline %s is installed; %s is available.\n", current, target)
+	if panelInstalled {
+		u.g.Printf("ratline-panel is installed here and would be taken to %s as well.\n", target)
+	}
 	u.g.Printf("\nInstall it:\n  ratline update\n")
 	return nil
 }
 
 // run performs the update.
+// panelUpdate is what happened to the web panel during a `ratline update`.
+type panelUpdate struct {
+	Path    string `json:"path,omitempty"`
+	Updated bool   `json:"updated"`
+	Skipped string `json:"skipped,omitempty"`
+	Output  string `json:"output,omitempty"`
+}
+
+// panelBinary finds ratline-panel on this server, or returns "".
+//
+// Beside this binary first, because the installer puts them in the same prefix and
+// an operator with ratline under /opt almost certainly has the panel there too.
+func (u *updater) panelBinary() string {
+	if u.panelBinaryOverride != "" {
+		if system.Exists(u.panelBinaryOverride) {
+			return u.panelBinaryOverride
+		}
+		return ""
+	}
+	candidates := []string{}
+	if self, err := system.SelfPath(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(self), "ratline-panel"))
+	}
+	candidates = append(candidates, "/usr/local/bin/ratline-panel", "/usr/bin/ratline-panel")
+	for _, path := range candidates {
+		if system.Exists(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+// updatePanel brings the web panel up to the same release, by running its own update.
+//
+// Delegated rather than reimplemented. The panel is a daemon with a job queue and a
+// service to restart, and it already knows how to replace itself safely: it refuses
+// while a job is running, verifies that what it downloaded identifies itself as
+// ratline-panel, swaps atomically and keeps the old binary for --rollback. Doing any
+// of that a second time here would be a second implementation of the careful part,
+// and the careful part is the whole feature.
+//
+// The version is passed through so the two stay in lockstep. They are built and
+// released together, and a box running yesterday's panel against today's ratline is
+// tolerable but not what somebody asked for by typing `ratline update`.
+func (u *updater) updatePanel(ctx context.Context, version string) *panelUpdate {
+	path := u.panelBinary()
+	if path == "" {
+		u.g.Log.Debug("no web panel on this server; nothing else to update")
+		return &panelUpdate{Skipped: "not installed"}
+	}
+	out := &panelUpdate{Path: path}
+
+	args := []string{"update", "--version=" + version}
+	if u.baseURL != updateBaseURL {
+		args = append(args, "--base-url="+u.baseURL)
+	}
+	if u.allowUnverified {
+		args = append(args, "--allow-unverified")
+	}
+
+	res, err := u.g.Runner.Run(ctx, system.Cmd{
+		Path: path, Args: args, Label: "ratline-panel update", Mutates: true,
+		Timeout: 15 * time.Minute,
+	})
+	stderr := ""
+	if res != nil {
+		out.Output = strings.TrimSpace(res.Out())
+		stderr = res.Stderr
+	}
+	if err != nil {
+		combined := out.Output + " " + stderr
+		// A panel from before the update command existed cannot update itself, and
+		// saying "unknown command" to somebody who just upgraded ratline is not an
+		// answer. The installer is the way onto the first version that can.
+		if strings.Contains(combined, "unknown command") {
+			out.Skipped = "too old to update itself"
+			u.g.Log.Warn("the installed web panel predates 'ratline-panel update'",
+				"fix", "curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo NO_INSTALL=1 sh")
+			return out
+		}
+		// Not fatal to ratline's own update, which has already succeeded. The panel
+		// unwinds its own failure and keeps serving the binary it had.
+		out.Skipped = "failed"
+		u.g.Log.Warn("ratline was updated but the web panel was not", "err", err,
+			"fix", "run 'ratline-panel update' and read what it says")
+		return out
+	}
+	out.Updated = true
+	return out
+}
+
 func (u *updater) run(ctx context.Context, want string) error {
 	current := buildinfo.Version
-	res, err := u.engine().Run(ctx, want)
+	// Resolved once, and the concrete version handed to both halves: asking twice
+	// could straddle a release and put a panel on the server that this ratline was
+	// never tested against.
+	target, err := u.engine().Latest(ctx, want)
+	if err != nil {
+		return err
+	}
+	res, err := u.engine().Run(ctx, target)
 	if err != nil {
 		return err
 	}
 	if res == nil {
+		// ratline is current, which says nothing about the panel — it is a separate
+		// binary and can be a release behind on its own.
+		panel := u.panel(ctx, target)
+		if u.g.JSON {
+			return u.g.EmitJSON(map[string]any{
+				"updated": false, "from": current, "to": current, "panel": panel,
+			})
+		}
 		u.g.Printf("ratline %s is already installed; nothing to do.\n", current)
+		u.reportPanel(panel, target)
 		return nil
 	}
 
@@ -232,10 +363,13 @@ func (u *updater) run(ctx context.Context, want string) error {
 		}
 	}
 
+	panel := u.panel(ctx, res.To)
+
 	if u.g.JSON {
 		return u.g.EmitJSON(map[string]any{
 			"updated": true, "from": res.From, "to": res.To,
-			"timers": installedUnits, "rollback": "ratline update --rollback",
+			"timers": installedUnits, "panel": panel,
+			"rollback": "ratline update --rollback",
 		})
 	}
 	u.g.Printf("Updated ratline %s → %s\n", res.From, res.To)
@@ -246,11 +380,43 @@ func (u *updater) run(ctx context.Context, want string) error {
 	); err != nil {
 		return err
 	}
+	u.reportPanel(panel, res.To)
 	u.g.Printf("\nNo site was interrupted. Worth running once:\n" +
 		"  ratline doctor\n" +
 		"  ratline reconcile --dry-run   # a new release may generate better units\n" +
 		"\nIf anything is wrong:\n  ratline update --rollback\n")
 	return nil
+}
+
+// panel runs the web panel's update unless told not to.
+func (u *updater) panel(ctx context.Context, version string) *panelUpdate {
+	if u.noPanel {
+		return &panelUpdate{Skipped: "not asked for"}
+	}
+	return u.updatePanel(ctx, version)
+}
+
+// reportPanel says what happened to the panel, in the operator's terms.
+func (u *updater) reportPanel(p *panelUpdate, version string) {
+	switch {
+	case p == nil, p.Skipped == "not installed", p.Skipped == "not asked for":
+		return
+	case p.Updated:
+		u.g.Printf("\nratline-panel is installed here, so it was updated too:\n")
+		for _, line := range strings.Split(p.Output, "\n") {
+			u.g.Printf("  %s\n", line)
+		}
+	case p.Skipped == "too old to update itself":
+		u.g.Printf("\nratline-panel is installed here but predates its own update command,\n"+
+			"so it could not be taken to %s. Once, with the installer — after that it\n"+
+			"updates with ratline:\n"+
+			"  curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo NO_INSTALL=1 sh\n"+
+			"  sudo systemctl restart ratline-panel\n", version)
+	default:
+		u.g.Printf("\nratline is updated, but ratline-panel was not: it is still serving the\n" +
+			"binary it had. Run it yourself and read what it says:\n" +
+			"  ratline-panel update\n")
+	}
 }
 
 // rollback restores the binaries kept by the last update.

@@ -144,14 +144,29 @@ shown once, and they choose how to deliver it. It works once and expires.
 
 ## Keeping it up to date
 
-The panel updates itself, in one command, and so does ratline. They are separate
-binaries with separate commands, because they are separately installed — a server can
-run a newer ratline than panel, and usually does between releases.
+One command takes the whole server to a release. `ratline update` updates ratline,
+and then — if the panel is installed here — asks the panel to update itself, so the
+two stay on the same version without anybody having to remember the second command.
 
 ```sh
+ratline update                  # both, on a server running both
+ratline update --no-panel       # ratline only, if you upgrade them deliberately
+ratline-panel update            # the panel on its own
 ratline-panel update --check    # is there a newer release? changes nothing
-ratline-panel update            # download, verify, install, restart
-ratline update                  # the CLI itself, the same way
+```
+
+It is delegation rather than a second implementation: ratline runs the panel's own
+`update`, which is the code that knows the panel is a daemon. So the panel still
+refuses while one of its jobs is running, still verifies what it downloaded, and
+still restarts its own service — whichever command started it.
+
+A panel older than the release that added `ratline-panel update` cannot update
+itself, and ratline says so rather than reporting an unknown command. Take it to a
+current release once with the installer, and it updates with ratline afterwards:
+
+```sh
+curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo NO_INSTALL=1 sh
+sudo systemctl restart ratline-panel
 ```
 
 Nothing is installed until the download has been checksummed against the release's own
