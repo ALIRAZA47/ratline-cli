@@ -230,9 +230,15 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null || 
 code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/)
 [ "$code" = "200" ] && ok "a known host still gets its site" || bad "known host after catch-all" "got $code"
 # A tenant may not serve a file of root's through a symlink in their document root.
+# The status is not the thing to check: this site is --spa, so when nginx refuses the
+# link the fallback answers with index.html and a 200. What must never happen is the
+# target's contents going out.
 ln -sf /etc/passwd /home/alice/static.test/public/leak
-code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/leak)
-[ "$code" = "403" ] && ok "a symlink out of the tenant's tree is refused" || bad "symlink out of tree" "got $code"
+body=$(curl -sS -H 'Host: static.test' http://127.0.0.1/leak)
+case "$body" in
+    *root:x:0*) bad "symlink out of tree" "/etc/passwd was served through a tenant's symlink" ;;
+    *) ok "a symlink out of the tenant's tree is not served" ;;
+esac
 rm -f /home/alice/static.test/public/leak
 
 # The ACME challenge must be served even before any certificate exists.

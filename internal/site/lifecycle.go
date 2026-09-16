@@ -677,33 +677,10 @@ func (m *Manager) LogPaths(site *state.Site) map[string]string {
 // Safe to run twice, and run from reconcile so that a site created before this
 // directory existed gets one before its vhost is re-rendered to point at it.
 func (m *Manager) EnsureNginxLogDir(site *state.Site) error {
-	id, err := m.identity(site.Owner)
-	if err != nil {
-		return err
-	}
-	dir := m.Cfg.SiteLogDir(site.Slug)
-	if m.DryRun {
-		m.Log.Info("would ensure the nginx log directory", "path", dir)
-		return nil
-	}
-	if err := system.MkdirAllMode(m.Cfg.Paths.NginxLogDir, 0o755); err != nil {
-		return err
-	}
-	// Owned by whoever runs ratline — root — with the tenant's group, so that `tail -f`
-	// as the tenant works and nothing but root can create or rename an entry.
-	if _, err := system.EnsureDir(dir, 0o750, system.KeepUnchanged, id.GID); err != nil {
-		return err
-	}
-	for _, name := range []string{"access.log", "error.log"} {
-		path := filepath.Join(dir, name)
-		if system.Exists(path) {
-			continue
-		}
-		if err := system.WriteFileAtomic(path, nil, 0o640, system.KeepUnchanged, id.GID); err != nil {
-			return err
-		}
-	}
-	return nil
+	// The work lives on the nginx manager, which also does it from Apply, so that no
+	// path that renders a vhost can forget it. This remains for the callers that want
+	// the directory before any vhost exists: site add's tree build, and reconcile.
+	return m.Nginx.EnsureLogDir(site)
 }
 
 // UnitName is the systemd unit for a site.

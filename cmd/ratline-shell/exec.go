@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // exec mode is what a site's systemd unit starts.
@@ -118,8 +120,12 @@ func runExec(args []string) int {
 			fmt.Fprintf(os.Stderr, "ratline-shell exec: cannot open the log %s: %v\n", opts.logFile, err)
 			return exitExec
 		}
+		// unix.Dup2 rather than syscall.Dup2: linux/arm64 has no dup2 system call,
+		// only dup3, and the standard library does not paper over that — the first
+		// arm64 build of this file failed to compile. x/sys provides Dup2 on every
+		// platform ratline builds for, via dup3 where it has to.
 		for _, fd := range []int{1, 2} {
-			if err := syscall.Dup2(int(f.Fd()), fd); err != nil {
+			if err := unix.Dup2(int(f.Fd()), fd); err != nil {
 				fmt.Fprintf(os.Stderr, "ratline-shell exec: redirecting output: %v\n", err)
 				return exitExec
 			}

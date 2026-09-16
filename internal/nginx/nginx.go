@@ -311,6 +311,14 @@ func (m *Manager) RenderVhost(site *state.Site, cert *state.Certificate) ([]byte
 // The previous file is kept and restored if the test fails, so a bad render never
 // takes the other sites down with it.
 func (m *Manager) Apply(ctx context.Context, site *state.Site, cert *state.Certificate, rb *system.Rollback) error {
+	// Before the render is tested: the vhost names files in this directory, and
+	// nginx -t opens them. `site restore` rendered a vhost for a site whose directory
+	// nothing had created and failed every restore with "No such file or directory";
+	// doing it here covers restore, cert attach, scale and every other re-render
+	// rather than each of them separately.
+	if err := m.EnsureLogDir(site); err != nil {
+		return err
+	}
 	rendered, err := m.RenderVhost(site, cert)
 	if err != nil {
 		return err
@@ -627,6 +635,44 @@ func (m *Manager) EnsureSnippets(ctx context.Context) error {
 	}
 	_, err = m.EnsureDefaultServer(ctx)
 	return err
+}
+
+// EnsureLogDir creates the root-owned directory nginx logs a site into, with the
+// site owner's group so the tenant can read what is written there.
+//
+// nginx's master opens access_log and error_log as root on every reload, so the
+// directory must be one the tenant cannot rename anything in: root's, not theirs.
+// A site whose owner does not exist as a system user is skipped — there is nobody
+// to grant read access to, and in the one place that happens (a unit test with a
+// made-up owner) the vhost is never given to a real nginx.
+func (m *Manager) EnsureLogDir(site *state.Site) error {
+	id, err := system.LookupIdentity(site.Owner)
+	if err != nil {
+		m.Log.Debug("no system user for the site owner; not creating its nginx log directory",
+			"owner", site.Owner, "err", err)
+		return nil
+	}
+	dir := m.Cfg.SiteLogDir(site.Slug)
+	if m.DryRun {
+		m.Log.Info("would ensure the nginx log directory", "path", dir)
+		return nil
+	}
+	if err := system.MkdirAllMode(m.Cfg.Paths.NginxLogDir, 0o755); err != nil {
+		return err
+	}
+	if _, err := system.EnsureDir(dir, 0o750, system.KeepUnchanged, id.GID); err != nil {
+		return err
+	}
+	for _, name := range []string{"access.log", "error.log"} {
+		p := filepath.Join(dir, name)
+		if system.Exists(p) {
+			continue
+		}
+		if err := system.WriteFileAtomic(p, nil, 0o640, system.KeepUnchanged, id.GID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DefaultServerName is the file the catch-all server block lives in, under
