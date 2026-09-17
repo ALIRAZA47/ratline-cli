@@ -20,13 +20,13 @@ export function AccountPage() {
   const sessions = useApi<SessionSummary[]>('/api/me/sessions');
 
   return (
-    <Page title="Your account" lede={me.account.email}>
+    <Page title="Your account" lede={`Signed in as ${me.account.email}.`}>
       <div className="grid gap-4 lg:grid-cols-2">
         <PasswordCard />
         <TotpCard onChange={refresh} />
       </div>
 
-      <Card title="Signed-in browsers">
+      <Card title="Where you are signed in">
         {sessions.loading && !sessions.data && <Spinner />}
         <ErrorBox error={sessions.error} />
         {sessions.data && (

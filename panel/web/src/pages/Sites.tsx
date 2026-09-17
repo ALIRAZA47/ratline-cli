@@ -113,6 +113,39 @@ export function Sites() {
  * site surface is a filtered view of the same catalogue every other page uses, so
  * there is no list of buttons here to fall out of step with the binary.
  */
+/**
+ * How the site is, in a sentence.
+ *
+ * Replaces "A python site owned by acme." — which names two fields and says
+ * nothing about whether the thing is working, which is what somebody opening a
+ * site's page came to find out.
+ */
+function howItIs(info: Record<string, unknown>): string {
+  const state = String(info.state ?? '');
+  const workers = typeof info.workers === 'number' ? info.workers : undefined;
+  const runtime = typeof info.runtime === 'string' ? info.runtime : '';
+  const owner = String(info.owner ?? info.user ?? '');
+
+  const doing =
+    state === 'active' || state === 'running'
+      ? workers
+        ? `Serving on ${workers} ${workers === 1 ? 'worker' : 'workers'}.`
+        : 'Serving.'
+      : state === 'serving'
+        ? 'Serving files.'
+        : state === 'disabled'
+          ? 'Not being served at the moment.'
+          : state
+            ? `${state.charAt(0).toUpperCase()}${state.slice(1)}.`
+            : '';
+
+  const whose = [runtime && `A ${runtime} site`, owner && `belonging to ${owner}`]
+    .filter(Boolean)
+    .join(' ');
+
+  return [doing, whose && `${whose}.`].filter(Boolean).join(' ');
+}
+
 /** The one thing people come to this page to do. Everything else is in the menu. */
 const PRIMARY = 'site.deploy';
 
@@ -144,7 +177,7 @@ export function SiteDetail() {
   return (
     <Page
       title={domain}
-      lede={typeof info.runtime === 'string' ? `A ${info.runtime} site owned by ${String(info.owner ?? info.user ?? '')}.` : undefined}
+      lede={howItIs(info)}
       back={{ to: '/sites', label: 'Sites' }}
       actions={
         <>
@@ -187,20 +220,22 @@ export function SiteDetail() {
       )}
 
       {site.data && (
-        <Card title="What ratline knows">
+        <Card title="How this site is set up">
           <Facts rows={factsFrom(info)} />
         </Card>
       )}
 
       <Card
-        title="Environment"
-        action={<span className="hint">Values are masked; reading one is its own action.</span>}
+        title="Settings this site runs with"
+        action={
+          <span className="hint">Hidden by default — showing one is recorded against your name.</span>
+        }
       >
         <ErrorBox error={env.error} />
         {env.loading && !env.data ? (
           <Spinner />
         ) : !env.data || Object.keys(env.data.env ?? {}).length === 0 ? (
-          <Empty>No variables set.</Empty>
+          <Empty>No settings yet.</Empty>
         ) : (
           <Table head={['Key', 'Value']}>
             {Object.entries(env.data.env).map(([k, v]) => (

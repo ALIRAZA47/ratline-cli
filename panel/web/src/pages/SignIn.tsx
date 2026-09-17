@@ -60,7 +60,7 @@ export function SignIn() {
   }
 
   return (
-    <Gate title="Sign in" lede="This panel administers a server. Treat it like a root shell.">
+    <Gate title="Sign in" lede="This panel runs a server. Treat it the way you would treat the keys to it.">
       <form className="space-y-3.5" onSubmit={submit}>
         <Field label="Email">
           <input

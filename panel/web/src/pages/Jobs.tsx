@@ -3,14 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import { Page } from '../components/Layout';
 import { useApi } from '../lib/hooks';
 import type { Job } from '../lib/types';
-import { Argv, Badge, Card, Cell, Empty, ErrorBox, Row, Spinner, Table, When, stateTone } from '../components/ui';
+import { Argv, Badge, Card, Empty, ErrorBox, Spinner, When, stateTone } from '../components/ui';
 
 export function Jobs() {
   const { data, error, loading, reload } = useApi<Job[]>('/api/jobs');
   return (
     <Page
-      title="Jobs"
-      lede="Deploys, issuances and installs run here rather than inside a request, so closing the tab does not stop them."
+      title="Work"
+      lede="Anything that takes more than a moment runs here, so closing the page never stops it."
       actions={
         <button className="btn" onClick={reload}>
           Refresh
@@ -25,34 +25,82 @@ export function Jobs() {
           <Empty>Nothing has run yet.</Empty>
         </Card>
       ) : (
-        <Card>
-          <Table head={['Action', 'Target', 'State', 'Who', 'When']}>
+        <Card className="px-5 py-1">
+          <ul>
             {data.map((job) => (
-              <Row key={job.id}>
-                <Cell>
-                  <Link className="mono text-xs font-medium hover:underline" to={`/jobs/${job.id}`}>
-                    {job.action}
+              <li key={job.id} className="listrow items-start py-4">
+                <span
+                  className="dot mt-1.5"
+                  style={{ background: `var(--${dotOf(job.state)})` }}
+                  aria-hidden="true"
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <Link className="font-medium hover:underline" to={`/jobs/${job.id}`}>
+                    {inWords(job)}
                   </Link>
-                  {job.dry_run && <Badge tone="warn">dry run</Badge>}
-                </Cell>
-                <Cell className="mono text-2xs">{job.target}</Cell>
-                <Cell>
-                  <Badge tone={stateTone(job.state)}>
-                    {job.state}
-                    {job.state === 'failed' && job.exit_code ? ` · exit ${job.exit_code}` : ''}
-                  </Badge>
-                </Cell>
-                <Cell className="text-2xs text-[var(--fg-muted)]">{job.actor}</Cell>
-                <Cell className="text-2xs text-[var(--fg-faint)]">
-                  <When at={job.finished_at || job.started_at || job.queued_at} />
-                </Cell>
-              </Row>
+                  <span className="text-xs text-[var(--fg-muted)]">
+                    {[job.actor, <When key="w" at={job.finished_at || job.started_at || job.queued_at} />]
+                      .filter(Boolean)
+                      .map((part, i) => (
+                        <span key={i}>
+                          {i > 0 && ' · '}
+                          {part}
+                        </span>
+                      ))}
+                    {job.state === 'failed' && job.exit_code
+                      ? ` · it stopped with exit ${job.exit_code}, and nothing was changed`
+                      : ''}
+                  </span>
+                </span>
+                {job.dry_run && <span className="tag tag-warn shrink-0">rehearsal</span>}
+              </li>
             ))}
-          </Table>
+          </ul>
         </Card>
       )}
     </Page>
   );
+}
+
+/**
+ * A job, named the way somebody would say it.
+ *
+ * `site deploy` / `api.example.com` in two columns is the shape ratline uses; the
+ * person reading this page wants the sentence it stands for.
+ */
+function inWords(job: Job): string {
+  const verb = job.action.replace(/^ratline\s+/, '');
+  const target = job.target ? ` ${job.target}` : '';
+  const said: Record<string, string> = {
+    'site deploy': 'Deploying',
+    'site add': 'Setting up',
+    'site delete': 'Removing',
+    'cert issue': 'Getting a certificate for',
+    'cert renew': 'Renewing the certificate for',
+    'db create': 'Making the database',
+    'db dump': 'Backing up',
+    'runtime install': 'Installing',
+  };
+  const done: Record<string, string> = {
+    'site deploy': 'Deployed',
+    'site add': 'Set up',
+    'site delete': 'Removed',
+    'cert issue': 'Got a certificate for',
+    'cert renew': 'Renewed the certificate for',
+    'db create': 'Made the database',
+    'db dump': 'Backed up',
+    'runtime install': 'Installed',
+  };
+  const finished = job.state === 'done' || job.state === 'failed';
+  const phrase = (finished ? done[verb] : said[verb]) ?? verb;
+  return `${phrase}${target}`;
+}
+
+function dotOf(state: string): string {
+  if (state === 'done') return 'ok';
+  if (state === 'failed') return 'danger';
+  if (state === 'running') return 'accent';
+  return 'fg-faint';
 }
 
 /**

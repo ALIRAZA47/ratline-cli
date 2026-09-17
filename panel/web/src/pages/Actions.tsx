@@ -42,7 +42,7 @@ export function Actions() {
   return (
     <Page
       title="All commands"
-      lede="Everything the installed ratline can do that you are allowed to do. The forms are generated from the binary's own schema, so they cannot offer a flag it does not have."
+      lede="The pages above cover the everyday things. This is the rest — read from the ratline installed on this server, so it is exactly what your server supports and nothing else."
       actions={
         <input
           className="field w-56"
