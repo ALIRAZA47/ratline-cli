@@ -68,8 +68,14 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 			// journal has PM2's messages and not the application's. Reading the
 			// journal there would show an operator an empty screen while the app was
 			// logging happily to a file two directories away.
-			report, _ := mgr.ProcessReport(cmd.Context(), site)
-			pm2Supervised := report != nil
+			//
+			// Asked of the *configuration*, not of the running daemon. This used to be
+			// `mgr.ProcessReport(...) != nil`, which queries PM2 itself — so a site
+			// whose PM2 was unreachable (a failed deploy that took node_modules with
+			// it, a crashed daemon) was read as "not PM2 supervised" and sent here to
+			// the journal, where a PM2 site has nothing but PM2's own messages. The
+			// screen came up empty at precisely the moment somebody needed it.
+			pm2Supervised := mgr.UsesPM2(site)
 
 			which := "app"
 			switch {
