@@ -85,7 +85,7 @@ func (m *Manager) List(ctx context.Context, f state.SiteFilter) ([]*state.Site, 
 
 // Enable turns a site on: the vhost is linked and, for a dynamic site, the
 // service is started and health checked.
-func (m *Manager) Enable(ctx context.Context, name string) error {
+func (m *Manager) Enable(ctx context.Context, name string) (err error) {
 	site, err := m.State.FindSiteByName(ctx, name)
 	if err != nil {
 		return err
@@ -95,6 +95,7 @@ func (m *Manager) Enable(ctx context.Context, name string) error {
 	}
 
 	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
 	if site.Dynamic() {
 		if err := m.Unit.Control(ctx, site, "enable"); err != nil {
 			return err
@@ -119,7 +120,7 @@ func (m *Manager) Enable(ctx context.Context, name string) error {
 // nginx keeps answering with a 503 rather than being removed, because a site that
 // disappears from nginx entirely means the ACME challenge location goes with it,
 // and a certificate that cannot renew while a site is paused is a trap.
-func (m *Manager) Disable(ctx context.Context, name string) error {
+func (m *Manager) Disable(ctx context.Context, name string) (err error) {
 	site, err := m.State.FindSiteByName(ctx, name)
 	if err != nil {
 		return err
@@ -137,6 +138,7 @@ func (m *Manager) Disable(ctx context.Context, name string) error {
 		}
 	}
 	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	// Re-rendered with the disabled branch, which serves 503 for everything
 	// except the ACME challenge.
@@ -278,7 +280,7 @@ type ScaleOptions struct {
 
 // Scale changes a site's resource envelope and applies it without downtime where
 // the runtime allows.
-func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*state.Site, error) {
+func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (_ *state.Site, err error) {
 	site, err := m.State.FindSiteByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -356,6 +358,7 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 		opts.MemoryMax == "" && opts.CPUQuota == ""
 
 	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
 	id, err := m.identity(site.Owner)
 	if err != nil {
 		return nil, err
@@ -565,7 +568,7 @@ func (m *Manager) backup(ctx context.Context, site *state.Site, dir string) erro
 }
 
 // AddAlias adds a name to a site and re-renders the vhost.
-func (m *Manager) AddAlias(ctx context.Context, name, alias string) (*state.Site, error) {
+func (m *Manager) AddAlias(ctx context.Context, name, alias string) (_ *state.Site, err error) {
 	site, err := m.State.FindSiteByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -587,6 +590,7 @@ func (m *Manager) AddAlias(ctx context.Context, name, alias string) (*state.Site
 		return nil, err
 	}
 	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	if err := m.Nginx.Apply(ctx, site, cert, rb); err != nil {
 		return nil, err
@@ -602,7 +606,7 @@ func (m *Manager) AddAlias(ctx context.Context, name, alias string) (*state.Site
 }
 
 // RemoveAlias takes a name off a site.
-func (m *Manager) RemoveAlias(ctx context.Context, name, alias string) (*state.Site, error) {
+func (m *Manager) RemoveAlias(ctx context.Context, name, alias string) (_ *state.Site, err error) {
 	site, err := m.State.FindSiteByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -628,6 +632,7 @@ func (m *Manager) RemoveAlias(ctx context.Context, name, alias string) (*state.S
 		return nil, err
 	}
 	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	if err := m.Nginx.Apply(ctx, site, cert, rb); err != nil {
 		return nil, err
