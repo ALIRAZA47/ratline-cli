@@ -14,7 +14,15 @@ That resolves the latest release, downloads the binaries for this architecture, 
 them against the release's own `SHA256SUMS`, installs `ratline` and the `ratline-shell`
 wrapper, and runs `ratline init` — which writes the configuration, creates the directory
 layout, and installs and starts the renewal and key-pruning timers. It also offers to
-`apt-get install` nginx and certbot if they are missing, naming them first.
+`apt-get install` nginx and certbot if they are missing, naming them first, and asks
+whether you want the web panel as well.
+
+To answer that question up front, and get the whole server in one command:
+
+```bash
+curl -fsSL https://ratline.alirazakhan.me/install.sh \
+  | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh
+```
 
 Piping a script into a root shell is a real supply-chain risk, and worth being deliberate
 about. The script checksums everything it downloads, and refuses rather than warning if a
