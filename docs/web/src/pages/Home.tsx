@@ -111,8 +111,10 @@ export function Home() {
           <li>
             <strong>No web UI in this binary.</strong> It is a CLI with a{' '}
             <code>--json</code> envelope, designed to sit under one — and{' '}
-            <Link to="/panel">ratline-panel</Link> is that one, installed separately so a
-            server that does not want a web service does not get one. It reimplements
+            <Link to="/panel">ratline-panel</Link> is that one, a separate binary and a
+            separate service. The installer will put it on beside ratline if you ask for
+            it, and leaves it off if you do not — a server that did not request a web
+            service should not find one listening. It reimplements
             nothing: every action it offers runs this binary and reads the envelope.
           </li>
           <li>
