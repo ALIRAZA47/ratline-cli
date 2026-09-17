@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Page } from '../components/Layout';
 import { ActionForm } from '../components/ActionForm';
 import { MoreMenu } from '../components/MoreMenu';
 import { Value, labelFor } from '../components/Value';
-import { useApi } from '../lib/hooks';
+import { useApi, usePoll } from '../lib/hooks';
 import type { Action, ActionRecord, Site } from '../lib/types';
 import {
   Badge,
@@ -298,15 +298,37 @@ const STREAM_LEDE: Record<LogStream, string> = {
   journal: 'The systemd journal for the unit itself: a failed start, an OOM kill, a crash loop.',
 };
 
+/** How often a followed log re-reads. */
+const FOLLOW_MS = 3000;
+
 export function SiteLogs() {
   const { domain = '' } = useParams();
   const [lines, setLines] = useState(200);
   const [stream, setStream] = useState<LogStream>('app');
   const [filter, setFilter] = useState('');
+  const [follow, setFollow] = useState(false);
+  const pane = useRef<HTMLPreElement>(null);
   const { data, error, loading, reload } = useApi<{ text: string }>(
     `/api/sites/${encodeURIComponent(domain)}/logs?lines=${lines}&stream=${stream}`,
     [lines, stream],
   );
+
+  // Following is a poll, not a held-open request.
+  //
+  // ratline has a --follow that blocks until it is interrupted, and the panel
+  // deliberately never passes it: a browser that navigates away, sleeps or loses its
+  // connection leaves that process running on the server with nobody to end it, and one
+  // forgotten tab becomes a journalctl that outlives the person who opened it. Re-reading
+  // the last N lines every few seconds gives an operator the same thing — lines appearing
+  // as they are written — out of requests that each finish on their own.
+  usePoll(reload, FOLLOW_MS, follow);
+
+  // Pinned to the bottom while following, which is the whole point of following.
+  useEffect(() => {
+    if (!follow) return;
+    const el = pane.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [follow, data]);
 
   // Filtered here rather than server-side, because ratline's logs command has no
   // such flag and inventing one in the query string would be a control that reads
@@ -349,7 +371,17 @@ export function SiteLogs() {
               </option>
             ))}
           </select>
-          <button className="btn" onClick={reload}>
+          {/* One control, two states, and it says which it is in. A "Follow"
+              checkbox beside a "Refresh" button leaves somebody wondering whether
+              the button still does anything while the box is ticked. */}
+          <button
+            className={`btn ${follow ? 'btn-primary' : ''}`}
+            onClick={() => setFollow((v) => !v)}
+            aria-pressed={follow}
+          >
+            {follow ? 'Following' : 'Follow'}
+          </button>
+          <button className="btn" onClick={reload} disabled={follow}>
             Refresh
           </button>
         </>
@@ -372,6 +404,7 @@ export function SiteLogs() {
           <p className="hint mb-2 max-w-prose flex-1">
             {STREAM_LEDE[stream]}
             {hiddenLines > 0 && ` ${hiddenLines} lines hidden by the filter.`}
+            {follow && ` Re-reading the last ${lines} lines every ${FOLLOW_MS / 1000} seconds.`}
           </p>
         </div>
       </Card>
@@ -379,7 +412,7 @@ export function SiteLogs() {
       {loading && !data ? (
         <Spinner />
       ) : (
-        <pre className="terminal max-h-[70vh]">
+        <pre ref={pane} className="terminal max-h-[70vh] overflow-auto" aria-live={follow ? 'polite' : 'off'}>
           {shown || (needle ? `Nothing in the last ${lines} lines matches that.` : 'Nothing logged yet.')}
         </pre>
       )}
