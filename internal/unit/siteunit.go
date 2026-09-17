@@ -54,6 +54,7 @@ type SiteUnitData struct {
 	RelaxedList  string
 	IsWorker     bool
 	SiteUnitName string
+	LogNamespace string
 
 	// timer only
 	Schedule        string
@@ -141,6 +142,7 @@ func (m *Manager) RenderSiteUnit(site *state.Site, u *state.SiteUnit) (service, 
 		RelaxedList:     strings.Join(relaxed, ", "),
 		IsWorker:        u.Kind == state.UnitWorker,
 		SiteUnitName:    validate.UnitName(site.Owner, site.Domain),
+		LogNamespace:    m.logNamespaceFor(site),
 		Schedule:        u.Schedule,
 		Persistent:      u.Persistent,
 		ServiceUnitName: SiteUnitName(site.Slug, u.Kind, u.Name),
@@ -256,6 +258,11 @@ func (m *Manager) InstallSiteUnit(ctx context.Context, site *state.Site, u *stat
 		}{SiteTimerName(site.Slug, u.Name), timer})
 	}
 
+	// Before any of them is written: a job or worker on a static site is the first unit
+	// that site has, and the namespace it names must exist before its first start.
+	if err := m.EnsureJournalNamespace(ctx, site); err != nil {
+		return err
+	}
 	for _, un := range units {
 		path := filepath.Join("/etc/systemd/system", un.name)
 		// The same refusal every generated file here carries: a file at one of ratline's

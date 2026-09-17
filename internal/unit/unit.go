@@ -58,10 +58,13 @@ type Data struct {
 	TimeoutStopSec string
 	StandardOutput string
 	StandardError  string
-	Limits         []string
-	Hardening      []string
-	Relaxed        bool
-	RelaxedList    string
+	// LogNamespace is the journald namespace the unit logs into — the site's own, so its
+	// tenant can read it. Empty on a systemd that has no namespaces.
+	LogNamespace string
+	Limits       []string
+	Hardening    []string
+	Relaxed      bool
+	RelaxedList  string
 }
 
 // HardeningDirectives is the full sandbox ratline applies.
@@ -181,6 +184,7 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 		PIDFile:        opts.PIDFile,
 		RestartSec:     m.Cfg.Defaults.RestartSec.D().String(),
 		TimeoutStopSec: m.Cfg.Defaults.StopTimeout.D().String(),
+		LogNamespace:   m.logNamespaceFor(site),
 		Relaxed:        len(relaxed) > 0,
 		RelaxedList:    strings.Join(relaxed, ", "),
 	}
@@ -276,6 +280,11 @@ func (m *Manager) Install(ctx context.Context, site *state.Site, body []byte, rb
 		}
 	}
 	if err := m.EnsureTarget(ctx); err != nil {
+		return err
+	}
+	// The unit names a journal namespace; the namespace has to be there, with the
+	// tenant's grant on it, before the unit's first start creates the first file in it.
+	if err := m.EnsureJournalNamespace(ctx, site); err != nil {
 		return err
 	}
 	if m.DryRun {
@@ -657,18 +666,20 @@ func (m *Manager) unhealthyError(ctx context.Context, site *state.Site, unitName
 	}
 	e := rlerr.Unhealthyf("%s", detail).
 		WithField("unit", unitName).
-		WithHint("full output: journalctl -u %s -n 50 --no-pager", unitName)
+		WithHint("full output: %s", m.JournalHint(unitName))
 	if logs != "" {
 		e = e.WithField("recent_logs", logs)
 	}
 	return e
 }
 
-// Logs returns the last n journal lines for a unit.
+// Logs returns the last n journal lines for a unit, from its namespace and the shared
+// journal both, so nothing is missed around the moment a site moved between them.
 func (m *Manager) Logs(ctx context.Context, unitName string, n int) string {
+	args := append(m.journalArgs(unitName), "-n", fmt.Sprint(n), "--no-pager", "--output=short-iso")
 	res, err := m.Runner.Run(ctx, system.Cmd{
 		Name:   "journalctl",
-		Args:   []string{"-u", unitName, "-n", fmt.Sprint(n), "--no-pager", "--output=short-iso"},
+		Args:   args,
 		OKExit: []int{1},
 	})
 	if err != nil || res == nil {
@@ -689,7 +700,7 @@ func (m *Manager) explainFailure(ctx context.Context, unitName string, err error
 	}
 	return rlerr.Wrap(err, rlerr.CodeExternal, "%s failed", unitName).
 		WithField("recent_logs", logs).
-		WithHint("journalctl -u %s -n 50 --no-pager", unitName)
+		WithHint("%s", m.JournalHint(unitName))
 }
 
 // Remove stops, disables and deletes a site's unit.

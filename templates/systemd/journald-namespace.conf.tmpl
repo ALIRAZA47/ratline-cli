@@ -1,0 +1,16 @@
+# managed-by: ratline
+# site: {{ .Domain }}
+# generated: {{ .GeneratedAt }}
+#
+# The journal namespace every unit of this site logs into, kept by
+# systemd-journald@{{ .Namespace }}.service. The tenant reads it with
+#
+#     journalctl --namespace={{ .Namespace }}
+#
+# and cannot read any other. Its size is capped here because journald's default
+# — a tenth of the filesystem, up to 4G — is per instance, and there is one
+# instance per site. Anything you want to change goes in
+# journald@{{ .Namespace }}.conf.d/*.conf, which ratline never writes.
+[Journal]
+Storage=persistent
+SystemMaxUse={{ .MaxUse }}

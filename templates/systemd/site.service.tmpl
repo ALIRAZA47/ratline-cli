@@ -74,6 +74,13 @@ StandardOutput={{ .StandardOutput }}
 StandardError={{ .StandardError }}
 {{- end }}
 SyslogIdentifier=ratline-{{ .Slug }}
+{{- if .LogNamespace }}
+# A journal of this site's own, kept by systemd-journald@{{ .LogNamespace }}. The tenant
+# reads it with `journalctl --namespace={{ .LogNamespace }}` and cannot read any other:
+# ratline puts a read ACL for the tenant's group on the namespace's files, and never
+# adds anybody to systemd-journal, which would be every unit on the machine.
+LogNamespace={{ .LogNamespace }}
+{{- end }}
 
 # Resource limits. This is what replaces a PHP-FPM pool's pm.max_children: the
 # ceiling is enforced by the kernel, and exceeding it kills this service rather

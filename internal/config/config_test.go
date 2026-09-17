@@ -32,6 +32,7 @@ func TestDefaultValues(t *testing.T) {
 		"home mode":         {c.Users.HomeMode, "0750"},
 		"body size":         {c.Defaults.ClientMaxBodySize, "20M"},
 		"memory max":        {c.Defaults.MemoryMax, "512M"},
+		"journal max use":   {c.Defaults.JournalMaxUse, "256M"},
 		"worker cap":        {c.Defaults.WorkerCap, 8},
 		"port range start":  {c.Ports.RangeStart, 20000},
 		"port range end":    {c.Ports.RangeEnd, 29999},

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -102,12 +103,13 @@ func run() int {
 		if !opts.allowShell {
 			record("denied", "interactive login")
 			fmt.Fprintf(os.Stderr,
-				"This key is scoped to %s and permits sftp, rsync and git only.\n"+
+				"This key is scoped to %s and permits sftp, rsync, git and logs only.\n"+
 					"There is no interactive shell. Use, for example:\n"+
 					"  sftp %s@<server>\n"+
 					"  rsync -az ./build/ %s@<server>:%s/public/\n"+
-					"  git push %s@<server>:%s/app.git\n",
-				opts.site, currentUser(), currentUser(), opts.site, currentUser(), opts.site)
+					"  git push %s@<server>:%s/app.git\n"+
+					"  ssh %s@<server> logs --follow\n",
+				opts.site, currentUser(), currentUser(), opts.site, currentUser(), opts.site, currentUser())
 			return exitDenied
 		}
 		record("allowed", "interactive shell")
@@ -127,10 +129,25 @@ func run() int {
 		record("allowed", "sftp")
 		return serveSFTP(realSiteDir)
 	}
+	// `logs` is the one verb answered here rather than by a program on the allowlist: it
+	// runs `ratline site logs` for the key's own site, as this user, so a deploy key can
+	// tail what it just deployed. Not subject to --only, which narrows the *transfer*
+	// protocol a key may use; reading the site's own logs moves no files. The site comes
+	// from the forced command, never from the remote, and the flags are a closed list.
+	if program == "logs" {
+		flags, reason := logsArgs(argv.Argv[1:])
+		if reason != "" {
+			record("denied", reason)
+			fmt.Fprintf(os.Stderr, "ratline-shell: %s\n%s", reason, logsUsage)
+			return exitDenied
+		}
+		record("allowed", "logs")
+		return execRatlineLogs(realSiteDir, opts.site, flags)
+	}
 	if !allowedPrograms[program] {
 		record("denied", "program "+program)
 		fmt.Fprintf(os.Stderr,
-			"ratline-shell: %q is not permitted by this key.\nAllowed: sftp, rsync, git-upload-pack, git-receive-pack, scp.\n",
+			"ratline-shell: %q is not permitted by this key.\nAllowed: sftp, rsync, git-upload-pack, git-receive-pack, scp, logs.\n",
 			program)
 		return exitDenied
 	}
@@ -291,6 +308,93 @@ func resolveDeepest(p string) (string, error) {
 		rest = filepath.Join(filepath.Base(cur), rest)
 		cur = parent
 	}
+}
+
+// logsUsage is what a denied `logs` invocation is told.
+const logsUsage = "usage: logs [--app|--access|--error|--journal] [--follow] [--lines N]\n"
+
+// logsFlags are the only flags `logs` passes on. Anything else is refused: the command
+// behind it is ratline's, and a flag it was not meant to see — --config above all — must
+// not be reachable from a scoped key.
+var logsFlags = map[string]bool{
+	"--app": true, "--access": true, "--error": true, "--journal": true, "--follow": true,
+}
+
+// logsArgs turns the remote's `logs ...` into the flags for `ratline site logs`, or names
+// the first argument it will not pass on. The line count is re-emitted as one
+// --lines=N element from a parsed integer, so the value is a number and nothing else.
+func logsArgs(args []string) (flags []string, reason string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case logsFlags[a]:
+			flags = append(flags, a)
+		case a == "-f":
+			flags = append(flags, "--follow")
+		case a == "--lines" || a == "-n":
+			if i+1 >= len(args) {
+				return nil, a + " needs a number"
+			}
+			i++
+			n, ok := lineCount(args[i])
+			if !ok {
+				return nil, fmt.Sprintf("%s takes a number between 1 and %d, not %q", a, maxLogLines, args[i])
+			}
+			flags = append(flags, "--lines="+n)
+		case strings.HasPrefix(a, "--lines="):
+			n, ok := lineCount(strings.TrimPrefix(a, "--lines="))
+			if !ok {
+				return nil, fmt.Sprintf("--lines takes a number between 1 and %d, not %q", maxLogLines, strings.TrimPrefix(a, "--lines="))
+			}
+			flags = append(flags, "--lines="+n)
+		default:
+			return nil, fmt.Sprintf("logs does not take %q", a)
+		}
+	}
+	return flags, ""
+}
+
+const maxLogLines = 100000
+
+func lineCount(s string) (string, bool) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > maxLogLines {
+		return "", false
+	}
+	return strconv.Itoa(n), true
+}
+
+// execRatlineLogs runs `ratline site logs <site>` as this user. ratline is looked up in
+// the two places it is installed, and has to be root's and unwritable by anyone else —
+// the same test ratline applies to itself before it runs as root — because a tenant who
+// could swap the binary would have every scoped key on the box run their program.
+func execRatlineLogs(siteDir, site string, flags []string) int {
+	path := ""
+	for _, candidate := range []string{"/usr/local/bin/ratline", "/usr/bin/ratline"} {
+		fi, err := os.Stat(candidate)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		if err := system.CheckExecutablePermissions(candidate); err != nil {
+			fmt.Fprintf(os.Stderr, "ratline-shell: refusing to run %s: %v\n", candidate, err)
+			return exitDenied
+		}
+		path = candidate
+		break
+	}
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "ratline-shell: ratline is not installed where this shell expects it")
+		return exitDenied
+	}
+	return execAt(siteDir, path, ratlineLogsArgv(path, site, flags))
+}
+
+// ratlineLogsArgv is the command line for `ratline site logs`: flags first, then `--`, then
+// the site — so the site is a positional whatever it looks like, and a flag can only be
+// one of the closed list logsArgs lets through.
+func ratlineLogsArgv(path, site string, flags []string) []string {
+	argv := append([]string{path, "site", "logs"}, flags...)
+	return append(argv, "--", site)
 }
 
 func matchesPreset(program, preset string) bool {

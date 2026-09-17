@@ -107,7 +107,7 @@ first and changes nothing until asked.
     ratline troubleshoot                 the host: clock, disk, tooling, state
     ratline status                       the whole server on one screen
     ratline site show <domain>           every setting for this site
-    journalctl -u ratline-<slug> -n 50   the unit's own messages
+    ratline site logs <domain> --journal the unit's own messages, from the site's namespace
     nginx -t                             the configuration nginx sees
 
 The host walk is worth running before anything else when several things are wrong at

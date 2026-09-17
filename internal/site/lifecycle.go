@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/runtime"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
@@ -476,6 +477,11 @@ func (m *Manager) Delete(ctx context.Context, name string, purge bool, backupDir
 	if err := m.Unit.RemoveLogrotate(site); err != nil {
 		m.Log.Warn("could not remove the logrotate policy", "err", err)
 	}
+	// After every unit that logged into it is gone. Kept without --purge, like the site
+	// directory: the journal of a site that was just deleted is often the thing wanted next.
+	if err := m.Unit.RemoveJournalNamespace(ctx, site, purge); err != nil {
+		return err
+	}
 
 	if err := m.removeSiteKeys(ctx, site); err != nil {
 		return err
@@ -683,11 +689,18 @@ func (m *Manager) ReapplyUnit(ctx context.Context, site *state.Site) (err error)
 // nginx's live under the root-owned directory EnsureNginxLogDir creates; the
 // application's own log lives with the site, written by the tenant.
 func (m *Manager) LogPaths(site *state.Site) map[string]string {
-	nginxDir := m.Cfg.SiteLogDir(site.Slug)
+	return LogPaths(m.Cfg, site)
+}
+
+// LogPaths is the Manager method without the Manager, for the tenant's own `site logs`:
+// it runs without root and without the state database, and needs nothing here but the
+// configuration and the site's names.
+func LogPaths(cfg *config.Config, site *state.Site) map[string]string {
+	nginxDir := cfg.SiteLogDir(site.Slug)
 	return map[string]string{
 		"access": filepath.Join(nginxDir, "access.log"),
 		"error":  filepath.Join(nginxDir, "error.log"),
-		"app":    filepath.Join(m.Cfg.SiteDir(site.Owner, site.Domain), "logs", "app.log"),
+		"app":    filepath.Join(cfg.SiteDir(site.Owner, site.Domain), "logs", "app.log"),
 	}
 }
 

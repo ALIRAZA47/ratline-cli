@@ -300,6 +300,49 @@ if "$RATLINE" site add api.test --user alice --runtime python \
     contains "the application answers through nginx" '"ok":true' "$body"
     contains "FastAPI docs are served" "swagger" "$(curl -sS -H 'Host: api.test' http://127.0.0.1/docs)"
 
+    # Tenant log access. The unit logs into a journal namespace of the site's own, whose
+    # files carry a read ACL for alice's group — so alice reads her service's journal, and
+    # nothing else's, without root and without being in systemd-journal (which is every
+    # unit on the box). Gunicorn announces each worker it boots, which is the line to look
+    # for: it is written to stderr, so it can only have arrived through the journal.
+    unit_file=/etc/systemd/system/ratline-alice-api_test.service
+    check "the unit logs into the site's own journal namespace" grep -q '^LogNamespace=alice-api_test$' "$unit_file"
+    ns_dir="/var/log/journal/$(cat /etc/machine-id).alice-api_test"
+    check "the namespace journal exists" test -d "$ns_dir"
+    check "and its journald instance has the size cap" grep -q '^SystemMaxUse=256M$' /etc/systemd/journald@alice-api_test.conf
+    # gunicorn writes its log to logs/app.log and captures stdout into it, so a python
+    # site's journal holds only journald's own lines — which is enough to prove the read
+    # grant; the service's own output reaching a namespace is proved on the direct node
+    # site below, where nothing captures it.
+    contains "alice reads her site's journal namespace, unprivileged" "Journal started" \
+        "$(sudo -u alice journalctl --namespace=alice-api_test --no-pager -q -n 50 2>&1)"
+    contains "and 'ratline site logs' reads gunicorn's log for her without root" "Booting worker" \
+        "$(sudo -u alice "$RATLINE" site logs api.test --lines 50 2>&1)"
+    check "and its --journal runs for her, empty though gunicorn leaves it" \
+        sudo -u alice "$RATLINE" site logs api.test --journal --lines 5
+    curl -sS -o /dev/null -H 'Host: api.test' http://127.0.0.1/tenant-log-probe || true
+    contains "alice reads her nginx access log the same way" "tenant-log-probe" \
+        "$(sudo -u alice "$RATLINE" site logs api.test --access 2>&1)"
+    if id -nG alice | grep -qw systemd-journal; then
+        bad "alice is not in systemd-journal" "she is, which is every unit's journal"
+    else
+        ok "alice is not in systemd-journal"
+    fi
+    # The boundary: bob has an account on this box and nothing of alice's is his to read.
+    others=$(sudo -u bob journalctl --namespace=alice-api_test --no-pager -q -n 50 2>&1 || true)
+    case "$others" in
+        *"Journal started"*) bad "bob cannot read alice's journal" "he could" ;;
+        *) ok "bob cannot read alice's journal" ;;
+    esac
+    refute "nor through ratline" sudo -u bob "$RATLINE" site logs api.test
+    contains "and is told the site is not his" "belongs" "$(sudo -u bob "$RATLINE" site logs api.test 2>&1 || true)"
+    # doctor has nothing to say about a site whose tenant can read its journal.
+    doctor_out=$("$RATLINE" doctor 2>&1 || true)
+    case "$doctor_out" in
+        *"cannot read"*journal*|*"shared system journal"*) bad "doctor is quiet about the journal grant" "$(printf '%s' "$doctor_out" | grep -i journal | head -3)" ;;
+        *) ok "doctor is quiet about the journal grant" ;;
+    esac
+
     # A graceful reload replaces workers one at a time, so nothing is dropped.
     fails=0
     for _ in $(seq 1 40); do
@@ -428,6 +471,19 @@ if "$RATLINE" runtime install node 22 --with-pm2 >/dev/null 2>&1; then
             "$(curl -sS -H 'Host: direct.test' http://127.0.0.1/ 2>&1)"
         refute "a direct node site refuses to reload gracefully" \
             "$RATLINE" site reload direct.test
+
+        # Nothing captures a direct site's stdout, so its "listening on" line can only have
+        # reached the journal — the site's own namespace, which bob reads without root and
+        # root reads merged with the shared journal.
+        contains "a direct site's output lands in its own journal namespace, readable by its tenant" \
+            "listening on" "$(sudo -u bob journalctl --namespace=bob-direct_test \
+                -u ratline-bob-direct_test.service --no-pager -q -n 50 2>&1)"
+        contains "and 'ratline site logs' shows it to bob without root" "listening on" \
+            "$(sudo -u bob "$RATLINE" site logs direct.test --lines 50 2>&1)"
+        contains "root's --journal merges the namespace with the shared journal" "listening on" \
+            "$("$RATLINE" site logs direct.test --journal --lines 50 2>&1)"
+        refute "alice cannot read bob's direct site through ratline" \
+            sudo -u alice "$RATLINE" site logs direct.test
     else
         bad "site add node" "see the output above"
     fi
@@ -495,6 +551,18 @@ ssh-keygen -t ed25519 -N '' -f /tmp/site.key -q
 check "key add --scope global" "$RATLINE" key add --scope global --label "Ops laptop" --key /tmp/global.key.pub
 check "key add --scope site" "$RATLINE" key add --scope site --site static.test \
         --label "Contractor" --key /tmp/site.key.pub --expires 90d
+
+# The scoped key's one verb that is not a file transfer: its own site's logs, through
+# ratline, as the tenant. Driven the way sshd drives the forced command — the request in
+# SSH_ORIGINAL_COMMAND — so the check is of the wrapper, not of sshd.
+curl -sS -o /dev/null -H 'Host: static.test' http://127.0.0.1/scoped-log-probe || true
+scoped_logs=$(sudo -u alice env HOME=/home/alice SSH_ORIGINAL_COMMAND='logs --access -n 20' \
+    /usr/local/lib/ratline/ratline-shell --site static.test 2>&1 || true)
+contains "a site-scoped key reads its site's access log with 'logs'" "scoped-log-probe" "$scoped_logs"
+refute "and cannot smuggle a flag through it" sudo -u alice env HOME=/home/alice \
+    SSH_ORIGINAL_COMMAND='logs --config=/tmp/mine.yaml' /usr/local/lib/ratline/ratline-shell --site static.test
+refute "nor name another site" sudo -u alice env HOME=/home/alice \
+    SSH_ORIGINAL_COMMAND='logs api.test' /usr/local/lib/ratline/ratline-shell --site static.test
 
 # The key itself, pasted rather than saved to a file. Reported from a real server: it was
 # read as a filename, and the error named "no such file: /root/ssh-ed25519 AAAAC3Nz… ark@ark".
@@ -2896,6 +2964,11 @@ refute "the unit is gone" test -f /etc/systemd/system/ratline-alice-api_test.ser
 refute "the vhost is gone" test -f /etc/nginx/sites-available/api.test.conf
 refute "the socket directory is gone" test -d /run/ratline/alice-api_test
 refute "the logrotate policy is gone" test -f /etc/logrotate.d/ratline-api.test
+refute "the journal namespace is gone" test -d "/var/log/journal/$(cat /etc/machine-id).alice-api_test"
+refute "and its journald configuration" test -f /etc/systemd/journald@alice-api_test.conf
+# The instance exits on its own after thirty idle seconds; the socket is what keeps it
+# startable, and the socket is what the delete has to have stopped.
+refute "and its journald socket is stopped" systemctl is-active --quiet systemd-journald@alice-api_test.socket
 check "nginx still valid after the delete" nginx -t
 after_units=$(ls /etc/systemd/system/ratline-*.service 2>/dev/null | wc -l)
 [ "$after_units" -lt "$before_units" ] && ok "one unit fewer" || bad "unit count" "$before_units then $after_units"

@@ -154,7 +154,7 @@ ratline site env list api.example.com --reveal   # if you suspect a value, not a
             b: 'The app works, then stops under load. MemoryMax is 512M by default and it is a total for the whole unit, not a per-process allowance — a cgroup limit covers every process in the service, so four Gunicorn workers holding 200 MB each is 800 MB against a 512 MB ceiling. MemoryHigh at 87.5% means the kernel reclaims before it kills, so you may see slowness first.',
             cmd: `systemctl show ratline-acme-api_example_com.service \\
   -p MemoryMax -p MemoryHigh -p MemoryCurrent -p TasksMax -p CPUQuotaPerSecUSec
-journalctl -u ratline-acme-api_example_com.service | grep -i -e oom -e killed
+journalctl --namespace=+acme-api_example_com -u ratline-acme-api_example_com.service | grep -i -e oom -e killed
 
 # Raise the ceiling, or use fewer workers:
 ratline site scale api.example.com --memory-max 1G
@@ -165,7 +165,7 @@ ratline site scale api.example.com --workers 2`,
             n: 6,
             t: 'A systemd hardening directive is blocking something',
             b: 'The app works when run by hand as the site user and fails under the unit. ProtectSystem=strict, ProtectHome=tmpfs, ProtectKernelTunables and SystemCallFilter are all candidates. ratline reports which directive rather than dropping hardening silently.',
-            cmd: `journalctl -u ratline-acme-api_example_com.service | grep -i -e denied -e 'read-only' -e ENOSYS
+            cmd: `journalctl --namespace=+acme-api_example_com -u ratline-acme-api_example_com.service | grep -i -e denied -e 'read-only' -e ENOSYS
 
 # ProtectHome=tmpfs replaces every home with an empty tmpfs and binds
 # only this site's directory back in, so a path under another home is ENOENT.
@@ -275,7 +275,7 @@ $ ratline site logs api.example.com --error --lines 5
   while reading response header from upstream, client: 203.0.113.19,
   upstream: "http://unix:/run/ratline/acme-api_example_com/app.sock:/reports"
 
-$ journalctl -u ratline-acme-api_example_com.service | grep -i oom
+$ journalctl --namespace=+acme-api_example_com -u ratline-acme-api_example_com.service | grep -i oom
 Aug 04 15:02:11 server systemd[1]: ratline-acme-api_example_com.service:
   A process of this unit has been killed by the OOM killer.
 

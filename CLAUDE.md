@@ -157,6 +157,13 @@ environment. No script is built from user input and the admin URI never appears 
   taken effect. nginx's per-site logs live under `paths.nginx_log_dir` (root-owned,
   tenant-group-readable), because nginx's master opens them as root on every reload.
   `doctor` flags a vhost or unit that still does either; `reconcile --fix` re-renders it.
+- **A tenant reads their own sites' logs without root, and never anyone else's.** Every
+  unit of a site carries `LogNamespace=<slug>`, so its journal is the site's own under
+  `/var/log/journal/<machine-id>.<slug>`; the tenant is granted it with a POSIX ACL
+  (`internal/system/acl*.go`), never with `adm` or `systemd-journal` membership, which is
+  every unit on the machine. `site logs` is `NonRoot` and, run by a tenant, resolves the
+  site from their own home and reads only what their permissions allow. Nothing in ratline
+  may add a tenant to a log-reading group.
 - **A site-scoped SSH key sees only its site.** `ratline-shell` serves SFTP itself
   (`pkg/sftp`, rooted at the site directory, symlinks resolved and refused if they leave,
   no link creation); rsync, `scp -O` and git have every path argument checked; the
@@ -310,6 +317,15 @@ environment. No script is built from user input and the admin URI never appears 
   a command that cannot rehearse itself has to say so rather than run.
 - **An in-process SFTP client's Create sends the permissions flag with no attribute
   bytes.** `Request.Attributes()` is then nil; check it before reading `.Mode`.
+- **systemd puts a `LogsDirectory=` tree back to root:root, recursively, on every start
+  whose owner differs — and `journalctl -u` shows nothing for a namespaced unit.** The
+  first is why the tenant's grant on a site's journal is an ACL and not a `chgrp`: a group
+  on `/var/log/journal/<mid>.<slug>` lasts until `systemd-journald@<slug>` next restarts,
+  which then strips ACLs too if it decides to fix the tree; a tree whose owner already
+  matches is left alone, so the directory stays root's. The second is why every
+  `journalctl -u ratline-…` hint, doc and test has to carry `--namespace=+<slug>` (root)
+  or `--namespace=<slug>` (tenant): the bare form reads only the shared journal and comes
+  up empty at exactly the moment somebody is debugging.
 - **A mutation test only counts if the mutation applied.** Two edits to the panel's policy
   and argv code silently did not match (gofmt had realigned the strings), so the tests
   "passed" while proving nothing. Check the file changed before believing the result — the

@@ -13,8 +13,11 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/runtime"
+	"github.com/ALIRAZA47/ratline-cli/internal/site"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/unit"
+	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
 // newLogsCommand is `ratline logs <domain>`, the top-level shortcut for
@@ -43,39 +46,32 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 		Short: "Show a site's application, access or error log",
 		Long: "Where the application log comes from depends on how the site is supervised.\n\n" +
 			"Under PM2 — the default for node — the application's stdout is captured by\n" +
-			"PM2 into logs/app.log, and the journal holds only PM2's own messages. So\n" +
-			"--app reads the file, and --journal is there for when the question is about\n" +
-			"the unit itself: a failed start, or an OOM kill.\n\n" +
-			"Without PM2 the application writes straight to the journal, and --app reads\n" +
-			"that.",
+			"PM2 into logs/app.log, and gunicorn writes its own log there too; the journal\n" +
+			"then holds only the supervisor's messages. So --app reads the file, and\n" +
+			"--journal is there for when the question is about the unit itself: a failed\n" +
+			"start, or an OOM kill.\n\n" +
+			"Where nothing captures it — node or bun run directly under systemd — the\n" +
+			"application writes straight to the journal, and --app reads that.\n\n" +
+			"Root is not required. A tenant runs this for any site in their own home and\n" +
+			"sees exactly what their own permissions allow: the nginx logs through their\n" +
+			"group, the application log they own, and the site's own journal namespace —\n" +
+			"never another site's, and never the shared system journal.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mgr, err := g.siteManager(cmd.Context())
+			ctx := cmd.Context()
+			asTenant := os.Geteuid() != 0
+			var (
+				t   *logTarget
+				err error
+			)
+			if asTenant {
+				t, err = g.tenantLogTarget(args[0])
+			} else {
+				t, err = g.rootLogTarget(ctx, args[0])
+			}
 			if err != nil {
 				return err
 			}
-			st, err := g.Store(cmd.Context())
-			if err != nil {
-				return err
-			}
-			site, err := st.FindSiteByName(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			paths := mgr.LogPaths(site)
-
-			// PM2 captures its workers' stdout into out_file, so on a PM2 site the
-			// journal has PM2's messages and not the application's. Reading the
-			// journal there would show an operator an empty screen while the app was
-			// logging happily to a file two directories away.
-			//
-			// Asked of the *configuration*, not of the running daemon. This used to be
-			// `mgr.ProcessReport(...) != nil`, which queries PM2 itself — so a site
-			// whose PM2 was unreachable (a failed deploy that took node_modules with
-			// it, a crashed daemon) was read as "not PM2 supervised" and sent here to
-			// the journal, where a PM2 site has nothing but PM2's own messages. The
-			// screen came up empty at precisely the moment somebody needed it.
-			pm2Supervised := mgr.UsesPM2(site)
 
 			which := "app"
 			switch {
@@ -85,7 +81,7 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 				which = "error"
 			case app:
 				which = "app"
-			case site.Runtime == "static":
+			case !t.Dynamic:
 				// A static site has no application log, so the access log is
 				// what an operator actually wants.
 				which = "access"
@@ -93,35 +89,40 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 
 			// A dynamic site's stdout goes to the journal as well as its own log,
 			// and journalctl is the only way to follow a crash loop.
-			if site.Dynamic() && (journal || (which == "app" && !pm2Supervised)) {
-				unitName := mgr.UnitName(site)
-				jargs := []string{"-u", unitName, "-n", fmt.Sprint(lines), "--no-pager", "--output=short-iso"}
-				if follow {
-					jargs = append(jargs, "--follow")
+			//
+			// PM2 captures its workers' stdout into out_file, and gunicorn writes its
+			// error log to a file and captures stdout into it, so on either the journal
+			// has the supervisor's messages and not the application's. Reading the
+			// journal there would show an operator an empty screen while the app was
+			// logging happily to a file two directories away.
+			if t.Dynamic && (journal || (which == "app" && !t.AppLogIsFile)) {
+				jargs, err := t.Unit.JournalctlArgs(t.UnitName, lines, follow, asTenant)
+				if err != nil {
+					return err
 				}
 				path, err := g.Bins.Path("journalctl")
 				if err != nil {
 					return err
 				}
-				return execInPlace(cmd.Context(), g, path, jargs)
+				return execInPlace(ctx, g, path, jargs)
 			}
 
-			path := paths[which]
+			path := t.Paths[which]
 			if !system.Exists(path) {
 				err := rlerr.Preconditionf("no %s log at %s yet", which, path)
-				if which == "app" && pm2Supervised {
-					err = err.WithHint("PM2 creates it on the first line the application writes; "+
-						"for the unit's own messages: ratline site logs %s --journal", site.Domain)
+				if which == "app" && t.AppLogIsFile {
+					err = err.WithHint("the supervisor creates it on the first line the application writes; "+
+						"for the unit's own messages: ratline site logs %s --journal", t.Domain)
 				}
 				return err
 			}
 			// nginx's logs live under root's directory; the application's is the tenant's
 			// own file inside the tenant's tree. That one is opened only if the tenant owns
-			// it and neither follows a symlink: this runs as root, and through the panel it
-			// would otherwise print any file a tenant cared to link a log to.
+			// it and neither follows a symlink: as root this would otherwise print any file
+			// a tenant cared to link a log to, and through the panel that is a click away.
 			owner := system.KeepUnchanged
 			if which == "app" {
-				id, err := system.LookupIdentity(site.Owner)
+				id, err := system.LookupIdentity(t.Owner)
 				if err != nil {
 					return err
 				}
@@ -132,7 +133,7 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 				return err
 			}
 			defer f.Close()
-			return tailLog(cmd.Context(), g, f, lines, follow)
+			return tailLog(ctx, g, f, lines, follow)
 		},
 	}
 	f := cmd.Flags()
@@ -142,7 +143,121 @@ func newSiteLogsCommand(g *Globals) *cobra.Command {
 	f.BoolVar(&journal, "journal", false, "The systemd journal for the unit rather than the application's own log")
 	f.BoolVar(&follow, "follow", false, "Keep printing as lines arrive")
 	f.IntVar(&lines, "lines", 100, "How many lines to show")
-	return cmd
+	// A tenant reads their own sites' logs with their own permissions; nothing here needs
+	// root that root's permissions do not already grant.
+	return NonRoot(cmd)
+}
+
+// logTarget is what `site logs` has to know about a site. Root learns it from the state
+// database; a tenant, who cannot open that, learns it from their own home directory and
+// the unit file on disk — both of which they can read, and neither of which they can lie
+// about to gain anything they could not already read.
+type logTarget struct {
+	Domain   string
+	Owner    string
+	UnitName string
+	// Dynamic is a site with a service unit; a static site has only nginx's logs.
+	Dynamic bool
+	// AppLogIsFile means the application's output is captured into logs/app.log — by
+	// PM2, or by gunicorn's own logging — rather than reaching the journal.
+	AppLogIsFile bool
+	// Paths are the log files by kind: access, error, app.
+	Paths map[string]string
+	Unit  *unit.Manager
+}
+
+// rootLogTarget resolves a site the way every other command does: from state, aliases
+// included.
+func (g *Globals) rootLogTarget(ctx context.Context, name string) (*logTarget, error) {
+	mgr, err := g.siteManager(ctx)
+	if err != nil {
+		return nil, err
+	}
+	st, err := g.Store(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s, err := st.FindSiteByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	// Asked of the *configuration*, not of the running daemon. This used to be
+	// `mgr.ProcessReport(...) != nil`, which queries PM2 itself — so a site whose PM2 was
+	// unreachable (a failed deploy that took node_modules with it, a crashed daemon) was
+	// read as "not PM2 supervised" and sent to the journal, where a PM2 site has nothing
+	// but PM2's own messages. The screen came up empty at precisely the moment somebody
+	// needed it. The unit on disk is the configuration for gunicorn's case.
+	body, _ := system.ReadFileLimit(g.Cfg.UnitPath(s.Owner, s.Domain), 1<<20)
+	return &logTarget{
+		Domain:       s.Domain,
+		Owner:        s.Owner,
+		UnitName:     mgr.UnitName(s),
+		Dynamic:      s.Dynamic(),
+		AppLogIsFile: mgr.UsesPM2(s) || unitCapturesAppLog(string(body)),
+		Paths:        mgr.LogPaths(s),
+		Unit:         mgr.Unit,
+	}, nil
+}
+
+// unitCapturesAppLog reads from a unit whether the application's output ends up in
+// logs/app.log rather than the journal: a PM2 service is Type=forking with a PIDFile, and a
+// gunicorn service names the file in its ExecStart (--error-logfile, with --capture-output).
+func unitCapturesAppLog(body string) bool {
+	if unitHasDirective(body, "PIDFile=") {
+		return true
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "ExecStart=") && strings.Contains(t, "/logs/app.log") {
+			return true
+		}
+	}
+	return false
+}
+
+// tenantLogTarget resolves a site for the user running the command, without root and
+// without the state database.
+//
+// The site is the directory <home>/<domain>, which must exist and be owned by the
+// invoker: that is the one fact a tenant cannot arrange for a site that is not theirs,
+// since only root creates directories in their home. Everything else is read from the
+// unit file, which is world-readable, exactly as systemd reads it — whether the site has
+// a service at all, and whether that service captures the application's output into a
+// file or lets it reach the journal.
+func (g *Globals) tenantLogTarget(name string) (*logTarget, error) {
+	domain, err := validate.Domain(name)
+	if err != nil {
+		return nil, err
+	}
+	inv := g.Invoker
+	if inv.Name == "" {
+		return nil, rlerr.Preconditionf("cannot tell which account is running this").
+			WithHint("uid %d has no entry in the password database", inv.UID)
+	}
+	siteDir := g.Cfg.SiteDir(inv.Name, domain)
+	notYours := rlerr.Preconditionf("no site %s belongs to %s", domain, inv.Name).
+		WithHint("a tenant reads the logs of the sites in their own home; root reads any site's")
+	fi, err := os.Lstat(siteDir)
+	if err != nil || !fi.IsDir() {
+		return nil, notYours
+	}
+	uid, _, err := system.Owner(siteDir)
+	if err != nil || uid != inv.UID {
+		return nil, notYours
+	}
+
+	s := &state.Site{Domain: domain, Owner: inv.Name, Slug: validate.Slug(inv.Name, domain)}
+	unitPath := g.Cfg.UnitPath(inv.Name, domain)
+	body, err := system.ReadFileLimit(unitPath, 1<<20)
+	dynamic := err == nil
+	return &logTarget{
+		Domain:       domain,
+		Owner:        inv.Name,
+		UnitName:     validate.UnitName(inv.Name, domain),
+		Dynamic:      dynamic,
+		AppLogIsFile: dynamic && unitCapturesAppLog(string(body)),
+		Paths:        site.LogPaths(g.Cfg, s),
+		Unit:         &unit.Manager{Cfg: g.Cfg, Log: g.Log, Runner: g.Runner},
+	}, nil
 }
 
 // execInPlace runs a viewer wired to the operator's own streams, so following

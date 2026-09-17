@@ -61,6 +61,12 @@ KillMode=mixed
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ratline-{{ .Slug }}-{{ .Kind }}-{{ .UnitName }}
+{{- if .LogNamespace }}
+# The site's own journal namespace, the same one its service logs into, so the tenant
+# can read this unit's complaints — a start that failed before the log file was open —
+# without being able to read anyone else's.
+LogNamespace={{ .LogNamespace }}
+{{- end }}
 
 # Resource limits, so a runaway job cannot take the site down with it.
 {{- range .Limits }}

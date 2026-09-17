@@ -14,7 +14,7 @@ another's files.
       app.example.com/                   0750 — one directory per site
         app/                             the application, or the repository clone
         public/                          the document root for a static site
-        logs/                            access.log, error.log, app.log
+        logs/                            app.log, job-<name>.log — the application's own
         tmp/                             scratch, bound into the unit as writable
         .env                             0600 — secrets, never under a document root
         .ratline/                        generated per-site files
@@ -34,6 +34,9 @@ permission mistake available on a shared server.
     /etc/nginx/ratline/                          shared snippets
     /etc/nginx/ratline/custom/<domain>.conf      yours, never regenerated
     /etc/systemd/system/ratline-<slug>.service   one unit per dynamic site
+    /etc/systemd/journald@<slug>.conf            the site's journal namespace, and its size cap
+    /var/log/nginx/ratline/<slug>/               access.log and error.log, root's, tenant-readable
+    /var/log/journal/<machine-id>.<slug>/        the site's own journal, tenant-readable
     /etc/ratline/config.yaml                     configuration
     /etc/ratline/ssh/                            global keys, revocation list
     /var/lib/ratline/state.db                    0600 — the state database
@@ -41,6 +44,46 @@ permission mistake available on a shared server.
     /opt/ratline/runtimes/                       managed interpreters
     /run/ratline/<slug>/                         the runtime directory, holding the socket
     /var/www/ratline-acme/                       the shared HTTP-01 webroot
+
+## Where the logs are, and who can read them
+
+Three kinds of log, in three places, and none of them needs root to read.
+
+nginx's access and error logs are under `/var/log/nginx/ratline/<slug>/`. They are not
+inside the site directory, because nginx's master opens them as root on every reload,
+and a symlink a tenant dropped at `logs/access.log` would have been a root append to
+any file on the box. The directory is root's; the tenant reads it through their group.
+
+The application's own log — `logs/app.log` under PM2, `logs/job-<name>.log` for a job —
+is written by the tenant's own process into the tenant's own directory.
+
+Everything a service writes to stdout goes to the journal, and here is the part that
+used to need root. Reading the shared system journal is a group membership, `adm` or
+`systemd-journal`, and either one is *every* unit on the machine — sshd, the panel,
+the other tenants' applications. So every unit ratline renders for a site carries
+`LogNamespace=<slug>`, and its output lands in a journal of the site's own, kept by a
+`systemd-journald@<slug>` instance under `/var/log/journal/<machine-id>.<slug>/`.
+ratline puts a read ACL for the tenant's group on that directory (an ACL rather than a
+group, because systemd puts the tree back to root:root on every start if its owner ever
+changes, and chown does not touch ACLs). The tenant reads it with
+
+    journalctl --namespace=<slug> -u ratline-<slug>.service
+
+and sees nothing else. Nobody is ever added to `systemd-journal`.
+
+`ratline site logs <domain>` knows all of this and does not need root either. Run by a
+tenant, it finds the site in their own home, reads what their permissions allow — the
+nginx logs, the application log, the site's namespace — and refuses a site that is not
+theirs. Run by root, it reads any site's. A site-scoped SSH key gets the same through
+the `logs` verb of its forced command:
+
+    ssh deploy@server logs --follow
+
+Each namespace is capped at `defaults.journal_max_use` (256M), because journald's own
+default — a tenth of the disk, up to 4G — is per instance, and there is one per site.
+A site created before this existed logs into the shared journal until
+`ratline reconcile --fix` re-renders its units and the site is restarted; `doctor`
+reports the gap.
 
 ## The two files that are yours
 

@@ -78,6 +78,11 @@ defaults:
   # MemoryHigh is set to this fraction of MemoryMax, so the kernel starts
   # reclaiming before it starts killing.
   memory_high_ratio: 0.875
+  # Each site's units log into a journal namespace of their own, which is what
+  # lets the tenant read it. journald caps a namespace at a tenth of the disk
+  # (up to 4G) by default, per namespace, so this is the ceiling ratline sets
+  # instead. Overrides for one site go in /etc/systemd/journald@<slug>.conf.d/.
+  journal_max_use: 256M
   cpu_quota: 100%
   tasks_max: 256
   limit_nofile: 8192

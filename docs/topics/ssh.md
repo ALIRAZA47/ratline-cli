@@ -40,6 +40,16 @@ and for a designer who needs to upload files, not for a shell. `--allow-shell`
 overrides it per key, with a warning, because that is a different grant than the one
 the scope implies.
 
+The one thing it can do besides transfer files is read the site's logs:
+
+    ssh deploy@server logs                  # the application log
+    ssh deploy@server logs --access -n 50   # nginx's access log
+    ssh deploy@server logs --journal -f     # the unit's journal, followed
+
+It runs `ratline site logs` for the key's own site, as the tenant, with a closed list of
+flags — a CI job can tail what it just deployed without anyone handing out a shell.
+`ratline explain layout` says where those logs are and why the tenant can read them.
+
 ## Managed blocks
 
 ratline's keys live between markers in `authorized_keys`:

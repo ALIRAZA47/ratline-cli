@@ -329,12 +329,18 @@ Use "ratline site [command] --help" for more information about a command.
 Where the application log comes from depends on how the site is supervised.
 
 Under PM2 — the default for node — the application's stdout is captured by
-PM2 into logs/app.log, and the journal holds only PM2's own messages. So
---app reads the file, and --journal is there for when the question is about
-the unit itself: a failed start, or an OOM kill.
+PM2 into logs/app.log, and gunicorn writes its own log there too; the journal
+then holds only the supervisor's messages. So --app reads the file, and
+--journal is there for when the question is about the unit itself: a failed
+start, or an OOM kill.
 
-Without PM2 the application writes straight to the journal, and --app reads
-that.
+Where nothing captures it — node or bun run directly under systemd — the
+application writes straight to the journal, and --app reads that.
+
+Root is not required. A tenant runs this for any site in their own home and
+sees exactly what their own permissions allow: the nginx logs through their
+group, the application log they own, and the site's own journal namespace —
+never another site's, and never the shared system journal.
 
 Usage:
   ratline logs <domain> [flags]
@@ -2190,12 +2196,18 @@ Use "ratline site worker [command] --help" for more information about a command.
 Where the application log comes from depends on how the site is supervised.
 
 Under PM2 — the default for node — the application's stdout is captured by
-PM2 into logs/app.log, and the journal holds only PM2's own messages. So
---app reads the file, and --journal is there for when the question is about
-the unit itself: a failed start, or an OOM kill.
+PM2 into logs/app.log, and gunicorn writes its own log there too; the journal
+then holds only the supervisor's messages. So --app reads the file, and
+--journal is there for when the question is about the unit itself: a failed
+start, or an OOM kill.
 
-Without PM2 the application writes straight to the journal, and --app reads
-that.
+Where nothing captures it — node or bun run directly under systemd — the
+application writes straight to the journal, and --app reads that.
+
+Root is not required. A tenant runs this for any site in their own home and
+sees exactly what their own permissions allow: the nginx logs through their
+group, the application log they own, and the site's own journal namespace —
+never another site's, and never the shared system journal.
 
 Usage:
   ratline site logs <domain> [flags]

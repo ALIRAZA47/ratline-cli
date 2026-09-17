@@ -197,3 +197,55 @@ func TestRemoteIP(t *testing.T) {
 		t.Errorf("remoteIP = %q", got)
 	}
 }
+
+// `logs` passes on a closed list of flags and nothing else. ratline is the program behind
+// it, and a flag it was not meant to see from a scoped key — --config above all — must
+// not be reachable; neither may a second positional, which cobra would read as the site.
+func TestLogsArgsPassesOnlyTheClosedList(t *testing.T) {
+	flags, reason := logsArgs([]string{"--access", "-f", "-n", "20", "--lines=5", "--journal"})
+	if reason != "" {
+		t.Fatalf("a well-formed request was refused: %s", reason)
+	}
+	want := []string{"--access", "--follow", "--lines=20", "--lines=5", "--journal"}
+	if strings.Join(flags, " ") != strings.Join(want, " ") {
+		t.Errorf("flags = %v, want %v", flags, want)
+	}
+	for _, bad := range [][]string{
+		{"--config=/tmp/mine.yaml"},
+		{"--config", "/tmp/mine.yaml"},
+		{"--"},
+		{"api.test"},
+		{"--app", "--json"},
+		{"--lines", "abc"},
+		{"--lines=0"},
+		{"--lines=100001"},
+		{"-n"},
+		{"--follow=true"},
+		{"--access;id"},
+	} {
+		if _, reason := logsArgs(bad); reason == "" {
+			t.Errorf("logsArgs let %v through", bad)
+		}
+	}
+	if flags, reason := logsArgs(nil); reason != "" || len(flags) != 0 {
+		t.Errorf("a bare `logs` should pass with no flags, got %v, %q", flags, reason)
+	}
+}
+
+// The site is the forced command's, and it goes after `--` so that it is a positional
+// whatever it looks like.
+func TestRatlineLogsArgvKeepsTheSitePositional(t *testing.T) {
+	argv := ratlineLogsArgv("/usr/local/bin/ratline", "--config=/tmp/mine.yaml", []string{"--access", "--lines=5"})
+	want := "/usr/local/bin/ratline site logs --access --lines=5 -- --config=/tmp/mine.yaml"
+	if got := strings.Join(argv, " "); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+}
+
+// `logs` is a verb this shell answers, not a program it execs; it must never appear on
+// the allow-list, where it would be looked up in /usr/bin and run.
+func TestLogsIsAVerbNotAProgram(t *testing.T) {
+	if allowedPrograms["logs"] {
+		t.Error("logs is on the program allow-list")
+	}
+}

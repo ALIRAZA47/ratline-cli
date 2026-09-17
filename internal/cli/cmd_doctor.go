@@ -185,12 +185,22 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 				"nginx logs into "+filepath.Join(siteDir, "logs")+", which the tenant owns and can redirect",
 				"ratline reconcile --fix")
 		}
+		hasUnits := false
 		if s.Dynamic() {
-			if body, err := system.ReadFileLimit(g.Cfg.UnitPath(s.Owner, s.Domain), 1<<20); err == nil &&
-				unitHasDirective(string(body), "EnvironmentFile=") {
-				add("problem", "drift", s.Domain,
-					"the service unit has PID 1 read .env as root (EnvironmentFile=), from a directory the tenant owns",
-					"ratline reconcile --fix, then ratline site restart "+s.Domain)
+			if body, err := system.ReadFileLimit(g.Cfg.UnitPath(s.Owner, s.Domain), 1<<20); err == nil {
+				hasUnits = true
+				if unitHasDirective(string(body), "EnvironmentFile=") {
+					add("problem", "drift", s.Domain,
+						"the service unit has PID 1 read .env as root (EnvironmentFile=), from a directory the tenant owns",
+						"ratline reconcile --fix, then ratline site restart "+s.Domain)
+				}
+				// A unit rendered before namespaces logs into the shared journal, which
+				// the tenant can only read by being able to read every other unit's too.
+				if unit.JournalNamespacesSupported() && !unitHasDirective(string(body), "LogNamespace=") {
+					add("warning", "drift", s.Domain,
+						"the service logs into the shared system journal, so its tenant cannot read its own service's log",
+						"ratline reconcile --fix, then ratline site restart "+s.Domain)
+				}
 			}
 		}
 		if units, err := st.ListSiteUnits(ctx, s.Domain, ""); err == nil {
@@ -200,11 +210,24 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 				if err != nil {
 					continue
 				}
+				hasUnits = true
 				if unitHasDirective(string(body), "EnvironmentFile=") || unitHasDirective(string(body), "StandardOutput=append:") {
 					add("problem", "drift", s.Domain,
 						"the "+u.Kind+" "+u.Name+" has PID 1 open paths under "+siteDir+" as root",
 						"ratline reconcile --fix")
 				}
+				if unit.JournalNamespacesSupported() && !unitHasDirective(string(body), "LogNamespace=") {
+					add("warning", "drift", s.Domain,
+						"the "+u.Kind+" "+u.Name+" logs into the shared system journal rather than the site's own",
+						"ratline reconcile --fix")
+				}
+			}
+		}
+		// The namespace exists once a unit has started into it; from then on its files
+		// have to carry the tenant's grant, or the tenant is back to asking root.
+		if hasUnits {
+			if ok, detail := mgr.Unit.JournalReadable(s); !ok {
+				add("warning", "permissions", s.Domain, detail, "ratline reconcile --fix")
 			}
 		}
 		if s.Enabled && !system.IsSymlink(g.Cfg.VhostLink(s.Domain)) {
@@ -242,7 +265,7 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		switch {
 		case status.Active == "failed":
 			add("problem", "service", s.Domain, "the service has failed",
-				"journalctl -u "+mgr.UnitName(s)+" -n 50 --no-pager")
+				mgr.Unit.JournalHint(mgr.UnitName(s)))
 		case s.Enabled && status.Active != "active":
 			add("problem", "service", s.Domain, "enabled but "+status.Active,
 				"ratline site start "+s.Domain)

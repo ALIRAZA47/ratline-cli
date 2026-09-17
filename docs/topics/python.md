@@ -43,4 +43,14 @@ Gunicorn is started with `--umask 0117` on a socket site. This is not decoration
 `connect(2)` needs write permission on the socket inode, and Gunicorn sets its own
 umask regardless of the unit's. `ratline explain sockets` has the full story.
 
-See also: `ratline explain sockets`, `ratline explain deploys`.
+## Where the log is
+
+Gunicorn writes its error log to `logs/app.log` inside the site directory and captures
+the application's stdout and stderr into it (`--capture-output`), so that file is the
+application log, and it belongs to the tenant. `ratline site logs <domain>` reads it —
+for root, and for the tenant, who does not need root to run the command. The journal
+holds only what happens around the process: a start that failed, a kill by the memory
+ceiling. `ratline site logs <domain> --journal` reads that, from the site's own journal
+namespace; `ratline explain layout` says why that namespace exists.
+
+See also: `ratline explain sockets`, `ratline explain deploys`, `ratline explain layout`.

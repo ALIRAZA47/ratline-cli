@@ -121,6 +121,12 @@ export const configSections: SettingSection[] = [
         type: 'float',
         note: 'MemoryHigh is set to this fraction of MemoryMax, so the kernel starts reclaiming before it starts killing.',
       },
+      {
+        key: 'defaults.journal_max_use',
+        value: '256M',
+        type: 'size',
+        note: "The ceiling on each site's own journal namespace. journald's default is a tenth of the disk per namespace, and there is one per site.",
+      },
       { key: 'defaults.cpu_quota', value: '100%', type: 'percent' },
       { key: 'defaults.tasks_max', value: '256', type: 'int' },
       { key: 'defaults.limit_nofile', value: '8192', type: 'int' },

@@ -13,6 +13,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/tls"
+	"github.com/ALIRAZA47/ratline-cli/internal/unit"
 )
 
 func siteSummary(s *state.Site) string {
@@ -180,6 +181,28 @@ func dynamicChecks(env *Env, s *state.Site, socket string) []Check {
 					detail += ", pid " + status.MainPID
 				}
 				return Pass("%s", detail)
+			},
+		},
+		{
+			ID:    "journal",
+			Title: "the tenant can read the service's journal",
+			Needs: []string{"unit"},
+			Run: func(ctx context.Context) Result {
+				if !unit.JournalNamespacesSupported() {
+					return Skip("this systemd has no journal namespaces; only root reads the journal")
+				}
+				ns := unit.LogNamespaceOf(env.Cfg.UnitPath(s.Owner, s.Domain))
+				if ns == "" {
+					return Warn("the service logs into the shared system journal, which only root can read").
+						WithFix("ratline reconcile --fix, then ratline site restart %s", s.Domain).
+						WithTopic("layout")
+				}
+				if env.Unit != nil {
+					if ok, detail := env.Unit.JournalReadable(s); !ok {
+						return Warn("%s", detail).WithFix("ratline reconcile --fix").WithTopic("layout")
+					}
+				}
+				return Pass("journalctl --namespace=%s, as %s", ns, s.Owner)
 			},
 		},
 		{

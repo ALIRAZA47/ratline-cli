@@ -133,10 +133,14 @@ type Defaults struct {
 	StopTimeout       Duration `yaml:"stop_timeout"`
 	MemoryMax         string   `yaml:"memory_max"`
 	MemoryHighRatio   float64  `yaml:"memory_high_ratio"`
-	CPUQuota          string   `yaml:"cpu_quota"`
-	TasksMax          int      `yaml:"tasks_max"`
-	LimitNOFILE       int      `yaml:"limit_nofile"`
-	WorkerCap         int      `yaml:"worker_cap"`
+	// JournalMaxUse caps the journal namespace each site's units log into. journald's own
+	// default is a tenth of the filesystem, up to 4G, per instance — and there is one
+	// instance per site, so left alone the sites together could fill the disk.
+	JournalMaxUse string `yaml:"journal_max_use"`
+	CPUQuota      string `yaml:"cpu_quota"`
+	TasksMax      int    `yaml:"tasks_max"`
+	LimitNOFILE   int    `yaml:"limit_nofile"`
+	WorkerCap     int    `yaml:"worker_cap"`
 	// HSTS stays off by default: enabling it on one site can break a tenant's
 	// unrelated subdomains, and that is not ours to decide.
 	HSTS       bool `yaml:"hsts"`
@@ -393,6 +397,9 @@ func (c *Config) Validate() error {
 	}
 	if _, err := validate.Size(c.Defaults.ClientMaxBodySize); err != nil {
 		add("defaults.client_max_body_size %q is not a valid size", c.Defaults.ClientMaxBodySize)
+	}
+	if _, err := validate.Size(c.Defaults.JournalMaxUse); err != nil {
+		add("defaults.journal_max_use %q is not a valid size", c.Defaults.JournalMaxUse)
 	}
 	if err := validate.CPUQuota(c.Defaults.CPUQuota); err != nil {
 		add("defaults.cpu_quota %q is not a valid quota", c.Defaults.CPUQuota)
