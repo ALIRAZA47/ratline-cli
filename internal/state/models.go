@@ -83,6 +83,19 @@ type Site struct {
 	HSTS              bool     `json:"hsts"`
 	Relaxed           []string `json:"relaxed,omitempty"`
 
+	// How nginx proxies to the application, for the sites that stream.
+	//
+	// Both are empty by default and inherit defaults.proxy_read_timeout and
+	// buffering-on, which is right for a request/response application and wrong for
+	// one holding a connection open: nginx buffers a Server-Sent Events stream until
+	// its buffer fills, so events arrive in batches or not at all, and closes an idle
+	// upstream after the read timeout. A site row rather than a hand-written file
+	// under paths.nginx_custom, so `reconcile` and `restore` reproduce it.
+	//
+	// ProxyBuffering is "", "on" or "off"; ProxyReadTimeout is a duration string.
+	ProxyBuffering   string `json:"proxy_buffering,omitempty"`
+	ProxyReadTimeout string `json:"proxy_read_timeout,omitempty"`
+
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	CreatedBy    string    `json:"created_by,omitempty"`

@@ -203,6 +203,13 @@ func (b Bun) Build(ctx context.Context, c *Context) error {
 // invented: systemd owns the process, sees it crash, and counts the restarts.
 func (b Bun) StartCommand(ctx context.Context, c *Context) (string, unit.RenderOptions, error) {
 	var opts unit.RenderOptions
+	// PM2 in front of bun, when the site asked for it. The supervisor itself is a
+	// Node program either way — what changes is that the ecosystem names bun as the
+	// interpreter and runs in fork mode, because cluster mode is node's own module.
+	// Bun's default is still direct: see ProcessManagerFor.
+	if ProcessManagerFor(c) == ProcessManagerPM2 {
+		return Node{}.pm2StartCommand(ctx, c)
+	}
 	bunBin, err := b.binary(c)
 	if err != nil {
 		return "", opts, err
@@ -296,6 +303,18 @@ func (b Bun) StartCommand(ctx context.Context, c *Context) (string, unit.RenderO
 // implement. Until bun has its own answer, `site reload` on a bun site is a restart and
 // the operator is told to ask for one.
 func (Bun) Reload(ctx context.Context, c *Context) error {
+	if ProcessManagerFor(c) == ProcessManagerPM2 {
+		// PM2 is in front of it, and `pm2 reload` still will not do what the word
+		// says here. A graceful reload is cluster mode's trick — a replacement
+		// worker inherits the listening handle, comes up, and only then is the old
+		// one retired. A fork-mode app has no handle to inherit, so PM2 signals the
+		// process and starts it again, which is a restart with extra steps.
+		return rlerr.Preconditionf("a bun site on PM2 runs in fork mode, which cannot reload gracefully").
+			WithHint("cluster mode is node's own module and bun has no equivalent, so "+
+				"PM2 would restart it while calling it a reload:\n"+
+				"        ratline site restart %s",
+				c.Site.Domain)
+	}
 	return rlerr.Preconditionf("a bun site cannot reload without dropping requests").
 		WithHint("bun has no graceful-reload signal, so ratline will not claim one:\n"+
 			"        ratline site restart %s\n"+
@@ -306,6 +325,14 @@ func (Bun) Reload(ctx context.Context, c *Context) error {
 // Teardown removes node_modules. Bun installs into the same directory npm does, so
 // there is nothing bun-specific outside the site directory to clean up.
 func (Bun) Teardown(ctx context.Context, c *Context) error {
+	// A PM2-supervised bun site has a daemon of its own, and removing the site
+	// without stopping it leaves an orphan holding the socket. The node path does
+	// the same thing for the same reason.
+	if ProcessManagerFor(c) == ProcessManagerPM2 && !c.DryRun {
+		if kerr := (Node{}).pm2Kill(ctx, c); kerr != nil {
+			c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)
+		}
+	}
 	modules := filepath.Join(c.AppDir, "node_modules")
 	if c.DryRun || !system.Exists(modules) {
 		return nil

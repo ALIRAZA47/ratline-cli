@@ -34,23 +34,49 @@ func bunOptions() AddOptions {
 	}
 }
 
-// A bun site has no supervisor to choose and no cluster to fan out into. Both flags
-// have to be refused rather than accepted and dropped: an operator who passed
-// --instances 4 and saw the site created would believe four workers were serving.
-func TestBunRefusesTheNodeOnlySupervisionFlags(t *testing.T) {
+// PM2 may supervise a bun site, and what that does and does not buy is enforced here
+// rather than left to be discovered.
+//
+// The shape of the rule: PM2's cluster mode is node's own cluster module, so bun runs
+// in fork mode and every instance is an independent process. Independent processes
+// cannot share a Unix socket — the first binds it and the rest crash-loop behind a
+// site that answers perfectly — so more than one instance needs PM2 *and* a port.
+// Each of those is refused for its own reason and names it, because an operator who
+// passed --instances 4 and saw the site created would believe four processes were
+// serving.
+func TestBunInstancesNeedPM2AndAPort(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		mutate  func(*AddOptions)
+		wantErr bool
 		wantHas string
 	}{
-		{"a supervisor", func(o *AddOptions) { o.ProcessManager = "pm2" }, "--daemon"},
-		{"cluster workers", func(o *AddOptions) { o.Instances = 4 }, "single process"},
-		{"a node version", func(o *AddOptions) { o.NodeVersion = "22" }, "--node"},
+		{"a supervisor is now a choice bun has",
+			func(o *AddOptions) { o.ProcessManager = "pm2" }, false, ""},
+		{"and so is running without one",
+			func(o *AddOptions) { o.ProcessManager = "direct" }, false, ""},
+		{"but not a supervisor that does not exist",
+			func(o *AddOptions) { o.ProcessManager = "runit" }, true, "--daemon"},
+
+		{"instances without PM2 have nothing to fan out",
+			func(o *AddOptions) { o.Instances = 4 }, true, "single process"},
+		{"instances on a socket would fight over it",
+			func(o *AddOptions) { o.ProcessManager = "pm2"; o.Instances = 4 }, true, "Unix socket"},
+		{"instances on a port are what PM2 buys here",
+			func(o *AddOptions) { o.ProcessManager = "pm2"; o.Instances = 4; o.Listen = "port" }, false, ""},
+
+		{"a node version is still node's", func(o *AddOptions) { o.NodeVersion = "22" }, true, "--node"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := bunOptions()
 			tc.mutate(&opts)
 			_, err := testManager().buildSite(context.Background(), &opts)
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("this should be accepted on a bun site, got: %v", err)
+				}
+				return
+			}
 			if err == nil {
 				t.Fatal("the flag should have been refused on a bun site")
 			}
@@ -59,6 +85,39 @@ func TestBunRefusesTheNodeOnlySupervisionFlags(t *testing.T) {
 				t.Errorf("the refusal should mention %q, got: %s", tc.wantHas, combined)
 			}
 		})
+	}
+}
+
+// A bun site that says nothing is supervised directly, whatever the server's node
+// default is.
+//
+// runtimes.node_process_manager answers a question about node sites. A server that
+// set it to pm2 did not thereby ask every bun site on the box to grow a dependency on
+// a Node install and a second supervisor process — and a bun site silently acquiring
+// one at its next reconcile is the kind of drift that is only noticed when the node
+// runtime is removed.
+func TestABunSiteDoesNotInheritNodesProcessManager(t *testing.T) {
+	cfg := config.Default()
+	cfg.Runtimes.NodeProcessManager = "pm2"
+	site := &state.Site{Domain: "edge.example.com", Owner: "alice", Runtime: "bun", Entry: "server.ts"}
+	rc := runtime.NewContext(cfg, log.Discard(), nil, site, nil, true)
+	if got := runtime.ProcessManagerFor(rc); got != runtime.ProcessManagerDirect {
+		t.Errorf("a bun site defaulted to %q, want %q", got, runtime.ProcessManagerDirect)
+	}
+
+	// The negative: a node site on the same server does follow the setting, or the
+	// check above would pass on a resolver that always answered "direct".
+	site.Runtime = "node"
+	site.Entry = "server.js"
+	if got := runtime.ProcessManagerFor(rc); got != runtime.ProcessManagerPM2 {
+		t.Errorf("a node site resolved to %q, want %q", got, runtime.ProcessManagerPM2)
+	}
+
+	// And an explicit choice still wins for bun.
+	site.Runtime = "bun"
+	site.ProcessManager = runtime.ProcessManagerPM2
+	if got := runtime.ProcessManagerFor(rc); got != runtime.ProcessManagerPM2 {
+		t.Errorf("an explicit --daemon pm2 resolved to %q, want %q", got, runtime.ProcessManagerPM2)
 	}
 }
 
@@ -497,6 +556,47 @@ func TestUsesPM2AsksTheConfigurationRatherThanTheDaemon(t *testing.T) {
 			m.Cfg.Runtimes.NodeProcessManager = tc.cfgPM
 			if got := m.UsesPM2(tc.site); got != tc.want {
 				t.Errorf("UsesPM2 = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The two proxy settings are refused where they would do nothing, and capped where
+// they would do harm.
+func TestProxyOptionsAreRefusedWhereTheyWouldBeIgnored(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		buffering, readTimout string
+		runtime               string
+		wantErr               bool
+	}{
+		// nginx serves a static site from disk; the generated vhost has no
+		// proxy_pass in it, so neither directive has anything to attach to.
+		{"buffering on a static site", "off", "", "static", true},
+		{"a read timeout on a static site", "", "1h", "static", true},
+		{"nothing at all on a static site", "", "", "static", false},
+
+		{"off on a bun site", "off", "", "bun", false},
+		{"on spelled out", "on", "", "node", false},
+		{"a value that is neither", "maybe", "", "bun", true},
+		{"a value carrying a directive", "off; add_header X 1", "", "bun", true},
+
+		{"an hour", "", "1h", "python", false},
+		{"a day, the ceiling exactly", "", "24h", "bun", false},
+		{"more than a day", "", "25h", "bun", true},
+		{"a week", "", "7d", "bun", true},
+		{"not a duration", "", "forever", "bun", true},
+		{"zero", "", "0s", "bun", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateProxyOptions(tc.buffering, tc.readTimout, tc.runtime)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateProxyOptions(%q, %q, %q) = nil, want an error",
+					tc.buffering, tc.readTimout, tc.runtime)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateProxyOptions(%q, %q, %q) = %v, want nil",
+					tc.buffering, tc.readTimout, tc.runtime, err)
 			}
 		})
 	}

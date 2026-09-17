@@ -309,6 +309,8 @@ func siteArgvFor(s *state.Site) []string {
 	argv = appendIf(argv, "--memory-max", s.MemoryMax)
 	argv = appendIf(argv, "--cpu-quota", s.CPUQuota)
 	argv = appendIf(argv, "--client-max-body-size", s.ClientMaxBodySize)
+	argv = appendIf(argv, "--proxy-buffering", s.ProxyBuffering)
+	argv = appendIf(argv, "--proxy-read-timeout", s.ProxyReadTimeout)
 	argv = appendIf(argv, "--www-redirect", s.WWWRedirect)
 	for _, r := range s.Relaxed {
 		argv = append(argv, "--relax", r)

@@ -3,6 +3,7 @@ package site
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -368,6 +369,30 @@ func TestAManifestCannotInjectAConfigDirective(t *testing.T) {
 		})
 	}
 
+	// The proxy settings a streaming site overrides, on a node base rather than the
+	// static one above. A static site is refused these outright, so running them
+	// against `base` would have proved only that the static check fires first — the
+	// values themselves would never have been looked at.
+	nodeBase := "domain: app.example.com\nowner: acme\nruntime: node\nentry: server.js\n"
+	for _, tc := range []struct{ name, extra string }{
+		{"a read timeout that ends the directive", "proxy_read_timeout: \"60s; add_header X 1\"\n"},
+		{"a read timeout with a newline", "proxy_read_timeout: \"60s\\nproxy_pass http://evil\"\n"},
+		{"a read timeout that is not a duration", "proxy_read_timeout: \"forever\"\n"},
+		{"a buffering value that ends the directive", "proxy_buffering: \"off; add_header X 1\"\n"},
+		{"a buffering value that is neither on nor off", "proxy_buffering: \"maybe\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ReadManifest(write(nodeBase + tc.extra)); err == nil {
+				t.Errorf("%s was accepted; it reaches a root-owned config file", tc.name)
+			}
+		})
+	}
+	// The same manifest without the bad value parses, so the cases above are being
+	// refused for the value and not for the base.
+	if _, err := ReadManifest(write(nodeBase + "proxy_buffering: off\nproxy_read_timeout: 1h\n")); err != nil {
+		t.Errorf("a legitimate streaming manifest was rejected: %v", err)
+	}
+
 	// And a legitimate, fully-specified manifest still parses — the gate must not reject
 	// the sites `site add` produces.
 	ok := "domain: shop.example.com\nowner: acme\nruntime: python\n" +
@@ -375,5 +400,80 @@ func TestAManifestCannotInjectAConfigDirective(t *testing.T) {
 		"index_file: index.html\nmemory_max: 512M\ncpu_quota: 100%\nbranch: main\n"
 	if _, err := ReadManifest(write(ok)); err != nil {
 		t.Errorf("a legitimate manifest was rejected: %v", err)
+	}
+}
+
+// Every key the reader understands is a key the writer emits.
+//
+// The two lists are maintained by hand in different files, and they had drifted:
+// index_file, process_manager and client_max_body_size were all parsed and never
+// written, so a site rebuilt from its own manifest came back on the default
+// supervisor, serving the wrong index document, with an upload ceiling an operator
+// had raised silently back at the 20M default. Asserting the two sets against each
+// other catches the next omission without anyone having to think of the field.
+func TestTheManifestWriterEmitsEveryKeyTheReaderUnderstands(t *testing.T) {
+	src, err := os.ReadFile("manifest.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The key list, read from the reader's own switch rather than restated here —
+	// a copy would drift in exactly the way this test exists to catch.
+	understood := map[string]bool{}
+	for _, m := range regexp.MustCompile(`case "([a-z_]+)":`).FindAllStringSubmatch(string(src), -1) {
+		understood[m[1]] = true
+	}
+	// The runtime switch in the same file is not a manifest key.
+	for _, notAKey := range []string{"static", "node", "bun", "python"} {
+		delete(understood, notAKey)
+	}
+	if len(understood) < 20 {
+		t.Fatalf("only found %d manifest keys, so the scan is broken, not the writer", len(understood))
+	}
+
+	// Every field populated, so nothing is omitted merely for being zero.
+	site := &state.Site{
+		Domain: "app.example.com", Owner: "acme", Runtime: "node",
+		Slug: "acme-app_example_com", Enabled: true,
+		Aliases: []string{"www.app.example.com"}, DocRoot: "public", IndexFile: "main.html",
+		Entry: "server.js", NodeVersion: "22", BunVersion: "1.2", PythonVersion: "3.12",
+		AppModule: "app.main:app", Listen: "socket", AppServer: "gunicorn",
+		ProcessManager: "pm2", StartCommand: "node server.js", BuildCommand: "npm run build",
+		BuildOutput: "dist", PublicDir: "static", Requirements: "requirements.txt",
+		StaticURL: "/assets/", StaticDir: "app/static", Repo: "https://github.com/acme/app",
+		Branch: "main", MemoryMax: "512M", CPUQuota: "50%", ClientMaxBodySize: "100M",
+		WWWRedirect: "apex", ProxyBuffering: "off", ProxyReadTimeout: "1h",
+		Workers: 4, Instances: 2, Port: 3000, SPA: true, ASGI: true, HSTS: true,
+	}
+
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Paths.HomeBase = root
+	mgr := &Manager{Cfg: cfg, Log: log.Discard()}
+	dir := filepath.Join(cfg.SiteDir(site.Owner, site.Domain), ".ratline")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.writeManifest(site, &system.Identity{UID: os.Getuid(), GID: os.Getgid()}); err != nil {
+		t.Fatalf("writeManifest = %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "site.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	written := map[string]bool{}
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if k, _, ok := strings.Cut(line, ":"); ok {
+			written[strings.TrimSpace(k)] = true
+		}
+	}
+	for key := range understood {
+		if !written[key] {
+			t.Errorf("the manifest reader understands %q but the writer never emits it, "+
+				"so a reconcile silently drops it", key)
+		}
 	}
 }

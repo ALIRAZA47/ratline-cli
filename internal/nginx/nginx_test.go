@@ -591,3 +591,71 @@ func TestAnOperatorsOwnDefaultServerIsRespected(t *testing.T) {
 		t.Errorf("an empty dump counted %d", n)
 	}
 }
+
+// A streaming site turns buffering off and widens the read timeout, and a site that
+// says nothing renders exactly what it always did.
+//
+// Both halves matter. nginx buffers a proxied response by default, which holds a
+// Server-Sent Events stream until the buffer fills, and closes the upstream after
+// proxy_read_timeout of quiet — so a stream with a slow producer dies at 60 seconds.
+func TestStreamingSiteRendersUnbufferedWithItsOwnReadTimeout(t *testing.T) {
+	site := &state.Site{
+		Domain: "mcp.example.com", Owner: "bob", Runtime: "bun", Slug: "bob-mcp_example_com",
+		Enabled: true, Entry: "server.ts", Listen: "socket", Instances: 1,
+		ProxyBuffering: "off", ProxyReadTimeout: "1h",
+	}
+	out := render(t, site, nil)
+	for _, want := range []string{"proxy_buffering off;", "proxy_read_timeout 1h0m0s;"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in:\n%s", want, out)
+		}
+	}
+	// Both the main location and the @app fallback proxy, and a stream that arrives
+	// through one of them and not the other is the bug this counts against.
+	if got := strings.Count(out, "proxy_buffering off;"); got != 2 {
+		t.Errorf("proxy_buffering off appears %d times, want 2 (location / and @app)", got)
+	}
+
+	// The negative case: without the fields, nothing changes.
+	site.ProxyBuffering, site.ProxyReadTimeout = "", ""
+	out = render(t, site, nil)
+	if !strings.Contains(out, "proxy_buffering on;") {
+		t.Errorf("a site that asked for nothing should still be buffered:\n%s", out)
+	}
+	if !strings.Contains(out, "proxy_read_timeout 1m0s;") {
+		t.Errorf("a site that asked for nothing should keep the 60s default:\n%s", out)
+	}
+}
+
+// "on" is spelled out by some operators and means the same as saying nothing.
+func TestProxyBufferingOnIsTheSameAsUnset(t *testing.T) {
+	site := &state.Site{
+		Domain: "edge.example.com", Owner: "bob", Runtime: "bun", Slug: "bob-edge_example_com",
+		Enabled: true, Entry: "server.ts", Listen: "socket", Instances: 1,
+		ProxyBuffering: "on",
+	}
+	if out := render(t, site, nil); !strings.Contains(out, "proxy_buffering on;") {
+		t.Errorf("expected buffering on:\n%s", out)
+	}
+}
+
+// What reaches the vhost is rendered from the parsed duration, never from the stored
+// string, so a row that somehow carries a directive separator cannot add a directive.
+//
+// validateSiteRow is what stops such a row being written; this proves the render is
+// not relying on that alone, and that a corrupt row degrades to the default rather
+// than producing a vhost nginx will not load.
+func TestACorruptStoredReadTimeoutFallsBackToTheDefault(t *testing.T) {
+	site := &state.Site{
+		Domain: "edge.example.com", Owner: "bob", Runtime: "bun", Slug: "bob-edge_example_com",
+		Enabled: true, Entry: "server.ts", Listen: "socket", Instances: 1,
+		ProxyReadTimeout: "60s; add_header X-Injected yes",
+	}
+	out := render(t, site, nil)
+	if strings.Contains(out, "X-Injected") {
+		t.Fatalf("a stored value reached the vhost verbatim:\n%s", out)
+	}
+	if !strings.Contains(out, "proxy_read_timeout 1m0s;") {
+		t.Errorf("expected the default read timeout, got:\n%s", out)
+	}
+}
