@@ -24,6 +24,20 @@ export interface Doc {
   status?: 'built' | 'planned';
 }
 
+/**
+ * A flag's searchable names, with and without the leading dashes.
+ *
+ * Nobody types the dashes into a search box, and without the undashed form `dry-run`
+ * matched `--dry-run` only in the haystack — worth 8 points — while a page carrying
+ * "dry-run" as a keyword scored an exact 60. So searching for a flag by its own name
+ * put three prose pages above the flag itself, which is the opposite of what a
+ * reference is for.
+ */
+function flagNames(name: string, short?: string): string[] {
+  const forms = [name, ...(short ? [short] : [])];
+  return [...new Set(forms.flatMap((n) => [n, n.replace(/^-+/, '')]))].map((n) => n.toLowerCase());
+}
+
 function flagDocs(command: Command, to: string): Doc[] {
   return flatAnchoredFlags(command).map(({ flag: f, anchor }) => ({
     kind: 'flag' as const,
@@ -31,7 +45,7 @@ function flagDocs(command: Command, to: string): Doc[] {
     context: `${command.name}${f.default ? ` — default ${f.default}` : ''}`,
     to: `${to}#${anchor}`,
     hay: `${f.name} ${f.short ?? ''} ${f.arg ?? ''} ${f.description} ${f.note ?? ''} ${command.name}`.toLowerCase(),
-    exact: [f.name.toLowerCase(), ...(f.short ? [f.short.toLowerCase()] : [])],
+    exact: flagNames(f.name, f.short),
   }));
 }
 

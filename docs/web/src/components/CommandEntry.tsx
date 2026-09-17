@@ -32,6 +32,9 @@ export function CommandEntry({ command }: { command: Command }) {
     <section id={command.id} aria-labelledby={`${command.id}-heading`} className="scroll-mt-24">
       <div className="not-prose">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {/* The one h1 on the site set in the monospace: the title of this page is
+              literally something you type, and setting it in the serif would be the page
+              telling you a different string from the one the shell wants. */}
           <h1
             id={`${command.id}-heading`}
             className="font-mono text-2xl font-semibold tracking-tight text-strong"
@@ -41,7 +44,7 @@ export function CommandEntry({ command }: { command: Command }) {
           <StatusBadge status={command.status} />
         </div>
 
-        <p className="mt-3 max-w-[var(--content-w)] text-lg leading-relaxed text-muted">
+        <p className="lede mt-3.5 text-[1.1875rem]">
           <Inline text={command.summary} />
         </p>
       </div>

@@ -1,67 +1,102 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------------------
+   The two faces, served from this origin rather than fetched.
+
+   Both are variable, latin-subset, and together weigh about 85 KB — the same two
+   files the web panel carries, because the docs and the panel are one product
+   and a reader who moves between them should not feel they have changed
+   application. Licences in fonts/LICENSE.
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Newsreader';
+  src: url('./fonts/newsreader-latin.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Public Sans';
+  src: url('./fonts/public-sans-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
    Theme tokens.
 
-   Two palettes, both deliberate. Light is warm paper; dark is a cool slate that
-   is not pure black, because pure black next to a bright code block is fatiguing.
-   Everything else in the app refers to these names, never to raw colours.
+   The palette is the panel's, exactly: warm paper and warm ink against a deep
+   sea blue. What differs between the two products is the register, not the
+   colour — the panel is *operated*, so it is set in the sans throughout, while
+   documentation is *read*, so its prose is set in the serif at a reading size on
+   a measure that stops at about seventy characters. Everything that is chrome
+   here — navigation, reference rows, labels, buttons — stays sans, and that
+   division is what keeps the two recognisably one thing rather than merely
+   similar.
 
-   Every text colour here was picked against the surface it is used on and clears
-   WCAG AA at body size — including the small uppercase labels, which are told
-   apart from body text by size and tracking rather than by being too faint to
-   read. A label nobody can read is not a label.
+   Every text colour was picked against the surface it is used on and clears
+   WCAG AA at body size, including the small tracked labels: those are told apart
+   from body text by size and tracking rather than by being too faint to read. A
+   label nobody can read is not a label.
    --------------------------------------------------------------------------- */
 
 @theme {
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  /* Prose and headings. The whole direction of this site is that it reads like a
+     manual rather than a wiki, and the serif is what carries it. */
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
   --font-mono:
     ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace;
 
-  /* A real type scale: 1.2 minor third at the small end, loosening upwards. */
-  --text-2xs: 0.6875rem;
+  /* A real type scale: a minor third at the small end, loosening upwards. The
+     top of it is set in the serif, where a display size can be lighter and
+     larger than a sans could carry. */
+  --text-2xs: 0.75rem;
   --text-2xs--line-height: 1.45;
-  --text-xs: 0.78125rem;
+  --text-xs: 0.8125rem;
   --text-xs--line-height: 1.5;
   --text-sm: 0.875rem;
-  --text-sm--line-height: 1.6;
+  --text-sm--line-height: 1.55;
   --text-base: 1rem;
-  --text-base--line-height: 1.7;
-  --text-lg: 1.0625rem;
+  --text-base--line-height: 1.65;
+  --text-lg: 1.125rem;
   --text-lg--line-height: 1.6;
-  --text-xl: 1.25rem;
-  --text-xl--line-height: 1.4;
-  --text-2xl: 1.5rem;
-  --text-2xl--line-height: 1.3;
-  --text-3xl: 1.9375rem;
-  --text-3xl--line-height: 1.2;
-  --text-4xl: 2.375rem;
-  --text-4xl--line-height: 1.12;
-  --text-5xl: 3rem;
-  --text-5xl--line-height: 1.06;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.35;
+  --text-2xl: 1.6875rem;
+  --text-2xl--line-height: 1.2;
+  --text-3xl: 2.125rem;
+  --text-3xl--line-height: 1.15;
+  --text-4xl: 2.625rem;
+  --text-4xl--line-height: 1.1;
+  --text-5xl: 3.25rem;
+  --text-5xl--line-height: 1.05;
 
-  --radius-card: 0.5rem;
+  --radius-card: 0.625rem;
   --radius-panel: 0.625rem;
 
   /* ---- The three-column shell -------------------------------------------
      The content column is a fixed reading measure, not a fraction of the
-     viewport: ~80 characters at the base size. Everything in the column —
-     prose, code panels, reference rows, tables — shares that width, so the
-     column has one clean right edge instead of a ragged one. Genuinely wide
-     figures opt out with `.canvas-wide`.
+     viewport. Everything in the column — prose, code panels, reference rows,
+     tables — shares that width, so the column has one clean right edge instead
+     of a ragged one. Genuinely wide figures opt out with `.canvas-wide`.
 
      The shell is the three columns centred as a group. On a 27-inch monitor
      that leaves symmetric gutters rather than a 700px void beside the text,
      which is what a `flex-1` content column produced. */
-  --content-w: 40rem;
+  --content-w: 42rem;
   --sidebar-w: 17rem;
   --toc-w: 13.5rem;
   --content-gap: 3.25rem;
   --toc-gap: 2.25rem;
-  --shell-max: 75.5rem; /* sidebar + gap + content + gap + toc */
-  --canvas-wide: 52rem;
-  --header-h: 3.5rem;
+  --shell-max: 77.5rem; /* sidebar + gap + content + gap + toc */
+  --canvas-wide: 54rem;
+  --header-h: 3.75rem;
 
   /* Kept under its old name: 31 existing `max-w-[var(--container-measure)]`
      usages mean the reading measure, and it is now the column itself. */
@@ -71,76 +106,83 @@
 :root {
   color-scheme: light;
 
-  --bg: oklch(99.2% 0.003 85);
+  --bg: oklch(98.6% 0.005 85);
   --bg-raised: oklch(100% 0 0);
-  --bg-sunken: oklch(97.2% 0.004 85);
-  --bg-code: oklch(96.8% 0.005 260); /* inline code chips only */
-  --bg-hover: oklch(95.6% 0.006 260);
-  --bg-active: oklch(94.5% 0.028 262);
+  --bg-sunken: oklch(96.8% 0.006 85);
+  --bg-code: oklch(96.8% 0.006 85); /* inline code chips only */
+  --bg-hover: oklch(95.6% 0.008 85);
+  --bg-active: oklch(95% 0.025 215);
 
-  --fg: oklch(32% 0.015 265);
-  --fg-strong: oklch(20% 0.02 265);
-  --fg-muted: oklch(41% 0.014 265);
-  --fg-faint: oklch(47% 0.012 265);
-  --fg-invert: oklch(97% 0.004 260);
+  --fg: oklch(25% 0.015 60);
+  --fg-strong: oklch(19% 0.016 60);
+  --fg-muted: oklch(46% 0.012 60);
+  --fg-faint: oklch(56% 0.011 60);
+  --fg-invert: oklch(98% 0.004 80);
 
-  --border: oklch(91% 0.006 260);
-  --border-strong: oklch(82% 0.009 260);
+  --border: oklch(90% 0.008 75);
+  --border-strong: oklch(83% 0.01 75);
 
-  --accent: oklch(45% 0.18 262);
-  --accent-hover: oklch(38% 0.17 262);
-  --accent-fg: oklch(100% 0 0);
-  --accent-soft: oklch(95.5% 0.028 262);
-  --accent-ring: oklch(55% 0.17 262);
+  --accent: oklch(48% 0.11 215);
+  --accent-hover: oklch(38% 0.11 215);
+  --accent-fg: oklch(99% 0 0);
+  --accent-soft: oklch(95% 0.025 215);
+  /* The accent as *text on* `--accent-soft` — a tint that faint needs a darker ink
+     than the accent itself to clear AA, and the pair is used together everywhere a
+     nav entry, a tag or a note is in the accent tone. */
+  --accent-ink: oklch(38% 0.11 215);
+  --accent-ring: oklch(55% 0.12 215);
 
-  --ok: oklch(44% 0.11 152);
-  --ok-soft: oklch(95.5% 0.038 152);
-  --warn: oklch(43% 0.1 70);
-  --warn-soft: oklch(96.5% 0.05 85);
-  --danger: oklch(44% 0.16 25);
-  --danger-soft: oklch(96% 0.028 25);
-  --info: oklch(44% 0.11 250);
-  --info-soft: oklch(96% 0.026 250);
+  --ok: oklch(44% 0.1 155);
+  --ok-soft: oklch(95.5% 0.03 155);
+  --warn: oklch(45% 0.1 70);
+  --warn-soft: oklch(96% 0.045 80);
+  --danger: oklch(46% 0.16 28);
+  --danger-soft: oklch(96% 0.028 28);
+  --info: oklch(43% 0.1 230);
+  --info-soft: oklch(95.5% 0.025 230);
 
-  --shadow-card: 0 1px 2px oklch(20% 0.02 265 / 0.05), 0 1px 1px oklch(20% 0.02 265 / 0.04);
-  --shadow-panel: 0 1px 3px oklch(20% 0.02 265 / 0.1), 0 6px 16px -6px oklch(20% 0.02 265 / 0.12);
+  --shadow-card: 0 1px 2px oklch(25% 0.015 60 / 0.05), 0 1px 1px oklch(25% 0.015 60 / 0.04);
+  --shadow-panel: 0 1px 3px oklch(25% 0.015 60 / 0.1), 0 6px 16px -6px oklch(25% 0.015 60 / 0.12);
   --shadow-pop:
-    0 16px 40px -10px oklch(20% 0.02 265 / 0.22), 0 2px 8px -2px oklch(20% 0.02 265 / 0.1);
+    0 16px 40px -10px oklch(25% 0.015 60 / 0.22), 0 2px 8px -2px oklch(25% 0.015 60 / 0.1);
 }
 
+/* The same warmth, inverted. A dark theme that went cool here would read as a
+   different product to somebody who switches. */
 .dark {
   color-scheme: dark;
 
-  --bg: oklch(17.5% 0.014 265);
-  --bg-raised: oklch(21% 0.015 265);
-  --bg-sunken: oklch(15% 0.013 265);
-  --bg-code: oklch(24% 0.016 265);
-  --bg-hover: oklch(25% 0.017 265);
-  --bg-active: oklch(28% 0.04 262);
+  --bg: oklch(20% 0.008 70);
+  --bg-raised: oklch(24% 0.009 70);
+  --bg-sunken: oklch(17.5% 0.008 70);
+  --bg-code: oklch(26% 0.01 70);
+  --bg-hover: oklch(28% 0.01 70);
+  --bg-active: oklch(30% 0.045 215);
 
-  --fg: oklch(90% 0.008 265);
-  --fg-strong: oklch(97.5% 0.004 265);
-  --fg-muted: oklch(70% 0.012 265);
-  --fg-faint: oklch(61% 0.012 265);
-  --fg-invert: oklch(17% 0.014 265);
+  --fg: oklch(91% 0.007 80);
+  --fg-strong: oklch(97% 0.005 80);
+  --fg-muted: oklch(73% 0.008 80);
+  --fg-faint: oklch(63% 0.008 80);
+  --fg-invert: oklch(20% 0.008 70);
 
-  --border: oklch(27.5% 0.015 265);
-  --border-strong: oklch(37% 0.018 265);
+  --border: oklch(30% 0.009 75);
+  --border-strong: oklch(38% 0.011 75);
 
-  --accent: oklch(77% 0.13 258);
-  --accent-hover: oklch(85% 0.12 258);
-  --accent-fg: oklch(16% 0.02 265);
-  --accent-soft: oklch(27% 0.055 258);
-  --accent-ring: oklch(72% 0.14 258);
+  --accent: oklch(78% 0.1 215);
+  --accent-hover: oklch(86% 0.08 215);
+  --accent-fg: oklch(18% 0.03 215);
+  --accent-soft: oklch(30% 0.05 215);
+  --accent-ink: oklch(86% 0.08 215);
+  --accent-ring: oklch(72% 0.11 215);
 
-  --ok: oklch(77% 0.14 155);
-  --ok-soft: oklch(26% 0.05 155);
-  --warn: oklch(82% 0.13 85);
-  --warn-soft: oklch(27% 0.05 80);
-  --danger: oklch(73% 0.16 25);
-  --danger-soft: oklch(27% 0.06 25);
-  --info: oklch(77% 0.11 250);
-  --info-soft: oklch(26% 0.045 250);
+  --ok: oklch(78% 0.12 155);
+  --ok-soft: oklch(27% 0.05 155);
+  --warn: oklch(84% 0.12 78);
+  --warn-soft: oklch(29% 0.05 78);
+  --danger: oklch(76% 0.14 28);
+  --danger-soft: oklch(28% 0.06 28);
+  --info: oklch(79% 0.09 230);
+  --info-soft: oklch(28% 0.045 230);
 
   --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.3);
   --shadow-panel: 0 1px 2px oklch(0% 0 0 / 0.4);
@@ -162,21 +204,21 @@
 
 :root,
 .dark {
-  --code-bg: oklch(20% 0.028 265);
-  --code-bg-chrome: oklch(16.5% 0.025 265);
-  --code-fg: oklch(90% 0.012 265);
-  --code-muted: oklch(68% 0.02 265);
-  --code-line: oklch(30% 0.025 265);
-  --code-line-strong: oklch(38% 0.03 265);
+  --code-bg: oklch(23% 0.012 250);
+  --code-bg-chrome: oklch(18.5% 0.011 250);
+  --code-fg: oklch(89% 0.01 250);
+  --code-muted: oklch(68% 0.015 250);
+  --code-line: oklch(31% 0.014 250);
+  --code-line-strong: oklch(39% 0.016 250);
 
   --syn-comment: oklch(68% 0.03 200);
   --syn-keyword: oklch(79% 0.12 305);
   --syn-string: oklch(81% 0.13 150);
   --syn-number: oklch(84% 0.11 70);
   --syn-cmd: oklch(90% 0.07 250);
-  --syn-flag: oklch(81% 0.12 330);
+  --syn-flag: oklch(76% 0.1 215);
   --syn-var: oklch(83% 0.1 40);
-  --syn-punct: oklch(69% 0.02 265);
+  --syn-punct: oklch(69% 0.02 250);
   --syn-key: oklch(81% 0.1 230);
 }
 
@@ -202,6 +244,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
 
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
@@ -258,23 +301,27 @@
     scroll-margin-top: calc(var(--header-h) + 1.75rem);
   }
 
+  /* Headings are the serif, and at display sizes they are set at a regular
+     weight rather than a bold one: a 42px Newsreader at 400 has more presence on
+     the page than the same size bolded, and bolding a serif this large is what
+     makes a document look like a slide. The two lower levels are the sans,
+     because an h3 is a label on a section rather than a title. */
   h1,
-  h2,
-  h3,
-  h4 {
+  h2 {
+    font-family: var(--font-serif);
+    font-weight: 400;
     color: var(--fg-strong);
-    letter-spacing: -0.011em;
+    letter-spacing: -0.014em;
     text-wrap: balance;
   }
 
-  h1 {
-    font-weight: 700;
-  }
-
-  h2,
   h3,
   h4 {
+    font-family: var(--font-sans);
     font-weight: 600;
+    color: var(--fg-strong);
+    letter-spacing: -0.005em;
+    text-wrap: balance;
   }
 
   code,
@@ -302,17 +349,29 @@
 /* ---------------------------------------------------------------------------
    Prose. Applied to long-form pages; every element is styled explicitly so an
    unstyled tag can never sneak through.
+
+   This is the one place on the site set for sustained reading, so it is the
+   serif at 18px on a ~70-character measure — larger than the chrome around it,
+   deliberately, because the chrome is glanced at and this is read.
    --------------------------------------------------------------------------- */
 
 @layer components {
   .prose {
-    font-size: var(--text-base);
-    line-height: 1.7;
+    font-family: var(--font-serif);
+    font-size: 1.0625rem;
+    line-height: 1.66;
     color: var(--fg);
   }
 
+  @media (min-width: 640px) {
+    .prose {
+      font-size: 1.125rem;
+      line-height: 1.68;
+    }
+  }
+
   .prose > * + * {
-    margin-top: 1.15em;
+    margin-top: 1.1em;
   }
 
   .prose p,
@@ -321,27 +380,28 @@
   .prose blockquote,
   .prose dl {
     max-width: var(--content-w);
+    text-wrap: pretty;
   }
 
   .prose h2 {
-    font-size: var(--text-xl);
-    line-height: 1.35;
+    font-size: var(--text-2xl);
+    line-height: 1.22;
     margin-top: 2.75rem;
-    margin-bottom: 0.8rem;
+    margin-bottom: 0.7rem;
   }
 
   .prose h3 {
     font-size: var(--text-lg);
     line-height: 1.45;
     margin-top: 2rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.4rem;
   }
 
   .prose h4 {
     font-size: var(--text-base);
     font-weight: 600;
     margin-top: 1.6rem;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.3rem;
   }
 
   .prose > h2:first-child,
@@ -349,16 +409,16 @@
     margin-top: 0;
   }
 
-  /* Links in running text: the accent, medium weight, and a hairline underline
-     that firms up on hover. Colour alone would fail "use of colour" for anyone
-     who cannot see the hue difference, so the underline stays. */
+  /* Links in running text: the accent, and a hairline underline that firms up on
+     hover. Colour alone would fail "use of colour" for anyone who cannot see the
+     hue difference, so the underline stays. No weight bump — in a serif at
+     reading size, a semibold run of text is a hole in the paragraph. */
   .prose a {
     color: var(--accent);
-    font-weight: 500;
     text-decoration: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 0.19em;
-    text-decoration-color: color-mix(in oklab, var(--accent) 32%, transparent);
+    text-decoration-color: color-mix(in oklab, var(--accent) 34%, transparent);
     transition: text-decoration-color 120ms ease;
   }
 
@@ -405,12 +465,15 @@
     font-style: normal;
   }
 
+  /* An inline command in a serif paragraph: the monospace is optically larger at
+     the same nominal size, so it is set down, and the chip keeps it from
+     dissolving into the prose around it. */
   .prose :not(pre) > code {
-    font-size: 0.855em;
+    font-size: 0.8em;
     background: var(--bg-code);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.1em 0.34em;
+    border-radius: 5px;
+    padding: 0.12em 0.36em;
     color: var(--fg-strong);
     white-space: nowrap;
   }
@@ -427,8 +490,8 @@
   }
 
   /* A heading that is its own anchor. It must not inherit the link treatment —
-     an underlined, accent-coloured, medium-weight h2 reads as a link in a
-     sentence rather than as a section title.
+     an underlined, accent-coloured h2 reads as a link in a sentence rather than
+     as a section title.
 
      The descendant selectors are load-bearing: `.prose a` is one class and one
      element, so a bare `.heading-anchor` loses to it and every section heading
@@ -442,14 +505,37 @@
     text-decoration: none;
   }
 
-  /* An eyebrow, a table caption, a panel label: small, tracked, uppercase.
-     One class so the treatment is identical everywhere it appears. */
+  /* The lede under a page title: the serif again, a size up from the prose and
+     in the muted ink, so the page opens with a sentence rather than a heading
+     followed immediately by reference rows. */
+  .lede {
+    font-family: var(--font-serif);
+    font-size: 1.1875rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+    max-width: 38rem;
+    text-wrap: pretty;
+  }
+
+  /* The reading sizes step down on a phone. Eighteen-pixel Newsreader on a
+     375px screen is about forty characters to the line, which is short enough
+     that the eye spends its time returning rather than reading. */
+  @media (min-width: 640px) {
+    .lede {
+      font-size: 1.3125rem;
+    }
+  }
+
+  /* An eyebrow, a table caption, a panel label: small, tracked, uppercase, and
+     in the sans — this is chrome, and setting chrome in the serif is what would
+     blur the line the whole design rests on. One class so the treatment is
+     identical everywhere it appears. */
   .label {
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1.4;
-    letter-spacing: 0.09em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
   }
 
@@ -490,7 +576,7 @@
 
   /* Terminal transcripts use the CLI's own palette: ANSI 31 / 33 / dim. */
   .term-info {
-    color: oklch(89% 0.01 265);
+    color: oklch(89% 0.01 250);
   }
   .term-warn {
     color: oklch(84% 0.13 85);
@@ -499,14 +585,14 @@
     color: oklch(72% 0.17 25);
   }
   .term-debug {
-    color: oklch(68% 0.015 265);
+    color: oklch(68% 0.015 250);
   }
   .term-bold {
-    color: oklch(98% 0.004 265);
+    color: oklch(98% 0.004 250);
     font-weight: 600;
   }
   .term-dim {
-    color: oklch(69% 0.015 265);
+    color: oklch(69% 0.015 250);
   }
 }
 

@@ -220,12 +220,48 @@ function textOf(node: ReactNode): string {
   return '';
 }
 
+/**
+ * A step number, pulled out of a heading that already carries one.
+ *
+ * Every runbook on this site writes its steps as `<H2>3 · Write a build script</H2>` —
+ * a convention that predates this component and is consistent across all eighteen of
+ * them. So the number is lifted out of the text and set as a marker rather than being
+ * declared a second time in a prop, which means a guide nobody has touched gets the
+ * treatment and no guide can have a marker that disagrees with its own words.
+ *
+ * `textContent` is unchanged by this, which matters: the on-this-page column reads
+ * headings out of the DOM, so "3 · Write a build script" is still what it shows and
+ * the anchor is still derived from the whole heading.
+ */
+const STEP = /^(\d{1,2})\s*·\s*(.+)$/s;
+
+function splitStep(children: ReactNode): { n: string; rest: string } | null {
+  const text = textOf(children);
+  // Only when the heading is plain text: a heading carrying elements would lose them.
+  if (typeof children !== 'string' && text !== children) return null;
+  const m = STEP.exec(text.trim());
+  return m ? { n: m[1], rest: m[2] } : null;
+}
+
 export function H2({ children, id }: { children: ReactNode; id?: string }) {
   const anchor = id ?? slugify(textOf(children));
+  const step = splitStep(children);
   return (
     <h2 id={anchor} className="group">
       <a href={`#${anchor}`} className="heading-anchor">
-        {children}
+        {step ? (
+          <>
+            <span
+              aria-hidden="true"
+              className="mr-3 inline-flex size-7 shrink-0 translate-y-[-0.08em] items-center justify-center rounded-full bg-strong align-middle font-sans text-[0.8125rem] font-semibold text-invert"
+            >
+              {step.n}
+            </span>
+            {step.rest}
+          </>
+        ) : (
+          children
+        )}
         <span
           aria-hidden="true"
           className="ml-2 align-middle font-mono text-sm text-faint opacity-0 transition-opacity group-hover:opacity-100"
