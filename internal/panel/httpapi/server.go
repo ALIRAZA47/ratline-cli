@@ -14,6 +14,8 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/rl"
 	"github.com/ALIRAZA47/ratline-cli/internal/panel/store"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/system"
 )
 
 // Server holds everything a handler needs.
@@ -150,19 +153,41 @@ func (s *Server) Serve(ctx context.Context) error {
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		ErrorLog:          nil,
+		// Which listener a connection came in on is a fact about the connection,
+		// recorded once here where nothing a client sends can influence it. The
+		// handlers read it to decide whether X-Forwarded-For may be believed.
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if _, ok := c.(*net.UnixConn); ok {
+				return panel.WithProxySocket(ctx)
+			}
+			return ctx
+		},
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return rlerr.Wrap(err, rlerr.CodePrecondition, "listening on %s", addr).
 			WithHint("another process may already hold that port: ss -ltnp | grep %d", s.Cfg.Listen.Port)
 	}
-	s.Log.Info("panel listening", "addr", addr, "domain", s.Cfg.Listen.Domain)
+	listeners := []net.Listener{ln}
+	if s.Cfg.Listen.Socket != "" {
+		sl, cleanup, err := s.listenSocket()
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
+		defer cleanup()
+		listeners = append(listeners, sl)
+	}
+	s.Log.Info("panel listening", "addr", addr, "socket", s.Cfg.Listen.Socket, "domain", s.Cfg.Listen.Domain)
 
-	done := make(chan error, 1)
-	go func() { done <- srv.Serve(ln) }()
+	done := make(chan error, len(listeners))
+	for _, l := range listeners {
+		go func(l net.Listener) { done <- srv.Serve(l) }(l)
+	}
 
 	select {
 	case err := <-done:
+		_ = srv.Close()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return rlerr.Wrap(err, rlerr.CodeGeneric, "serving")
 		}
@@ -172,6 +197,69 @@ func (s *Server) Serve(ctx context.Context) error {
 		defer cancel()
 		return srv.Shutdown(shutdown)
 	}
+}
+
+// listenSocket opens the unix socket nginx proxies to, connectable by root and by
+// nginx's group and nobody else.
+//
+// The order matters. net.Listen creates the socket under the process umask (0027 here),
+// which leaves it without group write — and connect(2) on a unix socket needs write —
+// so nothing but root can reach it until the group is set and the mode widened, in
+// that order. A tenant never sees a connectable socket that is not yet nginx's.
+func (s *Server) listenSocket() (net.Listener, func(), error) {
+	path := s.Cfg.Listen.Socket
+	if fi, err := os.Lstat(path); err == nil {
+		if fi.Mode()&os.ModeSocket == 0 {
+			return nil, nil, rlerr.Preconditionf("%s exists and is not a socket", path).
+				WithHint("move it aside, or point listen.socket somewhere else")
+		}
+		// Left behind by a previous run that did not get to clean up.
+		_ = os.Remove(path)
+	}
+	// systemd's RuntimeDirectory= normally creates this; a panel run by hand does not
+	// have that, and the directory is world-traversable on purpose — the socket's own
+	// mode is what protects it.
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, nil, rlerr.Wrap(err, rlerr.CodeGeneric, "creating %s", filepath.Dir(path))
+	}
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, nil, rlerr.Wrap(err, rlerr.CodePrecondition, "listening on %s", path)
+	}
+	cleanup := func() {
+		_ = l.Close()
+		_ = os.Remove(path)
+	}
+	gid, err := system.LookupGroupID(s.Cfg.Listen.SocketGroup)
+	if err != nil {
+		// No such group means no nginx on this host, which is a panel reached through a
+		// tunnel; the socket stays root-only rather than the panel refusing to start.
+		s.Log.Warn("the proxy socket's group does not exist, so only root can connect to it",
+			"socket", path, "group", s.Cfg.Listen.SocketGroup)
+		if err := os.Chmod(path, 0o600); err != nil {
+			cleanup()
+			return nil, nil, rlerr.Wrap(err, rlerr.CodeGeneric, "setting the mode of %s", path)
+		}
+		return l, cleanup, nil
+	}
+	if err := os.Chown(path, -1, gid); err != nil {
+		// Not root — a developer running the panel by hand. The socket is still
+		// theirs, which is the same set of people who could connect anyway.
+		s.Log.Debug("could not set the proxy socket's group", "socket", path, "err", err)
+	}
+	if err := os.Chmod(path, 0o660); err != nil {
+		cleanup()
+		return nil, nil, rlerr.Wrap(err, rlerr.CodeGeneric, "setting the mode of %s", path)
+	}
+	return l, cleanup, nil
+}
+
+// trustForwarded says whether this request's X-Forwarded-* headers may be believed:
+// always on the proxy socket, which only nginx's group can open; on the TCP port only
+// when the operator turned trust_proxy on, because every tenant on the host can reach
+// the loopback port and write whatever header they like.
+func (s *Server) trustForwarded(r *http.Request) bool {
+	return panel.FromProxySocket(r) || s.Cfg.Listen.TrustProxy
 }
 
 // ── replies ─────────────────────────────────────────────────────────────────────

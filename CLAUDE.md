@@ -194,6 +194,12 @@ environment. No script is built from user input and the admin URI never appears 
 - **The role gate is a filter, not a hidden button.** An admin's browser is never sent the
   super-admin actions, and asking for one returns the same "no such action" as a command
   that does not exist.
+- **Forwarded headers are believed only on the proxy socket.** nginx reaches the panel
+  over `listen.socket` (`/run/ratline-panel/panel.sock`, 0660 root:www-data); the HTTP
+  server marks those connections in `ConnContext` and `trustForwarded` reads the mark.
+  The loopback port is reachable by every tenant, so `X-Forwarded-For` there is never
+  believed unless `listen.trust_proxy` is on — which `domain set` turns off once the
+  vhost uses the socket, and `doctor` flags.
 - **The bundle must satisfy the panel's own CSP.** No inline script or style, because the
   policy has no `unsafe-inline` — the bundle is built to comply rather than the policy
   relaxed to fit it. CI checks the built `index.html`.

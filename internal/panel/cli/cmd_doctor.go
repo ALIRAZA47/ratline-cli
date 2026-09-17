@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -189,16 +190,37 @@ func (app *App) runChecks(ctx context.Context) []check {
 			Detail: "loopback only; reach it through an SSH tunnel"})
 	}
 
-	// Forwarded headers. The panel believes X-Forwarded-For from whoever connects to
-	// its port when trust_proxy is on, and the port is loopback — which every tenant
-	// on this host can reach. A tenant who sets the header walks past allow_from and
-	// gets a fresh per-address sign-in budget on every request.
-	if app.Cfg.Listen.TrustProxy && len(app.Cfg.Security.AllowFrom) > 0 {
-		add(check{Name: "allow_from", OK: false,
-			Detail: "security.allow_from is judged on X-Forwarded-For, which any local process — " +
-				"including a tenant's — can set when it connects to " + app.Cfg.Listen.Address,
-			Fix: "treat allow_from as a convenience, not a control; the password and the second " +
-				"factor are the lock, and require_totp is the setting that matters"})
+	// Forwarded headers. With trust_proxy on, the panel believes X-Forwarded-For from
+	// whoever connects to its port, and the port is loopback — which every tenant on
+	// this host can reach. A tenant who sets the header walks past allow_from, gets a
+	// fresh per-address sign-in budget on every request, and chooses the address the
+	// audit trail records. The socket is the answer: only nginx's group can open it.
+	switch {
+	case app.Cfg.Listen.TrustProxy:
+		fix := "set listen.trust_proxy: false in " + app.Cfg.SourcePath
+		if app.Cfg.Listen.Socket != "" && app.Cfg.Listen.Domain != "" {
+			fix = "ratline-panel domain set " + app.Cfg.Listen.Domain + " moves nginx onto " +
+				app.Cfg.Listen.Socket + " and turns trust_proxy off"
+		}
+		add(check{Name: "forwarded headers", OK: false,
+			Detail: "trust_proxy is on: X-Forwarded-For is believed from anything that connects to " +
+				app.Cfg.Listen.Address + ", which every tenant on this host can",
+			Fix: fix})
+	case app.Cfg.Listen.Socket != "":
+		add(check{Name: "forwarded headers", OK: true,
+			Detail: "believed only on " + app.Cfg.Listen.Socket + ", which only " +
+				app.Cfg.Listen.SocketGroup + " can open"})
+	default:
+		add(check{Name: "forwarded headers", OK: true, Detail: "never believed; no proxy is configured"})
+	}
+	// A vhost written before the socket existed still proxies over TCP.
+	if app.Cfg.Listen.Domain != "" && app.Cfg.Listen.Socket != "" {
+		if body, err := system.ReadFileLimit(app.Cfg.Paths.NginxVhost, 1<<20); err == nil &&
+			!strings.Contains(string(body), "proxy_pass http://unix:") {
+			add(check{Name: "vhost upstream", OK: false,
+				Detail: "nginx reaches the panel over the TCP port rather than " + app.Cfg.Listen.Socket,
+				Fix:    "ratline-panel domain set " + app.Cfg.Listen.Domain})
+		}
 	}
 
 	// The second factor, which is the difference between one stolen password and a

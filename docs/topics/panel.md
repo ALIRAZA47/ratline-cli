@@ -96,7 +96,12 @@ ratline-panel domain set panel.example.com --email you@example.com
 ```
 
 That writes an nginx vhost proxying to the panel, obtains a certificate over the ACME
-webroot ratline already uses, and rewrites the vhost with TLS. The vhost is staged,
+webroot ratline already uses, and rewrites the vhost with TLS. nginx reaches the panel
+over a unix socket, `/run/ratline-panel/panel.sock`, that only nginx's own group can
+open — so `X-Forwarded-For` is believed there and nowhere else. The loopback port,
+which every tenant on the host can also connect to, never carries a trusted header:
+a tenant who set one would otherwise walk past `security.allow_from` and pick the
+address the audit trail records. The vhost is staged,
 checked with `nginx -t` and rolled back on failure, exactly as ratline's own are. It
 carries a `# managed-by: ratline-panel` header and will not overwrite a file without
 one.

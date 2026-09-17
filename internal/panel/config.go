@@ -81,10 +81,22 @@ type Listen struct {
 	// The panel needs to know it to decide whether a cookie may be marked Secure
 	// and to check the Origin of a state-changing request.
 	Domain string `yaml:"domain"`
-	// TrustProxy makes the panel believe X-Forwarded-For and X-Forwarded-Proto.
-	// True only because nginx on the same host sets them; a panel reachable
-	// directly must not, or every client can claim any address it likes and the
-	// rate limiter counts them separately.
+	// Socket is a unix socket the panel also listens on, for nginx to proxy to.
+	//
+	// The loopback port is reachable by every tenant on the host, so a header
+	// arriving there proves nothing about who sent it. The socket is 0660 and
+	// owned by nginx's group, so a connection on it is nginx's — and forwarded
+	// headers are believed there, always, and never on the port unless
+	// TrustProxy says so. Empty turns it off.
+	Socket string `yaml:"socket"`
+	// SocketGroup is the group that may connect to Socket: nginx's worker group.
+	SocketGroup string `yaml:"socket_group"`
+	// TrustProxy makes the panel believe X-Forwarded-For and X-Forwarded-Proto on
+	// the TCP port as well. It used to default to true, because nginx on the same
+	// host set them — but so could any tenant's process that connected to the
+	// loopback port, walking past allow_from and getting a fresh sign-in budget
+	// per request. Off by default; `domain set` proxies over Socket instead and
+	// turns this off if it was on.
 	TrustProxy bool `yaml:"trust_proxy"`
 }
 
@@ -167,9 +179,11 @@ func Default() *Config {
 	return &Config{
 		Version: SchemaVersion,
 		Listen: Listen{
-			Address:    "127.0.0.1",
-			Port:       8420,
-			TrustProxy: true,
+			Address:     "127.0.0.1",
+			Port:        8420,
+			Socket:      "/run/ratline-panel/panel.sock",
+			SocketGroup: "www-data",
+			TrustProxy:  false,
 		},
 		Ratline: Ratline{
 			Binary:       "/usr/local/bin/ratline",
@@ -261,6 +275,15 @@ func (c *Config) Validate() error {
 		}
 		c.Listen.Domain = d
 	}
+	if c.Listen.Socket != "" {
+		if _, err := validate.AbsClean(c.Listen.Socket); err != nil {
+			return rlerr.Usagef("listen.socket: %s", err.Error())
+		}
+		if c.Listen.SocketGroup == "" {
+			return rlerr.Usagef("listen.socket_group is empty").
+				WithHint("the group nginx's workers run as, www-data on Debian and Ubuntu")
+		}
+	}
 	for _, p := range []struct{ name, value string }{
 		{"ratline.binary", c.Ratline.Binary},
 		{"paths.state_db", c.Paths.StateDB},
@@ -310,6 +333,21 @@ func (c *Config) Validate() error {
 			WithHint("a transcript shorter than that cannot hold a useful failure")
 	}
 	return nil
+}
+
+// ProxyUpstream is what nginx's proxy_pass points at: the socket when there is one,
+// otherwise the loopback port. The trailing colon is nginx's syntax for a unix
+// upstream — proxy_pass http://unix:/path:; — and the vhost template adds only the
+// scheme.
+func (c *Config) ProxyUpstream() string {
+	if c.Listen.Socket != "" {
+		return "unix:" + c.Listen.Socket + ":"
+	}
+	host := c.Listen.Address
+	if host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, strconv.Itoa(c.Listen.Port))
 }
 
 // PublicURL is the address to hand somebody, for an invitation link.

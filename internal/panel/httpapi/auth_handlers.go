@@ -147,7 +147,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	ip := panel.ClientIP(r, s.Cfg.Listen.TrustProxy)
+	ip := panel.ClientIP(r, s.trustForwarded(r))
 	now := s.now()
 	email := store.NormalizeEmail(req.Email)
 
@@ -266,7 +266,7 @@ func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, account *s
 		CreatedAt:  now,
 		LastSeenAt: now,
 		ExpiresAt:  now.Add(s.Cfg.Session.TTL.D()),
-		IP:         panel.ClientIP(r, s.Cfg.Listen.TrustProxy),
+		IP:         panel.ClientIP(r, s.trustForwarded(r)),
 		UserAgent:  truncate(r.UserAgent(), 200),
 	}
 	if err := s.Store.CreateSession(r.Context(), sess); err != nil {
@@ -319,7 +319,7 @@ func (s *Server) cookieSecure(r *http.Request) bool {
 	case "never":
 		return false
 	default:
-		return panel.RequestIsSecure(r, s.Cfg.Listen.TrustProxy)
+		return panel.RequestIsSecure(r, s.trustForwarded(r))
 	}
 }
 

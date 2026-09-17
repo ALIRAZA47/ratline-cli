@@ -20,7 +20,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -164,17 +163,19 @@ func (m *Manager) SetDomain(ctx context.Context, opts DomainOptions) (err error)
 			return err
 		}
 	}
-	if err := m.checkUpstreamIsLocal(); err != nil {
-		return err
+	if m.Cfg.Listen.Socket == "" {
+		if err := m.checkUpstreamIsLocal(); err != nil {
+			return err
+		}
 	}
 
 	rb := system.NewRollback(m.Log)
 	defer rb.UnwindOn(ctx, &err)
 
-	upstream := net.JoinHostPort(m.Cfg.Listen.Address, strconv.Itoa(m.Cfg.Listen.Port))
-	if m.Cfg.Listen.Address == "0.0.0.0" || m.Cfg.Listen.Address == "::" {
-		upstream = net.JoinHostPort("127.0.0.1", strconv.Itoa(m.Cfg.Listen.Port))
-	}
+	// The socket when there is one. nginx is the only thing that can open it, so the
+	// panel believes X-Forwarded-For from it; the loopback port, which every tenant
+	// on the host can also connect to, is never a place that header can be trusted.
+	upstream := m.Cfg.ProxyUpstream()
 
 	// HTTP first, always. The ACME challenge is served over port 80 out of a vhost
 	// that must exist before certbot runs, and writing the TLS vhost first would
@@ -338,6 +339,13 @@ func (m *Manager) persistDomain(domain string) error {
 		return nil
 	}
 	m.Cfg.Listen.Domain = domain
+	if m.Cfg.Listen.Socket != "" && m.Cfg.Listen.TrustProxy {
+		// The vhost just written reaches the panel over the socket, so nothing that
+		// arrives on the TCP port is nginx any more. Believing forwarded headers there
+		// would let any tenant on the host claim any address.
+		m.Log.Info("turning listen.trust_proxy off: nginx now reaches the panel over " + m.Cfg.Listen.Socket)
+		m.Cfg.Listen.TrustProxy = false
+	}
 	return m.Cfg.Write(m.Cfg.SourcePath)
 }
 

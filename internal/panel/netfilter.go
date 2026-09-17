@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -56,6 +57,23 @@ func AllowedFrom(nets []*net.IPNet, addr string) bool {
 		}
 	}
 	return false
+}
+
+type ctxKey int
+
+const ctxProxySocket ctxKey = iota
+
+// WithProxySocket marks a connection's context as having arrived on the unix socket
+// only nginx can open. The HTTP server sets it from ConnContext; nothing a client
+// sends can.
+func WithProxySocket(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxProxySocket, true)
+}
+
+// FromProxySocket reports whether a request arrived on the proxy socket.
+func FromProxySocket(r *http.Request) bool {
+	v, _ := r.Context().Value(ctxProxySocket).(bool)
+	return v
 }
 
 // ClientIP is the address to attribute a request to.

@@ -88,3 +88,18 @@ func TestThePlainHTTPVhostNamesNoCertificate(t *testing.T) {
 		t.Error("the ACME challenge location is missing, so the certificate could never be issued")
 	}
 }
+
+// The vhost proxies over the socket only nginx's group can open. The upstream is
+// spelled the way nginx wants a unix upstream — http://unix:/path: — and never a
+// loopback port, which every tenant on the host can also connect to.
+func TestTheVhostProxiesToTheSocket(t *testing.T) {
+	d := tlsData()
+	d.Upstream = "unix:/run/ratline-panel/panel.sock:"
+	out := render(t, d)
+	if !strings.Contains(out, "proxy_pass http://unix:/run/ratline-panel/panel.sock:;") {
+		t.Errorf("the vhost does not proxy to the socket:\n%s", out)
+	}
+	if strings.Contains(out, "127.0.0.1:8420") {
+		t.Errorf("the vhost still names the loopback port:\n%s", out)
+	}
+}
