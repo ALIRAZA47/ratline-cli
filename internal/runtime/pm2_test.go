@@ -471,3 +471,162 @@ func TestEveryPM2InvocationHasNodeOnPath(t *testing.T) {
 		t.Errorf("PM2_HOME = %q, want %q", home, pm2Home(c))
 	}
 }
+
+// bunPM2Context is a bun site that has asked for PM2.
+func bunPM2Context(t *testing.T, mutate func(*state.Site)) *Context {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Runtimes.NodeDefault = "22"
+	cfg.Runtimes.BunDefault = "1.2"
+	site := &state.Site{
+		Domain: "mcp.example.com", Owner: "alice", Runtime: "bun",
+		Slug: "alice-mcp_example_com", Enabled: true,
+		Entry: "server.ts", Listen: "port", Port: 3000, Instances: 1,
+		ProcessManager: ProcessManagerPM2,
+	}
+	if mutate != nil {
+		mutate(site)
+	}
+	id := &system.Identity{Name: "alice", UID: 1001, GID: 1001, Home: cfg.HomeDir("alice")}
+	return NewContext(cfg, log.Discard(), &stubRunner{}, site, id, true)
+}
+
+// PM2 supervising bun is fork mode with bun named as the interpreter, never cluster.
+//
+// This is the whole shape of the arrangement, and getting it wrong is silent: PM2's
+// cluster mode *is* node's cluster module, so asking for cluster with bun as the
+// interpreter has PM2 fork through node and hand a .ts file to the wrong engine.
+func TestEcosystemRunsBunInForkModeWithBunAsTheInterpreter(t *testing.T) {
+	app := decodeEcosystem(t, bunPM2Context(t, nil))
+	if app.ExecMode != "fork" {
+		t.Errorf("exec_mode = %q, want fork — cluster mode is node's own module", app.ExecMode)
+	}
+	if !strings.HasSuffix(app.Interpreter, "/bun") {
+		t.Errorf("interpreter = %q, want the managed bun binary", app.Interpreter)
+	}
+	if !filepath.IsAbs(app.Interpreter) {
+		t.Errorf("interpreter = %q, want an absolute path so PATH cannot redirect it", app.Interpreter)
+	}
+	if !strings.HasSuffix(app.Script, "/app/server.ts") {
+		t.Errorf("script = %q, want the TypeScript entry inside the app directory", app.Script)
+	}
+	// The negative: a node site on the same code path still gets cluster mode, or
+	// this test would pass against an implementation that had broken node too.
+	if node := decodeEcosystem(t, nodeContext(t, nil)); node.ExecMode != "cluster" {
+		t.Errorf("a node site's exec_mode = %q, want cluster", node.ExecMode)
+	}
+}
+
+// More than one instance is carried through, because for bun each one is a whole
+// process rather than a cluster worker.
+func TestEcosystemKeepsBunInstancesRatherThanCollapsingThemToOne(t *testing.T) {
+	app := decodeEcosystem(t, bunPM2Context(t, func(s *state.Site) { s.Instances = 4 }))
+	if app.Instances != 4 {
+		t.Errorf("instances = %d, want 4", app.Instances)
+	}
+	if app.ExecMode != "fork" {
+		t.Errorf("exec_mode = %q, want fork", app.ExecMode)
+	}
+}
+
+// A bun site under PM2 gets the same port variables the direct path sets, so an
+// application works unchanged when PM2 is put in front of it.
+func TestEcosystemGivesBunTheSamePortSpellingsAsDirectSupervision(t *testing.T) {
+	app := decodeEcosystem(t, bunPM2Context(t, nil))
+	for _, key := range []string{"PORT", "BUN_PORT", "HOST"} {
+		if app.Env[key] == "" {
+			t.Errorf("env %s is unset; a default-exported Bun.serve reads BUN_PORT", key)
+		}
+	}
+	if app.Env["PORT"] != "3000" || app.Env["BUN_PORT"] != "3000" {
+		t.Errorf("PORT=%q BUN_PORT=%q, want both 3000", app.Env["PORT"], app.Env["BUN_PORT"])
+	}
+	// A node site has no business being told BUN_PORT.
+	if node := decodeEcosystem(t, nodeContext(t, func(s *state.Site) {
+		s.Listen, s.Port = "port", 3000
+	})); node.Env["BUN_PORT"] != "" {
+		t.Errorf("a node site got BUN_PORT=%q", node.Env["BUN_PORT"])
+	}
+}
+
+// PATH carries bun first and node behind it.
+//
+// node is not optional even for a bun site: pm2 is a JavaScript file with a
+// `#!/usr/bin/env node` shebang and resolves its own interpreter through PATH. Losing
+// node here is the failure that used to surface as status 127 and nothing else.
+func TestABunSiteUnderPM2StillHasNodeOnPath(t *testing.T) {
+	app := decodeEcosystem(t, bunPM2Context(t, nil))
+	dirs := strings.Split(app.Env["PATH"], ":")
+	if len(dirs) < 2 {
+		t.Fatalf("PATH = %q, want the interpreter and node ahead of the default", app.Env["PATH"])
+	}
+	if !strings.Contains(dirs[0], "/bun/") {
+		t.Errorf("PATH starts with %q, want bun's directory first", dirs[0])
+	}
+	var hasNode bool
+	for _, d := range dirs {
+		if strings.Contains(d, "/node/") {
+			hasNode = true
+		}
+	}
+	if !hasNode {
+		t.Errorf("PATH = %q has no node directory; pm2's shebang resolves node through it",
+			app.Env["PATH"])
+	}
+}
+
+// `site reload` on a bun site refuses whether or not PM2 is in front of it, and says
+// which of the two reasons applies.
+func TestBunReloadRefusesUnderPM2Too(t *testing.T) {
+	direct := bunPM2Context(t, func(s *state.Site) { s.ProcessManager = ProcessManagerDirect })
+	err := (Bun{}).Reload(context.Background(), direct)
+	if err == nil {
+		t.Fatal("a bun site without PM2 should refuse to reload")
+	}
+	if !strings.Contains(err.Error()+rlerr.Hint(err), "restart") {
+		t.Errorf("the refusal should name the restart, got: %v", err)
+	}
+
+	err = (Bun{}).Reload(context.Background(), bunPM2Context(t, nil))
+	if err == nil {
+		t.Fatal("a bun site on PM2 should still refuse to reload: fork mode cannot")
+	}
+	combined := err.Error() + " " + rlerr.Hint(err)
+	if !strings.Contains(combined, "fork mode") {
+		t.Errorf("the refusal should explain that fork mode cannot reload, got: %s", combined)
+	}
+}
+
+// The unit for a PM2-supervised bun site is PM2's unit, not bun's.
+func TestABunSiteOnPM2GetsThePM2Unit(t *testing.T) {
+	c := bunPM2Context(t, nil)
+	execStart, opts, err := (Bun{}).StartCommand(context.Background(), c)
+	if err != nil {
+		t.Fatalf("StartCommand = %v", err)
+	}
+	if !strings.Contains(execStart, "pm2") {
+		t.Errorf("ExecStart = %q, want pm2", execStart)
+	}
+	if opts.Type != "forking" {
+		t.Errorf("unit Type = %q, want forking", opts.Type)
+	}
+	if opts.PIDFile == "" {
+		t.Error("a forking unit needs a PIDFile or systemd follows the wrong process")
+	}
+
+	// The negative: without PM2 it is still bun straight under systemd.
+	direct := bunPM2Context(t, func(s *state.Site) { s.ProcessManager = ProcessManagerDirect })
+	execStart, opts, err = (Bun{}).StartCommand(context.Background(), direct)
+	if err != nil {
+		t.Fatalf("StartCommand = %v", err)
+	}
+	if strings.Contains(execStart, "pm2") {
+		t.Errorf("ExecStart = %q, want bun itself", execStart)
+	}
+	if !strings.HasSuffix(strings.Fields(execStart)[0], "/bun") {
+		t.Errorf("ExecStart = %q, want the bun binary as the main process", execStart)
+	}
+	if opts.Type == "forking" {
+		t.Error("direct supervision should not be a forking unit")
+	}
+}

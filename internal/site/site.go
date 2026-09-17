@@ -422,12 +422,27 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 		default:
 			return nil, rlerr.Usagef("--listen must be socket or port, got %q", site.Listen)
 		}
-		// Bun runs directly under systemd. There is no supervisor to choose, so the
-		// flag is refused rather than accepted and dropped.
-		if site.ProcessManager != "" {
-			return nil, rlerr.Usagef("--daemon does not apply to a bun site").
-				WithHint("bun runs directly under systemd; PM2 is a node supervisor, " +
-					"and it is what a site needing zero-downtime reloads should use")
+		// --daemon pm2 is allowed here, and means something narrower than it does on
+		// a node site: PM2 supervises bun in fork mode, because cluster mode is
+		// node's own module. What it buys is PM2's process table, its restart
+		// policy and more than one instance; what it does not buy is a graceful
+		// reload, and `site reload` still says so. Bun's default stays direct —
+		// see runtime.ProcessManagerFor.
+		//
+		// Checked here rather than left to validateSiteRow's enumeration, so the
+		// refusal names the flag the operator typed instead of the column it lands in.
+		switch site.ProcessManager {
+		case "", runtime.ProcessManagerPM2, runtime.ProcessManagerDirect:
+		default:
+			return nil, rlerr.Usagef("--daemon must be pm2 or direct, got %q", site.ProcessManager).
+				WithHint("on a bun site pm2 means fork mode: more than one process and a " +
+					"restart policy, but still no graceful reload")
+		}
+		if site.ProcessManager == runtime.ProcessManagerPM2 {
+			m.Log.Info("PM2 will supervise this bun site in fork mode",
+				"reason", "cluster mode is node's own module, which bun does not implement",
+				"consequence", "'site reload' still restarts rather than reloading gracefully",
+				"requires", "a managed Node with PM2: ratline runtime install node 22 --with-pm2")
 		}
 	case "python":
 		if opts.AppModule == "" {
@@ -555,14 +570,30 @@ func validateInstances(site *state.Site, configuredManager string) error {
 			WithHint("gunicorn workers share the one socket: ratline site scale %s --workers %d",
 				site.Domain, site.Instances)
 	}
-	// --instances means PM2 cluster workers, and PM2 is a node supervisor. A bun site is
-	// one process under systemd, so the flag has nothing to act on and is refused rather
-	// than accepted and silently ignored.
+	// A bun site fans out differently from a node one, and the difference is not a
+	// detail: PM2's cluster mode is node's own cluster module, so bun runs in fork
+	// mode and each instance is an independent process rather than a worker sharing
+	// one listening handle. Two preconditions follow, and neither can be guessed at.
 	if site.Runtime == "bun" {
-		return rlerr.Usagef("a bun site is a single process under systemd").
-			WithHint("--instances is PM2 cluster mode, which is node-only; " +
-				"scale a bun site horizontally with more sites behind a load balancer, " +
-				"or use --runtime node for PM2")
+		if site.ProcessManager != runtime.ProcessManagerPM2 {
+			return rlerr.Usagef("a bun site is a single process unless PM2 supervises it").
+				WithHint("bun has no cluster mode of its own, so more than one instance "+
+					"means more than one process under PM2:\n"+
+					"        ratline site runtime %s --daemon pm2 --listen port",
+					site.Domain)
+		}
+		// The hard one. N fork-mode processes cannot share a Unix socket: the first
+		// binds the path and the rest die with EADDRINUSE, forever, while nginx
+		// proxies happily to the one that won and nothing looks broken. A port can
+		// be shared, but only because SO_REUSEPORT exists — which is why this is a
+		// refusal and the reusePort warning below is only a warning.
+		if site.Listen != "port" {
+			return rlerr.Usagef("%d instances cannot share one Unix socket", site.Instances).
+				WithHint("only the first process would bind it and the rest would " +
+					"crash-loop behind a site that looks healthy; fan out over a port " +
+					"instead, with --listen port")
+		}
+		return nil
 	}
 	manager := site.ProcessManager
 	if manager == "" {

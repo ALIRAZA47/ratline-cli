@@ -213,9 +213,9 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 		"node, bun: npm, pnpm, yarn or bun (detected from the lockfile)")
 	f.StringVar(&opts.Listen, "listen", "socket", "node, bun: socket or port")
 	f.StringVar(&opts.ProcessManager, "daemon", "",
-		"node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)")
+		"node, bun: pm2 or direct (default pm2 for node, direct for bun)")
 	f.IntVar(&opts.Instances, "instances", 1,
-		"node: PM2 cluster workers, all sharing the one socket inside the one unit")
+		"node: PM2 cluster workers sharing one socket; bun: separate processes, needs --daemon pm2 --listen port")
 
 	f.StringVar(&opts.AppModule, "app-module", "", "python: import path of the callable, e.g. app.main:app")
 	f.StringVar(&opts.PythonVersion, "python", "", "python: managed Python version, e.g. 3.12")
@@ -574,7 +574,8 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.IntVar(&opts.Workers, "workers", 0, "Worker processes")
-	f.IntVar(&opts.Instances, "instances", 0, "node: PM2 cluster workers")
+	f.IntVar(&opts.Instances, "instances", 0,
+		"node: PM2 cluster workers; bun: separate processes under PM2, on a port")
 	f.StringVar(&opts.MemoryMax, "memory-max", "", "Memory ceiling, e.g. 512M")
 	f.StringVar(&opts.CPUQuota, "cpu-quota", "", "CPU ceiling, e.g. 100%")
 	f.StringVar(&opts.ClientMaxBodySize, "client-max-body-size", "",

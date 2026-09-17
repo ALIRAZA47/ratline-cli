@@ -11,6 +11,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/unit"
+	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
 // The PM2 supervision mode for Node sites, and why it is the default.
@@ -167,16 +168,33 @@ func (n Node) RenderEcosystem(c *Context) ([]byte, error) {
 		return nil, err
 	}
 
+	// Which binary actually executes the application. PM2 is a Node program and is
+	// always launched by node, but what it supervises need not be: a bun site runs
+	// under PM2 with bun named as the interpreter.
+	interpreterBin := nodeBin
+	if c.Site.Runtime == "bun" {
+		if interpreterBin, err = (Bun{}).binary(c); err != nil {
+			return nil, err
+		}
+	}
+
 	env := map[string]string{
 		"NODE_ENV": "production",
 		// PM2 spawns workers itself, so the interpreter has to be on PATH for any
-		// child process the application starts.
-		"PATH": filepath.Dir(nodeBin) + ":" + system.DefaultPath,
+		// child process the application starts. A bun site gets bun first and node
+		// behind it, because pm2 itself still resolves node through this PATH.
+		"PATH": pm2Path(interpreterBin, nodeBin),
 	}
 	socket := c.Cfg.SocketPath(c.Site.Owner, c.Site.Domain)
 	if c.Site.Listen == "port" {
 		env["PORT"] = fmt.Sprint(c.Site.Port)
 		env["HOST"] = "127.0.0.1"
+		if c.Site.Runtime == "bun" {
+			// The same spelling the direct path sets, so an application that works
+			// under systemd works unchanged when PM2 is put in front of it. A
+			// default-exported Bun.serve object reads BUN_PORT and nothing else.
+			env["BUN_PORT"] = fmt.Sprint(c.Site.Port)
+		}
 	} else {
 		// Cluster mode shares one listening handle across workers, so every worker
 		// binds the same socket path — which is exactly what makes a reload
@@ -199,7 +217,27 @@ func (n Node) RenderEcosystem(c *Context) ([]byte, error) {
 	// binary has to be fork mode, and fork mode's reload is a restart — said out
 	// loud rather than left to be discovered during a deploy.
 	execMode, interpreter := "cluster", ""
-	if !isJavaScript(script) {
+	switch {
+	case c.Site.Runtime == "bun":
+		// Bun has no cluster module, and PM2's cluster mode *is* node's: it forks
+		// through node and passes the listening handle down. Naming bun as the
+		// interpreter and asking for cluster mode would have PM2 fork node anyway
+		// and hand the entry point to the wrong engine, so fork mode is the only
+		// honest answer. Each instance is then an independent process rather than a
+		// worker sharing one handle, which is what validateInstances enforces the
+		// preconditions for.
+		execMode, interpreter = "fork", interpreterBin
+		if instances > 1 {
+			// ratline cannot see inside the application, and this is the one part of
+			// the arrangement it cannot verify: without SO_REUSEPORT only the first
+			// process binds the port and the rest crash-loop while nginx proxies
+			// contentedly to the one that won. `site status` shows PM2's online
+			// count against the requested one, which is where it becomes visible.
+			c.Log.Warn("bun fans out as independent processes, not cluster workers",
+				"required", "Bun.serve({ reusePort: true }) — without it only one process binds the port",
+				"check", "ratline site status "+c.Site.Domain+" reports how many are online")
+		}
+	case !isJavaScript(script):
 		execMode, interpreter, instances = "fork", "none", 1
 		c.Log.Warn("this site's start command is not a JavaScript file, so PM2 runs it in fork mode",
 			"consequence", "'site reload' restarts it instead of reloading gracefully",
@@ -243,6 +281,20 @@ func (n Node) RenderEcosystem(c *Context) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// pm2Path is the PATH a PM2-supervised site's processes get.
+//
+// node is always on it, because pm2 is a JavaScript file with a `#!/usr/bin/env node`
+// shebang and resolves its own interpreter through PATH. The application's own
+// interpreter goes first when it differs, so a bun site's child processes calling
+// `bun` get the managed one rather than whatever a tenant installed in their home.
+func pm2Path(interpreterBin, nodeBin string) string {
+	nodeDir := filepath.Dir(nodeBin)
+	if dir := filepath.Dir(interpreterBin); dir != nodeDir {
+		return dir + ":" + nodeDir + ":" + system.DefaultPath
+	}
+	return nodeDir + ":" + system.DefaultPath
+}
+
 // isJavaScript reports whether PM2 can treat a path as a node script.
 func isJavaScript(script string) bool {
 	switch strings.ToLower(filepath.Ext(script)) {
@@ -261,7 +313,13 @@ func (n Node) entryScript(c *Context) (string, []string, error) {
 		}
 		return resolveProgram(parsed.Argv[0], c), parsed.Argv[1:], nil
 	}
-	if err := validateNodeEntry(c.Site.Entry); err != nil {
+	// Judged against the engine that will execute it: bun accepts .ts, .tsx and
+	// .jsx where node does not, and this path is now reached by both.
+	check := validateNodeEntry
+	if c.Site.Runtime == "bun" {
+		check = validate.BunEntry
+	}
+	if err := check(c.Site.Entry); err != nil {
 		return "", nil, err
 	}
 	entry, err := resolveEntry(c)
@@ -354,6 +412,32 @@ func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.Ren
 	// No --no-daemon: PM2 is meant to fork here, which is what Type=forking and
 	// the PIDFile above are for.
 	return shellSafeJoin(pm2, []string{"start", config}), opts, nil
+}
+
+// pm2Kill stops a site's PM2 daemon along with every worker it holds.
+//
+// Extracted because a bun site under PM2 has exactly the same orphan to clean up:
+// the daemon is per-site, lives in the site directory, and would otherwise outlive
+// the site it was supervising and keep holding the socket.
+//
+// Exit 1 and 2 are accepted: "no daemon running" is the expected answer when the
+// unit has already stopped, and a teardown that fails because there was nothing to
+// tear down is not a failure.
+func (n Node) pm2Kill(ctx context.Context, c *Context) error {
+	pm2, err := n.pm2Binary(c)
+	if err != nil {
+		return err
+	}
+	env, err := n.pm2Env(c)
+	if err != nil {
+		return err
+	}
+	_, err = c.Runner.Run(ctx, system.Cmd{
+		Path: pm2, Args: []string{"kill"}, As: c.Identity,
+		Env:     env,
+		Mutates: true, OKExit: []int{1, 2},
+	})
+	return err
 }
 
 // PM2Status is what PM2 reports about a site's workers.

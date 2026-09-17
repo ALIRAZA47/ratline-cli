@@ -1640,14 +1640,14 @@ Flags:
       --bun string                    bun: managed Bun version, e.g. 1.2
       --client-max-body-size string   Upload limit, e.g. 20M
       --cpu-quota string              CPU ceiling, e.g. 100%
-      --daemon string                 node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)
+      --daemon string                 node, bun: pm2 or direct (default pm2 for node, direct for bun)
       --email string                  ACME contact address
       --entry string                  node, bun: the file that starts the server
   -h, --help                          help for add
       --hsts                          Send Strict-Transport-Security (only with a trusted certificate)
       --index string                  static: index document (default "index.html")
       --install-command string        Dependency install command
-      --instances int                 node: PM2 cluster workers, all sharing the one socket inside the one unit (default 1)
+      --instances int                 node: PM2 cluster workers sharing one socket; bun: separate processes, needs --daemon pm2 --listen port (default 1)
       --listen string                 node, bun: socket or port (default "socket")
       --manage-py string              python: Django manage.py, enabling --migrate and --collectstatic
       --memory-max string             Memory ceiling, e.g. 512M
@@ -1909,7 +1909,7 @@ Flags:
       --client-max-body-size string   Upload ceiling, e.g. 100M — the commonest cause of a mystery 413
       --cpu-quota string              CPU ceiling, e.g. 100%
   -h, --help                          help for scale
-      --instances int                 node: PM2 cluster workers
+      --instances int                 node: PM2 cluster workers; bun: separate processes under PM2, on a port
       --memory-max string             Memory ceiling, e.g. 512M
       --proxy-buffering string        on or off — off is what a Server-Sent Events or streaming endpoint needs
       --proxy-read-timeout string     How long nginx waits between reads from the application, e.g. 1h

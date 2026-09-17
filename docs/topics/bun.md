@@ -1,6 +1,7 @@
 # Bun sites
 
-> Running TypeScript unbuilt, why there is no PM2 here, and what that costs.
+> Running TypeScript unbuilt, what PM2 can and cannot do for a bun site, and what
+> that costs.
 
 A bun site runs `bun` under its own systemd unit as the tenant, behind a Unix socket.
 One process, supervised directly — there is no supervisor between systemd and the
@@ -21,15 +22,45 @@ syntax error from deep inside the module loader.
 
 ## Why you would not
 
-**There is no graceful reload.** PM2 is what makes `ratline site reload` mean something
-on a node site: it starts a replacement worker, waits for it, and only then retires the
-old one. Bun has no equivalent signal, and PM2 is a node supervisor — running it here
-would mean a Node install and a second daemon to supervise a runtime that has no cluster
-mode to fan out into. So `ratline site reload` on a bun site refuses and tells you to
-restart, rather than reporting a clean reload while dropping requests.
+**There is no graceful reload, with or without PM2.** On a node site `pm2 reload` starts
+a replacement worker, waits for it, and only then retires the old one. That trick is
+cluster mode's: the replacement inherits the listening handle from its parent, and
+cluster mode is node's own module. Bun does not implement it, so PM2 runs a bun site in
+fork mode — where a "reload" is a signal and a fresh start, which is a restart with
+extra steps. `ratline site reload` refuses on a bun site either way and tells you to
+restart, rather than reporting a clean reload while dropping requests. If zero-downtime
+reloads matter more than the engine does, that is a node site.
 
-`--daemon` and `--instances` are refused for the same reason. A bun site is one process.
-If zero-downtime reloads matter more than the engine does, that is a node site.
+## Running it under PM2 anyway
+
+    ratline site add mcp.example.com --user acme --runtime bun --entry server.ts \
+      --daemon pm2 --listen port --instances 4
+
+`--daemon pm2` is accepted on a bun site and buys three things: PM2's restart policy,
+its process table in `ratline site status`, and more than one process. It does not buy
+a reload. It also costs a managed Node install — `pm2` is a JavaScript file with a
+`#!/usr/bin/env node` shebang, so the supervisor is a Node program whatever it is
+supervising:
+
+    ratline runtime install node 22 --with-pm2
+
+A bun site that says nothing still runs directly under systemd. `runtimes.node_process_manager`
+is node's setting and a bun site does not inherit it.
+
+**`--instances` on bun needs `--listen port`, and needs your application's help.** Each
+instance is a whole process, not a cluster worker sharing one handle, so ratline refuses
+`--instances` with a Unix socket: only the first process would bind the path and the
+rest would crash-loop behind a site that answers perfectly. On a port they can share the
+listener, but only if the application asks for it:
+
+```ts
+Bun.serve({ port: Number(process.env.BUN_PORT), reusePort: true, fetch })
+```
+
+Without `reusePort`, one process wins the port and the others restart for ever.
+ratline cannot see inside your code to check, so it warns rather than refuses —
+`ratline site status` reports how many of the requested instances are actually online,
+which is where the mistake becomes visible.
 
 ## The interpreter is pinned, and `bun upgrade` cannot move it
 

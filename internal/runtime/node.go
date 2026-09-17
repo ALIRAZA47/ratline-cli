@@ -254,9 +254,18 @@ func (n Node) StartCommand(ctx context.Context, c *Context) (string, unit.Render
 
 // ProcessManagerFor resolves which supervisor a site uses: its own setting, then
 // the configured default, then PM2.
+//
+// A bun site that has not chosen falls to direct, not to the configured default.
+// runtimes.node_process_manager is node's setting — an operator who set it to pm2
+// was answering a question about node sites, and did not thereby ask for every bun
+// site on the box to grow a dependency on a Node install and a second supervisor
+// process. A bun site gets PM2 when it says so and not before.
 func ProcessManagerFor(c *Context) string {
 	if c.Site.ProcessManager != "" {
 		return c.Site.ProcessManager
+	}
+	if c.Site.Runtime == "bun" {
+		return ProcessManagerDirect
 	}
 	if c.Cfg.Runtimes.NodeProcessManager != "" {
 		return c.Cfg.Runtimes.NodeProcessManager
@@ -375,16 +384,8 @@ func (n Node) Reload(ctx context.Context, c *Context) error {
 // outlive the site it was supervising.
 func (n Node) Teardown(ctx context.Context, c *Context) error {
 	if ProcessManagerFor(c) == ProcessManagerPM2 && !c.DryRun {
-		pm2, perr := n.pm2Binary(c)
-		env, eerr := n.pm2Env(c)
-		if perr == nil && eerr == nil {
-			if _, kerr := c.Runner.Run(ctx, system.Cmd{
-				Path: pm2, Args: []string{"kill"}, As: c.Identity,
-				Env:     env,
-				Mutates: true, OKExit: []int{1, 2},
-			}); kerr != nil {
-				c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)
-			}
+		if kerr := n.pm2Kill(ctx, c); kerr != nil {
+			c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)
 		}
 	}
 	modules := filepath.Join(c.AppDir, "node_modules")
