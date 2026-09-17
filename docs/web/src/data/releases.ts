@@ -39,6 +39,40 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.20.0',
+    date: '2026-09-17',
+    summary:
+      'A tenant can finally read the logs of their own services — and only their own — and there is a Claude Code plugin so an agent drives ratline through its published contract instead of guessing at flags and running the guess as root.',
+    upgrade: 'ratline update',
+    assertions: 701,
+    changes: [
+      {
+        kind: 'security',
+        title: 'Each site has a journal of its own, and the tenant an ACL to read it',
+        body:
+          'A tenant could not read the logs of their own services. The only way to grant that was membership of `adm` or `systemd-journal`, and either one is every unit on the machine — sshd, the panel, every other tenant’s application — so the answer was no. `site logs` read the application’s own file, and the unit’s own complaints, a start that failed before that file was ever opened, stayed root-only. Every unit a site owns now carries `LogNamespace=<slug>`, so its journal is the site’s own under `/var/log/journal/<machine-id>.<slug>`, and the tenant is granted it with a POSIX ACL rather than a group. The ACL is not a preference: systemd puts a `LogsDirectory=` tree back to root:root on every start whose owner differs, so a `chgrp` would last until the next restart, while a tree whose owner already matches is left alone and `chown` does not touch ACLs. `doctor` reports a namespace that is missing, unarmed or ungranted, and `reconcile --fix` re-renders it.',
+        code: 'journalctl --namespace=app_example_com -u ratline-acme-app_example_com',
+      },
+      {
+        kind: 'feature',
+        title: 'A Claude Code plugin, so an agent stops guessing',
+        body:
+          'An agent asked to deploy something reads `--help`, infers a flag and runs it as root. The failure is not that it refuses; it is that it confidently invents `--user` where the command wants `--owner`. The repository now ships a plugin — ten skills, five agents and a read-only MCP configuration — installable from this repository as a marketplace. The skills are callers of the CLI in exactly the way the web panel is: they look flags up in `ratline schema`, rehearse with `--dry-run`, send secrets on stdin, never hand-write an nginx file or a unit, and say plainly when ratline cannot host something instead of improvising. The on-call agent holds only the read-only MCP tools, so it cannot change a server even when asked — that gate is `ratline mcp` without `--allow-mutations`, not a sentence in a prompt. CI resolves every command and flag the plugin names against `ratline schema` and fails on one that does not exist, including inside a quoted sudoers grant.',
+        code: '/plugin marketplace add ALIRAZA47/ratline-cli\n/plugin install ratline@ratline',
+      },
+      {
+        kind: 'fix',
+        title: 'Two pages described behaviour the code does not have',
+        body:
+          'The secrets guide and the command-surface reference said systemd reads a site’s `.env` as root through `EnvironmentFile=`. No unit carries that directive, and the reason is the point: `.env` is 0600 in a directory the tenant owns, so having PID 1 open it hands a tenant a path to a file read as root. `ratline-shell exec` opens it as the service user, after `User=` has taken effect. Separately, the continuous-deployment guide offered `site deploy --rollback`, a flag that does not exist — there is nothing to roll back by hand, because a release that fails is never published.',
+      },
+    ],
+    known: [
+      'The plugin’s own measurement is honest about its limits: over four paired with/without runs of its nine-case suite it was worth about +0.14 on the mean, concentrated in two cases (refusing a PHP application, and CI’s access model). Five of the nine measured near zero, where a capable model already does the right thing unaided.',
+      'A journal namespace needs systemd 245 or newer, which every supported Debian and Ubuntu has. A site provisioned by an older ratline gets its namespace on the next `reconcile --fix`, not automatically on upgrade.',
+    ],
+  },
+  {
     version: 'v0.19.0',
     date: '2026-09-17',
     summary:

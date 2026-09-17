@@ -42,7 +42,7 @@ export function Home() {
           </code>{' '}
           is one static binary that runs as root on a bare Ubuntu or Debian box and provisions
           isolated system users, nginx, systemd, certificates and databases for the apps you host.
-          No containers, no agent, no account with anyone.
+          No containers, no agent process on the box, no account with anyone.
         </p>
 
         <div className="not-prose mt-8 flex flex-wrap items-center gap-3">
