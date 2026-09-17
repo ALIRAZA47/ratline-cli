@@ -40,8 +40,8 @@ export function Team() {
 
   return (
     <Page
-      title="Team"
-      lede="Two roles. A super admin can invite people and run the operations that cannot be undone; an admin runs the server day to day."
+      title="Your team"
+      lede="Who can sign in to this panel. Two levels: an owner can invite people and do the things that cannot be undone; everyone else runs the server day to day."
     >
       <ErrorBox error={error} />
       <ErrorBox error={actionError} />
@@ -118,7 +118,7 @@ export function Team() {
       {loading && !data && <Spinner />}
 
       {data && (
-        <Card title="Accounts">
+        <Card title="People who can sign in">
           <Table head={['Email', 'Role', '2FA', 'State', 'Last sign-in', '']}>
             {data.accounts.map((account) => {
               const self = account.id === me.account.id;
@@ -202,7 +202,7 @@ export function Team() {
       {data && (
         <Card title="Invitations">
           {data.invites.length === 0 ? (
-            <Empty>None outstanding.</Empty>
+            <Empty>Nobody is waiting to accept.</Empty>
           ) : (
             <Table head={['Email', 'Role', 'Status', 'Invited by', 'Expires', '']}>
               {data.invites.map((invite) => (

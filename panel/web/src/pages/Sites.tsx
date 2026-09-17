@@ -29,7 +29,7 @@ export function Sites() {
   return (
     <Page
       title="Sites"
-      lede="One domain, one owner, one systemd unit. Everything here runs the same ratline command you would type over SSH."
+      lede="One address, one owner, one service behind it."
       actions={
         <button className="btn btn-primary" onClick={() => setCreating((v) => !v)}>
           {creating ? 'Cancel' : 'New site'}
@@ -63,30 +63,43 @@ export function Sites() {
           <Empty>No sites yet.</Empty>
         </Card>
       ) : (
-        <Card>
-          <Table head={['Domain', 'Owner', 'Runtime', 'Enabled', 'Last deploy']}>
+        <Card className="px-5 py-1">
+          <ul>
             {sites.map((site) => (
-              <Row key={site.domain}>
-                <Cell>
-                  <Link className="font-medium hover:underline" to={`/sites/${site.domain}`}>
+              <li key={site.domain} className="listrow items-start py-4">
+                <span
+                  className="dot mt-1.5"
+                  style={{ background: site.enabled ? 'var(--ok)' : 'var(--fg-faint)' }}
+                  aria-hidden="true"
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <Link
+                    className="text-base font-medium hover:underline [overflow-wrap:anywhere]"
+                    to={`/sites/${site.domain}`}
+                  >
                     {site.domain}
                   </Link>
-                </Cell>
-                <Cell className="text-[var(--fg-muted)]">{site.user}</Cell>
-                <Cell>
-                  <Badge>{site.runtime}</Badge>
-                </Cell>
-                <Cell>
-                  <Badge tone={site.enabled ? 'ok' : 'neutral'}>
-                    {site.enabled ? 'enabled' : 'disabled'}
-                  </Badge>
-                </Cell>
-                <Cell className="text-2xs text-[var(--fg-faint)]">
-                  <When at={site.last_deploy_at as string | undefined} />
-                </Cell>
-              </Row>
+                  {/* A sentence rather than four columns. The facts are the same
+                      ones; what changes is that nobody has to read a header row
+                      to know which is which. */}
+                  <span className="text-xs text-[var(--fg-muted)]">
+                    {site.enabled ? 'Being served' : 'Not being served'}
+                    {site.runtime ? ` · ${site.runtime}` : ''}
+                    {site.user ? ` · belongs to ${site.user}` : ''}
+                  </span>
+                </span>
+                <span className="shrink-0 text-2xs text-[var(--fg-faint)]">
+                  {site.last_deploy_at ? (
+                    <>
+                      deployed <When at={site.last_deploy_at as string} />
+                    </>
+                  ) : (
+                    'never deployed'
+                  )}
+                </span>
+              </li>
             ))}
-          </Table>
+          </ul>
         </Card>
       )}
     </Page>
@@ -100,6 +113,39 @@ export function Sites() {
  * site surface is a filtered view of the same catalogue every other page uses, so
  * there is no list of buttons here to fall out of step with the binary.
  */
+/**
+ * How the site is, in a sentence.
+ *
+ * Replaces "A python site owned by acme." — which names two fields and says
+ * nothing about whether the thing is working, which is what somebody opening a
+ * site's page came to find out.
+ */
+function howItIs(info: Record<string, unknown>): string {
+  const state = String(info.state ?? '');
+  const workers = typeof info.workers === 'number' ? info.workers : undefined;
+  const runtime = typeof info.runtime === 'string' ? info.runtime : '';
+  const owner = String(info.owner ?? info.user ?? '');
+
+  const doing =
+    state === 'active' || state === 'running'
+      ? workers
+        ? `Serving on ${workers} ${workers === 1 ? 'worker' : 'workers'}.`
+        : 'Serving.'
+      : state === 'serving'
+        ? 'Serving files.'
+        : state === 'disabled'
+          ? 'Not being served at the moment.'
+          : state
+            ? `${state.charAt(0).toUpperCase()}${state.slice(1)}.`
+            : '';
+
+  const whose = [runtime && `A ${runtime} site`, owner && `belonging to ${owner}`]
+    .filter(Boolean)
+    .join(' ');
+
+  return [doing, whose && `${whose}.`].filter(Boolean).join(' ');
+}
+
 /** The one thing people come to this page to do. Everything else is in the menu. */
 const PRIMARY = 'site.deploy';
 
@@ -131,7 +177,7 @@ export function SiteDetail() {
   return (
     <Page
       title={domain}
-      lede={typeof info.runtime === 'string' ? `A ${info.runtime} site owned by ${String(info.owner ?? info.user ?? '')}.` : undefined}
+      lede={howItIs(info)}
       back={{ to: '/sites', label: 'Sites' }}
       actions={
         <>
@@ -174,20 +220,22 @@ export function SiteDetail() {
       )}
 
       {site.data && (
-        <Card title="What ratline knows">
+        <Card title="How this site is set up">
           <Facts rows={factsFrom(info)} />
         </Card>
       )}
 
       <Card
-        title="Environment"
-        action={<span className="hint">Values are masked; reading one is its own action.</span>}
+        title="Settings this site runs with"
+        action={
+          <span className="hint">Hidden by default — showing one is recorded against your name.</span>
+        }
       >
         <ErrorBox error={env.error} />
         {env.loading && !env.data ? (
           <Spinner />
         ) : !env.data || Object.keys(env.data.env ?? {}).length === 0 ? (
-          <Empty>No variables set.</Empty>
+          <Empty>No settings yet.</Empty>
         ) : (
           <Table head={['Key', 'Value']}>
             {Object.entries(env.data.env).map(([k, v]) => (

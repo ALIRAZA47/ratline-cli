@@ -122,3 +122,61 @@ export function countsFrom(data: Overview | null): NavCounts {
     running: running || undefined,
   };
 }
+
+/** One thing on the server that wants a person to decide something. */
+export interface Attention {
+  /* `id`, not `key`: React strips a prop called key, and a field with that name
+     in a shape that is spread into a component is the bug CI greps for. */
+  id: string;
+  subject?: string;
+  text: string;
+  to?: string;
+}
+
+/**
+ * Everything that wants looking at, computed once.
+ *
+ * The front page says how many in its opening sentence and then lists them, and
+ * those two numbers have to be the same number — they were not, because the
+ * sentence counted the raw fields and the list deduplicated them. One function
+ * now, and the sentence counts what the list will show.
+ */
+export function attentionItems(status?: Status): Attention[] {
+  if (!status) return [];
+  const items: Attention[] = [];
+
+  for (const cert of status.certificates_detail ?? []) {
+    items.push({
+      id: `cert:${cert.name}`,
+      subject: cert.name,
+      text:
+        cert.days_remaining <= 0
+          ? 'the certificate has expired'
+          : `the certificate expires in ${cert.days_remaining} ${
+              cert.days_remaining === 1 ? 'day' : 'days'
+            }`,
+      to: '/certs',
+    });
+  }
+
+  for (const site of status.sites_detail ?? []) {
+    if (!site.needs_attention) continue;
+    items.push({
+      id: `site:${site.domain}`,
+      subject: site.domain,
+      text: site.detail || site.state,
+      to: `/sites/${encodeURIComponent(site.domain)}`,
+    });
+  }
+
+  // ratline's own prose usually restates a row above — "www.example.com renews in
+  // 12 days and its last attempt failed" beside that domain's certificate row. The
+  // row wins, because it links to the thing.
+  const named = new Set(items.map((i) => i.subject).filter(Boolean) as string[]);
+  for (const warning of status.warnings ?? []) {
+    if ([...named].some((subject) => warning.includes(subject))) continue;
+    items.push({ id: `warn:${warning}`, text: warning });
+  }
+
+  return items;
+}

@@ -5,7 +5,7 @@ import { ActionForm } from '../components/ActionForm';
 import { MoreMenu } from '../components/MoreMenu';
 import { useApi } from '../lib/hooks';
 import type { Action, Tenant } from '../lib/types';
-import { Badge, Card, Cell, Empty, ErrorBox, Facts, Row, Spinner, Table } from '../components/ui';
+import { Card, Empty, ErrorBox, Facts, Spinner } from '../components/ui';
 import { WarningIcon } from '../components/icons';
 import { factsFrom, firstArg } from './Sites';
 
@@ -24,7 +24,7 @@ function ResourceList<T extends Record<string, unknown>>({
   endpoint,
   dataKey,
   group,
-  columns,
+  describe,
   primary,
   rowLink,
   banner,
@@ -43,7 +43,20 @@ function ResourceList<T extends Record<string, unknown>>({
    */
   dataKey: string;
   group: string;
-  columns: { head: string; cell: (row: T) => React.ReactNode }[];
+  /**
+   * One row, said as a line of prose.
+   *
+   * This replaced a `columns` array. Five resource pages shared that table, and
+   * the table is what made every one of them read like a database dump — a header
+   * row to decode, and a value with nothing to break at able to widen the card.
+   */
+  describe: (row: T) => {
+    title: React.ReactNode;
+    line: React.ReactNode;
+    trailing?: React.ReactNode;
+    /** A token name — ok, warn, danger, fg-faint. Omit for no signal dot. */
+    tone?: string;
+  };
   /** The action opened by the page's main button. */
   primary?: { id: string; label: string };
   rowLink?: (row: T) => string;
@@ -107,24 +120,47 @@ function ResourceList<T extends Record<string, unknown>>({
           <Empty>Nothing here yet.</Empty>
         </Card>
       ) : (
-        <Card>
-          <Table head={columns.map((c) => c.head)}>
-            {rows.map((row, i) => (
-              <Row key={i}>
-                {columns.map((col, j) => (
-                  <Cell key={col.head}>
-                    {j === 0 && rowLink ? (
-                      <Link className="font-medium hover:underline" to={rowLink(row)}>
-                        {col.cell(row)}
+        <Card className="px-5 py-1">
+          <ul>
+            {rows.map((row, i) => {
+              const shown = describe(row);
+              return (
+                <li key={i} className="listrow items-start py-4">
+                  {shown.tone && (
+                    <span
+                      className="dot mt-1.5"
+                      style={{ background: `var(--${shown.tone})` }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    {rowLink ? (
+                      <Link
+                        className="font-medium hover:underline [overflow-wrap:anywhere]"
+                        to={rowLink(row)}
+                      >
+                        {shown.title}
                       </Link>
                     ) : (
-                      col.cell(row)
+                      <span className="font-medium [overflow-wrap:anywhere]">{shown.title}</span>
                     )}
-                  </Cell>
-                ))}
-              </Row>
-            ))}
-          </Table>
+                    {/* One sentence rather than four columns. The facts are the
+                        same; nobody has to read a header row to tell which is
+                        which, and a long value wraps instead of setting the
+                        width of the card. */}
+                    <span className="text-xs text-[var(--fg-muted)] [overflow-wrap:anywhere]">
+                      {shown.line}
+                    </span>
+                  </span>
+                  {shown.trailing && (
+                    <span className="shrink-0 text-2xs text-[var(--fg-faint)]">
+                      {shown.trailing}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </Card>
       )}
 
@@ -135,24 +171,26 @@ function ResourceList<T extends Record<string, unknown>>({
 export function Tenants() {
   return (
     <ResourceList<Tenant>
-      title="Tenants"
-      lede="A system account per tenant: its own home, group, shell and SSH keys. Sites live inside one."
+      title="Server users"
+      lede="Each site runs as its own user, so one site can never read another's files. These are not people who sign in here."
       endpoint="/api/tenants"
       dataKey="users"
       group="users"
-      primary={{ id: 'user.add', label: 'New tenant' }}
+      primary={{ id: 'user.add', label: 'New server user' }}
       rowLink={(u) => `/tenants/${u.name}`}
-      columns={[
-        { head: 'Name', cell: (u) => <span className="mono text-xs">{u.name}</span> },
-        { head: 'Home', cell: (u) => <span className="mono text-2xs text-[var(--fg-muted)]">{String(u.home ?? '')}</span> },
-        { head: 'Shell', cell: (u) => <span className="mono text-2xs text-[var(--fg-muted)]">{String(u.shell ?? '')}</span> },
-        {
-          head: 'State',
-          cell: (u) => (
-            <Badge tone={u.disabled ? 'danger' : 'ok'}>{u.disabled ? 'disabled' : 'active'}</Badge>
-          ),
-        },
-      ]}
+      describe={(u) => ({
+        title: u.name,
+        line: [
+          u.disabled ? 'Turned off' : 'Active',
+          u.shell === '/usr/sbin/nologin' || u.shell === '/bin/false'
+            ? 'cannot open a shell'
+            : 'can open a shell',
+          u.home ? `lives in ${String(u.home)}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        tone: u.disabled ? 'danger' : 'ok',
+      })}
     />
   );
 }
@@ -209,28 +247,30 @@ export function Certificates() {
   return (
     <ResourceList<Record<string, unknown>>
       title="Certificates"
-      lede="TLS as a resource with its own lifecycle. An issuance spends a rate-limit budget, so every attempt here runs the preflight first."
+      lede="The padlock in the address bar. These renew themselves, and this page is where you find out when one has not."
       endpoint="/api/certs"
       dataKey="certificates"
       group="certs"
-      primary={{ id: 'cert.issue', label: 'Issue' }}
+      primary={{ id: 'cert.issue', label: 'Get a certificate' }}
       banner={(rows) => <ExpiringSoon rows={rows} />}
-      columns={[
-        { head: 'Name', cell: (c) => <span className="mono text-xs">{String(c.name ?? '')}</span> },
-        { head: 'Source', cell: (c) => <Badge>{String(c.source ?? '')}</Badge> },
-        {
-          head: 'Expires',
-          cell: (c) => <span className="text-xs">{String(c.not_after ?? '').slice(0, 10)}</span>,
-        },
-        {
-          head: 'Attached to',
-          cell: (c) => (
-            <span className="mono text-2xs text-[var(--fg-muted)]">
-              {Array.isArray(c.attached_sites) ? (c.attached_sites as string[]).join(', ') : '—'}
-            </span>
-          ),
-        },
-      ]}
+      describe={(c) => {
+        const days = daysUntil(c.not_after);
+        const attached = Array.isArray(c.attached_sites)
+          ? (c.attached_sites as string[]).join(', ')
+          : '';
+        return {
+          title: String(c.name ?? ''),
+          line: [
+            String(c.source ?? '') === 'letsencrypt'
+              ? 'Renews by itself'
+              : 'You made this one yourself — browsers will warn about it',
+            attached ? `used by ${attached}` : 'not used by any site yet',
+          ].join(' · '),
+          trailing:
+            days === null ? '' : days <= 0 ? 'has expired' : `${days} days left`,
+          tone: days === null ? undefined : days <= 0 ? 'danger' : days <= 21 ? 'warn' : 'ok',
+        };
+      }}
     />
   );
 }
@@ -290,29 +330,26 @@ export function Keys() {
   return (
     <ResourceList<Record<string, unknown>>
       title="SSH keys"
-      lede="Three scopes: the whole server, one tenant, or one site. A site-scoped key reaches a forced command and nothing else."
+      lede="Who and what can reach this server without a password. A key for one site can only touch that site."
       endpoint="/api/keys"
       dataKey="keys"
       group="keys"
       primary={{ id: 'key.add', label: 'Add a key' }}
-      columns={[
-        { head: 'Label', cell: (k) => String(k.label ?? '') },
-        { head: 'Scope', cell: (k) => <Badge>{String(k.scope ?? '')}</Badge> },
-        {
-          head: 'Target',
-          cell: (k) => (
-            <span className="mono text-2xs">{String(k.site ?? k.user ?? 'server')}</span>
-          ),
-        },
-        {
-          head: 'Fingerprint',
-          cell: (k) => (
-            <span className="mono text-2xs text-[var(--fg-faint)] break-all">
-              {String(k.fingerprint ?? '')}
-            </span>
-          ),
-        },
-      ]}
+      describe={(k) => {
+        const scope = String(k.scope ?? '');
+        const target = String(k.site ?? k.user ?? '');
+        return {
+          title: String(k.label ?? ''),
+          line:
+            scope === 'server'
+              ? 'The whole server — this key can do anything ratline can'
+              : scope === 'site'
+                ? `Can deploy ${target} and nothing else`
+                : `Everything belonging to ${target}`,
+          trailing: String(k.fingerprint ?? ''),
+          tone: scope === 'server' ? 'warn' : undefined,
+        };
+      }}
     />
   );
 }
@@ -321,20 +358,24 @@ export function Databases() {
   return (
     <ResourceList<Record<string, unknown>>
       title="Databases"
-      lede="One database per tenant with least-privilege users. ratline provisions inside a server it is pointed at; db install is the one thing it installs itself."
+      lede="Each one belongs to a single site, with its own login. Nothing else on the server can read it."
       endpoint="/api/databases"
       dataKey="databases"
       group="databases"
       primary={{ id: 'db.create', label: 'New database' }}
-      columns={[
-        { head: 'Name', cell: (d) => <span className="mono text-xs">{String(d.name ?? '')}</span> },
-        { head: 'Owner', cell: (d) => String(d.owner ?? '') },
-        { head: 'Server', cell: (d) => <span className="mono text-2xs">{String(d.server ?? '')}</span> },
-        {
-          head: 'Users',
-          cell: (d) => (Array.isArray(d.users) ? (d.users as unknown[]).length : 0),
-        },
-      ]}
+      describe={(d) => {
+        const users = Array.isArray(d.users) ? (d.users as unknown[]).length : 0;
+        return {
+          title: String(d.name ?? ''),
+          line: [
+            d.owner ? `Belongs to ${String(d.owner)}` : 'Belongs to nobody',
+            `${users === 0 ? 'no logins' : users === 1 ? 'one login' : `${users} logins`}`,
+            d.server ? String(d.server) : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        };
+      }}
     />
   );
 }
@@ -342,21 +383,19 @@ export function Databases() {
 export function Runtimes() {
   return (
     <ResourceList<Record<string, unknown>>
-      title="Runtimes"
-      lede="Node, Bun and Python versions ratline manages under /opt, separate from anything the distribution installed."
+      title="Languages"
+      lede="The versions of Node, Bun and Python your sites can run on. Kept apart from anything Ubuntu ships, so upgrading the server does not move them."
       endpoint="/api/runtimes"
       dataKey="runtimes"
       group="runtimes"
       primary={{ id: 'runtime.install', label: 'Install a version' }}
-      columns={[
-        { head: 'Runtime', cell: (r) => <Badge>{String(r.runtime ?? r.kind ?? '')}</Badge> },
-        { head: 'Version', cell: (r) => <span className="mono text-xs">{String(r.version ?? '')}</span> },
-        { head: 'Path', cell: (r) => <span className="mono text-2xs text-[var(--fg-muted)]">{String(r.path ?? '')}</span> },
-        {
-          head: 'Default',
-          cell: (r) => (r.default ? <Badge tone="ok">default</Badge> : null),
-        },
-      ]}
+      describe={(r) => ({
+        title: `${String(r.runtime ?? r.kind ?? '')} ${String(r.version ?? '')}`.trim(),
+        line: r.default
+          ? 'What new sites use unless you pick otherwise'
+          : `Installed under ${String(r.path ?? '/opt/ratline')}`,
+        tone: r.default ? 'ok' : undefined,
+      })}
     />
   );
 }

@@ -1,0 +1,13 @@
+Newsreader and Public Sans are both licensed under the SIL Open Font License,
+Version 1.1, which permits bundling them with this software.
+
+  Newsreader   — Production Type, https://fonts.google.com/specimen/Newsreader
+  Public Sans  — USWDS,           https://fonts.google.com/specimen/Public+Sans
+
+Both files here are the latin subset of the variable font, taken from Google
+Fonts. They are carried in the bundle rather than fetched at run time for two
+reasons: the panel's Content-Security-Policy is `font-src 'self'`, and a panel
+is often reached on a private network with no route out to a font host.
+
+The full licence text travels with each family upstream:
+https://openfontlicense.org

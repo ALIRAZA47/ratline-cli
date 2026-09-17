@@ -1,9 +1,15 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useSession } from '../lib/session';
-import { OverviewProvider, countsFrom, useOverview, type NavCounts } from '../lib/overview';
+import {
+  OverviewProvider,
+  countsFrom,
+  statusOf,
+  useOverview,
+  type NavCounts,
+} from '../lib/overview';
 import { Badge } from './ui';
-import { CloseIcon, GlobeIcon, MenuIcon, ServerIcon } from './icons';
+import { CloseIcon, MenuIcon } from './icons';
 
 /**
  * The sidebar, in three groups rather than eleven destinations of equal weight.
@@ -32,27 +38,30 @@ interface NavItem {
 const groups: { heading?: string; items: NavItem[] }[] = [
   {
     items: [
-      { to: '/', label: 'Server', end: true, icon: <ServerIcon />, warnOn: 'problems' },
-      { to: '/sites', label: 'Sites', icon: <GlobeIcon />, count: 'sites' },
-    ],
-  },
-  {
-    heading: 'Resources',
-    items: [
-      { to: '/tenants', label: 'Tenants', count: 'tenants' },
+      { to: '/', label: 'Overview', end: true, warnOn: 'problems' },
+      { to: '/sites', label: 'Sites', count: 'sites' },
       { to: '/databases', label: 'Databases' },
       { to: '/certs', label: 'Certificates', count: 'certificates', warnOn: 'certsExpiring' },
-      { to: '/keys', label: 'SSH keys', count: 'keys' },
-      { to: '/runtimes', label: 'Runtimes' },
     ],
   },
   {
-    heading: 'Operations',
+    heading: 'People',
     items: [
-      { to: '/jobs', label: 'Jobs', count: 'running', live: true },
+      // "Tenants" is ratline's word for a system account. Nobody arriving at this
+      // panel knows it, and the thing it names — the user a site runs as — is
+      // exactly what "server user" says.
+      { to: '/tenants', label: 'Server users', count: 'tenants' },
+      { to: '/keys', label: 'SSH keys', count: 'keys' },
+      { to: '/team', label: 'Your team', superOnly: true },
+    ],
+  },
+  {
+    heading: 'Server',
+    items: [
+      { to: '/runtimes', label: 'Languages' },
+      { to: '/jobs', label: 'Work', count: 'running', live: true },
       { to: '/activity', label: 'Activity' },
       { to: '/actions', label: 'All commands' },
-      { to: '/team', label: 'Team', superOnly: true },
     ],
   },
 ];
@@ -92,13 +101,14 @@ function Shell() {
         >
           {open ? <CloseIcon /> : <MenuIcon />}
         </button>
-        <NavLink to="/" className="flex items-baseline gap-2">
-          <span className="text-base font-semibold tracking-tight">ratline</span>
-          <span className="text-2xs uppercase tracking-widest text-[var(--fg-faint)]">panel</span>
+        <NavLink to="/" className="font-serif text-lg tracking-tight">
+          ratline
         </NavLink>
-        {me.panel.ratline_version && (
+        {/* The machine's name is a label, not the answer to a question, so it sits
+            up here and the page heading is free to say how the server is. */}
+        {statusOf(data)?.hostname && (
           <span className="hidden text-2xs text-[var(--fg-faint)] sm:inline">
-            driving ratline {me.panel.ratline_version}
+            {statusOf(data)?.hostname}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -239,8 +249,8 @@ export function Page({
               ← {back.label}
             </NavLink>
           )}
-          <h1 className={`text-xl font-semibold tracking-tight ${back ? 'mt-0.5' : ''}`}>{title}</h1>
-          {lede && <p className="mt-0.5 max-w-2xl text-sm text-[var(--fg-muted)]">{lede}</p>}
+          <h1 className={`title ${back ? 'mt-0.5' : ''}`}>{title}</h1>
+          {lede && <p className="lede mt-1.5">{lede}</p>}
         </div>
         {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </header>
