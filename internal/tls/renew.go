@@ -242,14 +242,40 @@ func (m *Manager) reloadAffected(ctx context.Context, cert *state.Certificate) (
 				"cert", cert.Name, "domain", domain, "fix", "ratline cert detach "+domain)
 			continue
 		}
-		rb := system.NewRollback(m.Log)
-		if err := m.Nginx.Apply(ctx, site, fresh, rb); err != nil {
+		if err := m.applyRenewedCert(ctx, site, fresh); err != nil {
 			return reloaded, err
 		}
-		rb.Commit()
 		reloaded = append(reloaded, domain)
 	}
 	return reloaded, nil
+}
+
+// applyRenewedCert re-renders one site's vhost against the renewed certificate.
+//
+// A method of its own so that the rollback stack gets the deferred unwind the rest
+// of ratline uses. Inside the loop a `defer` would be wrong twice over: it would not
+// run until reloadAffected returned, and it would then unwind every iteration at
+// once — including the sites that succeeded.
+//
+// Only the failing site is undone, and that is deliberate. The vhosts already
+// applied name the renewed certificate, which is the state that should survive;
+// reverting them would point live sites back at the lineage that was just replaced
+// and may already have expired. The caller is handed the list that did succeed
+// alongside the error, so it can say which sites still need attention.
+//
+// The case this exists for is a reload failure. nginx.Apply puts the previous vhost
+// back itself when `nginx -t` rejects the render, but not when the reload after a
+// passing test fails — there it returns with the new configuration already written,
+// and without this the undo would sit unrun and leave a site whose vhost names a
+// certificate the operator was told had not been applied.
+func (m *Manager) applyRenewedCert(ctx context.Context, site *state.Site, cert *state.Certificate) (err error) {
+	rb := system.NewRollback(m.Log)
+	defer rb.UnwindOn(ctx, &err)
+	if err := m.Nginx.Apply(ctx, site, cert, rb); err != nil {
+		return err
+	}
+	rb.Commit()
+	return nil
 }
 
 // DeployHook is what certbot invokes after a successful renewal.
