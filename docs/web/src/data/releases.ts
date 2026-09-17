@@ -39,6 +39,53 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.19.0',
+    date: '2026-09-17',
+    summary:
+      'Putting a site up is four questions instead of forty flags, a database has a page of its own, a log can be followed while you watch a deploy — and the application log of a PM2 site is no longer blank at the moment you need it.',
+    upgrade: 'ratline update',
+    assertions: 679,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'A PM2 site’s application log came up empty',
+        body:
+          '`site logs --app` decided where a node site’s output lives by asking the running PM2 daemon, and discarded the error when it could not be reached — PM2 missing from node_modules after a failed deploy, a daemon that died, an environment that would not resolve. The site then read as “not PM2 supervised” and the reader was sent to the journal, which on a PM2 site carries PM2’s own messages and never the application’s. The screen came up empty at precisely the moment somebody was certain to be looking, and in the panel that was the whole of what “Application logs” showed. Where a log lives is a property of how the site is configured and does not change when the application falls over, so it is now asked of the configuration — the same function that decided which supervisor to render the unit for in the first place.',
+        code: 'ratline site logs app.example.com --app',
+      },
+      {
+        kind: 'feature',
+        title: 'Putting a site up is four questions',
+        body:
+          '`site add` takes around forty flags, and offering all of them at once is a wall. The panel now asks four questions instead — the address, what it runs, who owns it, and then the whole thing shown back before anything happens, with the exact command you could have typed. It is the same generated form, paged: the argv preview, the secret that reaches ratline on standard input and the typed-back confirmation are shared, not reimplemented. The grouping is a judgement about what to ask first and is the only part written down; anything `site add` has that the steps do not name still appears, in a step of its own before the review, so a later ratline release that adds a flag cannot go missing from the page.',
+      },
+      {
+        kind: 'feature',
+        title: 'Follow a log while you watch a deploy',
+        body:
+          'A log page you have to refresh by hand is not much use while something is falling over. Following re-reads the last lines every three seconds and pins the pane to the bottom. It is a poll rather than a held-open request on purpose: ratline’s own --follow blocks until it is interrupted, and a browser that navigates away, sleeps or loses its connection would leave that process running on the server with nobody to end it. It pauses while the tab is in the background, so a forgotten tab does not fork a ratline process every three seconds for nobody to look at.',
+      },
+      {
+        kind: 'feature',
+        title: 'A database has a page of its own',
+        body:
+          'What engine it is, who owns it, and which logins can reach it — over `db show`, at /databases/<name>. No password is on it and there is no button that reveals one: reading a secret goes through the action surface where it is recorded against a name, and showing it inline would make the audit trail a matter of which page somebody happened to open.',
+      },
+      {
+        kind: 'feature',
+        title: 'The documentation reads like a manual',
+        body:
+          'The docs are read in three states of mind — evaluating, doing, and stuck at 2am — and all three used to land in the same prose. Each now has its own door, the command reference is the best part of the site rather than an appendix, and every flag page sets its identifiers in one rail with the meanings beside them. The palette and the two faces are the panel’s, so moving between them is one product; what differs is the register, because a panel is operated and documentation is read. Searching for a flag by its own name also used to rank prose above the flag — the index only held the dashed spelling, so `dry-run` scraped eight points against `--dry-run` while a page carrying it as a keyword scored sixty.',
+      },
+    ],
+    known: [
+      'Following a log polls every three seconds rather than streaming, so a line can take that long to appear. It also stops while the tab is in the background and resumes when you come back to it.',
+      'The new-site wizard groups the flags it knows about; anything a later ratline adds turns up in an “Anything else” step rather than in the question it belongs to, until the grouping is updated.',
+      'Three tables are deliberately still tables — the environment list, the team roster and signed-in sessions. Each is genuinely tabular and carries per-row controls.',
+      'On a phone, a code block in the documentation still scrolls sideways inside its own panel rather than wrapping: wrapping a shell command can mislead about where a line actually breaks.',
+    ],
+  },
+  {
     version: 'v0.18.0',
     date: '2026-09-17',
     summary:
