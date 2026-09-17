@@ -253,6 +253,9 @@ func (m *Manager) Add(ctx context.Context, opts AddOptions, keys []*PublicKey) (
 			AddedBy:     m.Invoker,
 			ExpiresAt:   grant.ExpiresAt,
 		}
+		if err := ValidatePreset(grant.CommandPreset); err != nil {
+			return nil, err
+		}
 		key.Options = Options(&grant)
 		if m.DryRun {
 			m.Log.Info("would record the key", "fingerprint", key.Fingerprint, "scope", key.Scope)

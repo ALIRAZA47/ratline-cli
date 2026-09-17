@@ -77,9 +77,8 @@ func newDomainShowCommand(app *App) *cobra.Command {
 				app.printf("No domain. The panel is on %s only.\n", app.Cfg.PublicURL())
 				return nil
 			}
-			app.printf("%s\n  vhost: %s\n  upstream: %s:%d\n",
-				app.Cfg.PublicURL(), app.Cfg.Paths.NginxVhost,
-				app.Cfg.Listen.Address, app.Cfg.Listen.Port)
+			app.printf("%s\n  vhost: %s\n  upstream: %s\n",
+				app.Cfg.PublicURL(), app.Cfg.Paths.NginxVhost, app.Cfg.ProxyUpstream())
 			return nil
 		},
 	}

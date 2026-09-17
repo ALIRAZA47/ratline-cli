@@ -17,7 +17,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -126,7 +125,7 @@ func run() int {
 	// sshd requests the SFTP subsystem as the literal string "internal-sftp".
 	if program == "internal-sftp" || strings.HasPrefix(original, "internal-sftp") {
 		record("allowed", "sftp")
-		return execSFTP(realSiteDir)
+		return serveSFTP(realSiteDir)
 	}
 	if !allowedPrograms[program] {
 		record("denied", "program "+program)
@@ -307,37 +306,21 @@ func matchesPreset(program, preset string) bool {
 	}
 }
 
-func execSFTP(siteDir string) int {
-	// -d confines the session's starting directory. It is not a chroot: it sets
-	// where the client lands, and the client can still ask for other paths, which
-	// is why sftp-server also runs with the site as its working directory.
-	for _, candidate := range []string{
-		"/usr/lib/openssh/sftp-server",
-		"/usr/libexec/openssh/sftp-server",
-		"/usr/lib/ssh/sftp-server",
-	} {
-		if fi, err := os.Stat(candidate); err == nil && fi.Mode().IsRegular() {
-			return execAt(siteDir, candidate, []string{candidate, "-d", siteDir})
-		}
-	}
-	fmt.Fprintln(os.Stderr, "ratline-shell: sftp-server is not installed")
-	return exitDenied
-}
-
 func execProgram(siteDir, program string, argv []string) int {
-	path, err := exec.LookPath(program)
-	if err != nil {
-		// PATH is not trusted for this; try the usual locations directly.
-		for _, dir := range []string{"/usr/bin", "/bin", "/usr/local/bin"} {
-			candidate := filepath.Join(dir, program)
-			if fi, serr := os.Stat(candidate); serr == nil && fi.Mode().IsRegular() {
-				path = candidate
-				err = nil
-				break
-			}
+	// The program comes from a fixed list of system directories, never from PATH. The
+	// environment reaches here from sshd and is not something a scoped key should be
+	// able to influence, but "should not" is not a reason to consult it: the wrapper
+	// exists to run exactly the system's rsync, and a PATH entry that shadowed it would
+	// be a second program with the same name.
+	path := ""
+	for _, dir := range []string{"/usr/bin", "/bin", "/usr/local/bin"} {
+		candidate := filepath.Join(dir, program)
+		if fi, err := os.Stat(candidate); err == nil && fi.Mode().IsRegular() {
+			path = candidate
+			break
 		}
 	}
-	if err != nil || path == "" {
+	if path == "" {
 		fmt.Fprintf(os.Stderr, "ratline-shell: %s is not installed\n", program)
 		return exitDenied
 	}
@@ -374,13 +357,17 @@ func execAt(dir, path string, argv []string) int {
 }
 
 func openAudit() log.Auditor {
-	a, err := log.OpenAudit("/var/log/ratline/audit.log")
-	if err != nil {
-		// The session must not fail because the log is unwritable; the tenant
-		// does not own that file and cannot fix it.
-		return log.NopAudit()
+	if a, err := log.OpenAudit("/var/log/ratline/audit.log"); err == nil {
+		return a
 	}
-	return a
+	// This process runs as the tenant, and the audit file is root's, so the open above
+	// fails on every scoped-key session. The journal accepts a line from any uid and
+	// records which uid sent it, which is a trail the tenant can add to but not forge.
+	// The session must not fail because neither is writable; the tenant cannot fix it.
+	if a, err := log.SyslogAudit("ratline-shell"); err == nil {
+		return a
+	}
+	return log.NopAudit()
 }
 
 func remoteIP() string {

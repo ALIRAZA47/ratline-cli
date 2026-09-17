@@ -99,10 +99,6 @@ linters:
         linters:
           - gosec
           - errcheck
-      # The wrapper execs into the requested program, so os/exec use is the point.
-      - path: cmd/ratline-shell/main\.go
-        linters:
-          - forbidigo
       # This test builds and drives the real binary under a pty, which is the only way
       # to exercise the interactive paths at all. It has to start a process.
       - path: internal/cli/pty_test\.go

@@ -56,7 +56,7 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, *Caller)) htt
 				"set one up under your account")
 			return
 		}
-		caller.IP = panel.ClientIP(r, s.Cfg.Listen.TrustProxy)
+		caller.IP = panel.ClientIP(r, s.trustForwarded(r))
 		ctx := context.WithValue(r.Context(), ctxAccount, caller.Account)
 		ctx = context.WithValue(ctx, ctxSession, caller.Session)
 		h(w, r.WithContext(ctx), caller)
@@ -167,7 +167,7 @@ func (s *Server) originAllowed(origin string, r *http.Request) bool {
 // happens, including reading a body.
 func (s *Server) withAllowList(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !panel.AllowedFrom(s.allowFrom, panel.ClientIP(r, s.Cfg.Listen.TrustProxy)) {
+		if !panel.AllowedFrom(s.allowFrom, panel.ClientIP(r, s.trustForwarded(r))) {
 			failStatus(w, http.StatusForbidden, "not_allowed",
 				"this address may not reach the panel", "")
 			return
@@ -205,7 +205,7 @@ func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
 		// Only over HTTPS. Sending HSTS from a panel somebody is reaching on
 		// http://localhost through an SSH tunnel would pin that name to HTTPS in
 		// their browser and lock them out of it.
-		if panel.RequestIsSecure(r, s.Cfg.Listen.TrustProxy) {
+		if panel.RequestIsSecure(r, s.trustForwarded(r)) {
 			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 		// An API response must never be cached: it is per-account, and a shared
@@ -250,7 +250,7 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		s.Log.Debug("request",
 			"method", r.Method, "path", r.URL.Path, "status", rec.status,
 			"ms", time.Since(start).Milliseconds(),
-			"ip", panel.ClientIP(r, s.Cfg.Listen.TrustProxy))
+			"ip", panel.ClientIP(r, s.trustForwarded(r)))
 	})
 }
 
