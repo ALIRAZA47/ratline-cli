@@ -1,6 +1,31 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------------------
+   The two faces, carried in the bundle rather than fetched.
+
+   The panel's own Content-Security-Policy is `font-src 'self'` — no CDN, on
+   purpose — and a panel is often reached on a private network with no route out
+   to a font host anyway. Both are variable, latin-subset, and together weigh
+   about 85 KB; both are SIL Open Font Licence 1.1 (see fonts/LICENSE).
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Newsreader';
+  src: url('./fonts/newsreader-latin.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Public Sans';
+  src: url('./fonts/public-sans-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
    The panel's visual system.
 
    It is an application, not a document, so it is denser than the documentation
@@ -15,123 +40,148 @@
 
 @theme {
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  /* Headings only. A panel that reads like a document rather than a terminal is
+     the whole of this direction, and the serif is what carries it. */
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
   --font-mono:
     ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace;
 
-  --text-2xs: 0.6875rem;
+  --text-2xs: 0.75rem;
   --text-2xs--line-height: 1.45;
-  --text-xs: 0.78125rem;
+  --text-xs: 0.8125rem;
   --text-xs--line-height: 1.5;
   --text-sm: 0.875rem;
   --text-sm--line-height: 1.55;
   --text-base: 0.9375rem;
   --text-base--line-height: 1.6;
   --text-lg: 1.0625rem;
-  --text-lg--line-height: 1.5;
-  --text-xl: 1.25rem;
-  --text-xl--line-height: 1.35;
-  --text-2xl: 1.5rem;
-  --text-2xl--line-height: 1.25;
+  --text-lg--line-height: 1.6;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 1.2;
+  --text-2xl: 2.125rem;
+  --text-2xl--line-height: 1.15;
 
-  --radius-card: 0.5rem;
-  --sidebar-w: 15rem;
-  --header-h: 3.25rem;
+  --radius-card: 0.625rem;
+  --radius-control: 0.4375rem;
+  --sidebar-w: 12.125rem;
+  --header-h: 3.625rem;
 }
 
 :root {
   color-scheme: light;
 
-  --bg: oklch(98.6% 0.003 250);
+  /* Warm paper and warm ink, against a deep sea blue. The obvious palette for a
+     server tool is a dark terminal; this deliberately goes the other way, because
+     the people this is for are not at a terminal. */
+  --bg: oklch(98.6% 0.005 85);
   --bg-raised: oklch(100% 0 0);
-  --bg-sunken: oklch(96.4% 0.005 250);
-  --bg-hover: oklch(95.4% 0.008 255);
-  --bg-active: oklch(93.5% 0.03 258);
-  --bg-terminal: oklch(21% 0.015 255);
+  --bg-sunken: oklch(96.8% 0.006 85);
+  --bg-hover: oklch(95.6% 0.008 85);
+  --bg-active: oklch(95% 0.025 215);
+  --bg-terminal: oklch(23% 0.012 250);
 
-  --fg: oklch(22% 0.012 255);
-  --fg-muted: oklch(46% 0.012 255);
-  --fg-faint: oklch(58% 0.01 255);
-  --fg-terminal: oklch(88% 0.012 255);
+  --fg: oklch(25% 0.015 60);
+  --fg-muted: oklch(46% 0.012 60);
+  --fg-faint: oklch(60% 0.01 60);
+  --fg-terminal: oklch(89% 0.01 250);
 
-  --border: oklch(90.5% 0.006 255);
-  --border-strong: oklch(83% 0.008 255);
+  --border: oklch(90% 0.008 75);
+  --border-strong: oklch(83% 0.01 75);
 
-  --accent: oklch(52% 0.16 258);
+  --accent: oklch(48% 0.11 215);
   --accent-fg: oklch(99% 0 0);
-  --accent-soft: oklch(95.5% 0.03 258);
+  --accent-ink: oklch(38% 0.11 215);
+  --accent-soft: oklch(95% 0.025 215);
 
-  --ok: oklch(52% 0.13 152);
-  --ok-soft: oklch(95.5% 0.04 152);
-  --warn: oklch(58% 0.13 78);
-  --warn-soft: oklch(96% 0.05 85);
-  --danger: oklch(53% 0.19 25);
+  --ok: oklch(52% 0.1 155);
+  --ok-ink: oklch(40% 0.1 155);
+  --ok-soft: oklch(95.5% 0.03 155);
+  --warn: oklch(62% 0.12 70);
+  --warn-ink: oklch(45% 0.1 70);
+  --warn-soft: oklch(96% 0.045 80);
+  --danger: oklch(52% 0.16 28);
   --danger-fg: oklch(99% 0 0);
-  --danger-soft: oklch(96% 0.03 25);
+  --danger-ink: oklch(44% 0.16 28);
+  --danger-soft: oklch(96% 0.028 28);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
 
-    --bg: oklch(19.5% 0.012 255);
-    --bg-raised: oklch(23.5% 0.013 255);
-    --bg-sunken: oklch(17% 0.012 255);
-    --bg-hover: oklch(27.5% 0.015 255);
-    --bg-active: oklch(31% 0.04 258);
-    --bg-terminal: oklch(15% 0.01 255);
+    /* The same warmth, inverted. A dark theme that went cool here would read as a
+       different product to somebody who switches. */
+    --bg: oklch(20% 0.008 70);
+    --bg-raised: oklch(24% 0.009 70);
+    --bg-sunken: oklch(17.5% 0.008 70);
+    --bg-hover: oklch(28% 0.01 70);
+    --bg-active: oklch(30% 0.045 215);
+    --bg-terminal: oklch(15.5% 0.008 250);
 
-    --fg: oklch(93% 0.008 255);
-    --fg-muted: oklch(72% 0.011 255);
-    --fg-faint: oklch(60% 0.011 255);
-    --fg-terminal: oklch(86% 0.012 255);
+    --fg: oklch(93% 0.006 80);
+    --fg-muted: oklch(73% 0.008 80);
+    --fg-faint: oklch(61% 0.008 80);
+    --fg-terminal: oklch(88% 0.01 250);
 
-    --border: oklch(30% 0.012 255);
-    --border-strong: oklch(38% 0.014 255);
+    --border: oklch(30% 0.009 75);
+    --border-strong: oklch(38% 0.011 75);
 
-    --accent: oklch(72% 0.13 258);
-    --accent-fg: oklch(17% 0.02 258);
-    --accent-soft: oklch(29% 0.05 258);
+    --accent: oklch(72% 0.11 215);
+    --accent-fg: oklch(18% 0.03 215);
+    --accent-ink: oklch(83% 0.09 215);
+    --accent-soft: oklch(30% 0.05 215);
 
-    --ok: oklch(74% 0.14 152);
-    --ok-soft: oklch(27% 0.05 152);
-    --warn: oklch(80% 0.13 82);
-    --warn-soft: oklch(29% 0.05 82);
-    --danger: oklch(70% 0.16 25);
-    --danger-fg: oklch(17% 0.03 25);
-    --danger-soft: oklch(28% 0.06 25);
+    --ok: oklch(74% 0.12 155);
+    --ok-ink: oklch(83% 0.1 155);
+    --ok-soft: oklch(27% 0.05 155);
+    --warn: oklch(80% 0.12 78);
+    --warn-ink: oklch(88% 0.1 78);
+    --warn-soft: oklch(29% 0.05 78);
+    --danger: oklch(70% 0.15 28);
+    --danger-fg: oklch(18% 0.03 28);
+    --danger-ink: oklch(81% 0.12 28);
+    --danger-soft: oklch(28% 0.06 28);
   }
 }
 
+/* An explicit choice beats the operating system, in both directions. */
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: oklch(19.5% 0.012 255);
-  --bg-raised: oklch(23.5% 0.013 255);
-  --bg-sunken: oklch(17% 0.012 255);
-  --bg-hover: oklch(27.5% 0.015 255);
-  --bg-active: oklch(31% 0.04 258);
-  --bg-terminal: oklch(15% 0.01 255);
+  /* The same warmth, inverted. A dark theme that went cool here would read as a
+     different product to somebody who switches. */
+  --bg: oklch(20% 0.008 70);
+  --bg-raised: oklch(24% 0.009 70);
+  --bg-sunken: oklch(17.5% 0.008 70);
+  --bg-hover: oklch(28% 0.01 70);
+  --bg-active: oklch(30% 0.045 215);
+  --bg-terminal: oklch(15.5% 0.008 250);
 
-  --fg: oklch(93% 0.008 255);
-  --fg-muted: oklch(72% 0.011 255);
-  --fg-faint: oklch(60% 0.011 255);
-  --fg-terminal: oklch(86% 0.012 255);
+  --fg: oklch(93% 0.006 80);
+  --fg-muted: oklch(73% 0.008 80);
+  --fg-faint: oklch(61% 0.008 80);
+  --fg-terminal: oklch(88% 0.01 250);
 
-  --border: oklch(30% 0.012 255);
-  --border-strong: oklch(38% 0.014 255);
+  --border: oklch(30% 0.009 75);
+  --border-strong: oklch(38% 0.011 75);
 
-  --accent: oklch(72% 0.13 258);
-  --accent-fg: oklch(17% 0.02 258);
-  --accent-soft: oklch(29% 0.05 258);
+  --accent: oklch(72% 0.11 215);
+  --accent-fg: oklch(18% 0.03 215);
+  --accent-ink: oklch(83% 0.09 215);
+  --accent-soft: oklch(30% 0.05 215);
 
-  --ok: oklch(74% 0.14 152);
-  --ok-soft: oklch(27% 0.05 152);
-  --warn: oklch(80% 0.13 82);
-  --warn-soft: oklch(29% 0.05 82);
-  --danger: oklch(70% 0.16 25);
-  --danger-fg: oklch(17% 0.03 25);
-  --danger-soft: oklch(28% 0.06 25);
+  --ok: oklch(74% 0.12 155);
+  --ok-ink: oklch(83% 0.1 155);
+  --ok-soft: oklch(27% 0.05 155);
+  --warn: oklch(80% 0.12 78);
+  --warn-ink: oklch(88% 0.1 78);
+  --warn-soft: oklch(29% 0.05 78);
+  --danger: oklch(70% 0.15 28);
+  --danger-fg: oklch(18% 0.03 28);
+  --danger-ink: oklch(81% 0.12 28);
+  --danger-soft: oklch(28% 0.06 28);
 }
 
 html,
@@ -170,8 +220,8 @@ body {
     background: var(--bg);
     color: var(--fg);
     border: 1px solid var(--border-strong);
-    border-radius: 0.375rem;
-    padding: 0.4rem 0.6rem;
+    border-radius: var(--radius-control);
+    padding: 0.625rem 0.75rem;
     font-size: var(--text-sm);
     font-family: inherit;
   }
@@ -190,11 +240,11 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    border-radius: 0.375rem;
+    border-radius: var(--radius-control);
     border: 1px solid var(--border-strong);
     background: var(--bg-raised);
     color: var(--fg);
-    padding: 0.35rem 0.75rem;
+    padding: 0.5625rem 1rem;
     font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
@@ -278,6 +328,224 @@ body {
  * total to divide by — a bar filling to 62% would be a number the panel made up
  * about somebody's deploy. This says "still going" and claims nothing else.
  */
+/* ---------------------------------------------------------------------------
+   The parts this direction adds.
+
+   A panel that speaks in sentences needs a smaller set of shapes than one that
+   speaks in fields: a heading, a status said in words, a tag, a band that names
+   something to decide, and a label/value list. Everything here refers to a token.
+   --------------------------------------------------------------------------- */
+
+@layer components {
+  /* Headings carry the serif; nothing else does. */
+  .title {
+    font-family: var(--font-serif);
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  .title-sm {
+    font-family: var(--font-serif);
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+
+  /* The sentence under a heading, which is where the state of things is said. */
+  .lede {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+    color: var(--fg-muted);
+    max-width: 64ch;
+    text-wrap: pretty;
+  }
+
+  .eyebrow {
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-faint);
+  }
+
+  /* Status is a word first. The dot is the second signal, never the only one. */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--text-sm);
+  }
+
+  .dot {
+    width: 0.5625rem;
+    height: 0.5625rem;
+    border-radius: 9999px;
+    flex: none;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--bg-sunken);
+    color: var(--fg-muted);
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    padding: 0.1875rem 0.625rem;
+    white-space: nowrap;
+  }
+
+  .tag-accent {
+    background: var(--accent-soft);
+    border-color: color-mix(in oklab, var(--accent) 25%, transparent);
+    color: var(--accent-ink);
+  }
+
+  .tag-ok {
+    background: var(--ok-soft);
+    border-color: color-mix(in oklab, var(--ok) 25%, transparent);
+    color: var(--ok-ink);
+  }
+
+  .tag-warn {
+    background: var(--warn-soft);
+    border-color: color-mix(in oklab, var(--warn) 30%, transparent);
+    color: var(--warn-ink);
+  }
+
+  .tag-danger {
+    background: var(--danger-soft);
+    border-color: color-mix(in oklab, var(--danger) 25%, transparent);
+    color: var(--danger-ink);
+  }
+
+  /* A band naming something a person has to decide about. */
+  .banner {
+    border-radius: var(--radius-card);
+    padding: 1rem 1.125rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .banner-warn {
+    background: var(--warn-soft);
+    border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  }
+
+  .banner-danger {
+    background: var(--danger-soft);
+    border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
+  }
+
+  .banner-accent {
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
+  }
+
+  /* A card's own heading strip. */
+  .cardhead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.875rem;
+    padding: 0.8125rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* One row of a list of things. */
+  .listrow {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.875rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .listrow:last-child {
+    border-bottom: 0;
+  }
+
+  /* Label and value. The value track is minmax(0, 1fr) so a fingerprint with
+     nothing to break at can never widen the card — see Facts in ui.tsx. */
+  .kv {
+    display: grid;
+    grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+    column-gap: 1.25rem;
+    row-gap: 0.5625rem;
+    font-size: var(--text-sm);
+  }
+
+  .kv dt {
+    color: var(--fg-faint);
+    font-size: var(--text-xs);
+  }
+
+  .kv dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0.125rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    padding: 0.5625rem 0.875rem;
+    font-size: var(--text-sm);
+    color: var(--fg-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+
+  .tab:hover {
+    color: var(--fg);
+  }
+
+  .tab-on {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* One step of a thing being set up. */
+  .stepnum {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    background: var(--bg-sunken);
+    color: var(--fg-faint);
+    border: 1px solid var(--border);
+    flex: none;
+  }
+
+  .stepnum-on {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: transparent;
+  }
+
+  .stepnum-done {
+    background: var(--ok-soft);
+    color: var(--ok-ink);
+    border-color: color-mix(in oklab, var(--ok) 30%, transparent);
+  }
+}
+
 @keyframes ratline-indeterminate {
   0% {
     transform: translateX(-100%);

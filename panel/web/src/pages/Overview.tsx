@@ -1,10 +1,16 @@
 import { Link } from 'react-router-dom';
 import { Page } from '../components/Layout';
 import { usePoll } from '../lib/hooks';
-import { statusOf, useOverview, type Status } from '../lib/overview';
+import {
+  attentionItems,
+  statusOf,
+  useOverview,
+  type SiteRow,
+  type Status,
+} from '../lib/overview';
 import type { Job } from '../lib/types';
 import { WarningIcon } from '../components/icons';
-import { Badge, Card, Cell, Empty, ErrorBox, Row, Spinner, Table, When, stateTone } from '../components/ui';
+import { Badge, Card, Empty, ErrorBox, Spinner, When, stateTone } from '../components/ui';
 
 export function Overview() {
   const { data, error, loading, reload } = useOverview();
@@ -15,12 +21,8 @@ export function Overview() {
 
   return (
     <Page
-      title={status?.hostname ?? 'Server'}
-      lede={
-        status?.uptime
-          ? `${status.sites} ${status.sites === 1 ? 'site' : 'sites'} · up ${status.uptime}`
-          : 'Everything ratline knows about this server, on one screen.'
-      }
+      title={headline(status)}
+      lede={secondLine(status)}
       actions={
         <button className="btn" onClick={reload}>
           Refresh
@@ -54,34 +56,30 @@ export function Overview() {
               }
             >
               {!status.sites_detail || status.sites_detail.length === 0 ? (
-                <Empty>No sites yet. Create one from Sites → New site.</Empty>
-              ) : (
-                <Table head={['Domain', 'Owner', 'Runtime', 'State', 'TLS']}>
-                  {status.sites_detail.map((site) => (
-                    <Row key={site.domain}>
-                      <Cell>
-                        <Link className="font-medium hover:underline" to={`/sites/${site.domain}`}>
-                          {site.domain}
-                        </Link>
-                        {site.detail && (
-                          <div className="text-2xs text-[var(--fg-faint)]">{site.detail}</div>
-                        )}
-                      </Cell>
-                      <Cell className="text-[var(--fg-muted)]">{site.owner}</Cell>
-                      <Cell>
-                        <Badge>{site.runtime}</Badge>
-                      </Cell>
-                      <Cell>
-                        <Badge tone={site.needs_attention ? 'danger' : stateTone(site.state)}>
-                          {site.state}
-                        </Badge>
-                      </Cell>
-                      <Cell className="text-[var(--fg-muted)]">{site.tls}</Cell>
-                    </Row>
-                  ))}
-                </Table>
-              )}
-            </Card>
+              <Empty>No sites yet. Make one from Sites &rarr; New site.</Empty>
+            ) : (
+              <ul>
+                {status.sites_detail.map((site) => (
+                  <li key={site.domain} className="listrow">
+                    <span
+                      className="dot"
+                      style={{ background: `var(--${toneOf(site)})` }}
+                      aria-hidden="true"
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <Link className="font-medium hover:underline" to={`/sites/${site.domain}`}>
+                        {site.domain}
+                      </Link>
+                      {/* What it is doing, in words. The dot repeats it in colour
+                          for somebody scanning; neither is alone. */}
+                      <span className="text-2xs text-[var(--fg-faint)]">{doingWhat(site)}</span>
+                    </span>
+                    <span className="shrink-0 text-2xs text-[var(--fg-faint)]">{tlsInWords(site)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
 
             {status.certificates_detail && status.certificates_detail.length > 0 && (
               <Card
@@ -92,20 +90,26 @@ export function Overview() {
                   </Link>
                 }
               >
-                <Table head={['Name', 'Status', 'Days left']}>
-                  {status.certificates_detail.map((cert) => (
-                    <Row key={cert.name}>
-                      <Cell className="mono text-xs">{cert.name}</Cell>
-                      <Cell>
-                        <Badge tone={cert.days_remaining < 14 ? 'danger' : 'warn'}>
-                          {cert.status}
-                        </Badge>
-                      </Cell>
-                      <Cell>{cert.days_remaining}</Cell>
-                    </Row>
-                  ))}
-                </Table>
-              </Card>
+                <ul>
+                {status.certificates_detail.map((cert) => (
+                  <li key={cert.name} className="listrow">
+                    <span
+                      className="dot"
+                      style={{ background: cert.days_remaining < 14 ? 'var(--danger)' : 'var(--warn)' }}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 font-medium [overflow-wrap:anywhere]">
+                      {cert.name}
+                    </span>
+                    <span className="shrink-0 text-xs text-[var(--fg-muted)]">
+                      {cert.days_remaining <= 0
+                        ? 'has expired'
+                        : `${cert.days_remaining} ${cert.days_remaining === 1 ? 'day' : 'days'} left`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
             )}
           </>
         )}
@@ -169,6 +173,97 @@ export function Overview() {
 }
 
 /**
+ * The certificate, in words rather than ratline's field.
+ *
+ * `tls` arrives as "letsencrypt, 68 days" or "none" — a value shaped for a
+ * terminal. It is the same fact either way; this is the half a person reads.
+ */
+function tlsInWords(site: SiteRow): string {
+  const raw = (site.tls ?? '').trim();
+  if (raw === '' || raw === 'none') return 'no certificate';
+  const days = raw.match(/(\d+)\s*days?/);
+  if (days) return `certificate good for ${days[1]} days`;
+  return 'has a certificate';
+}
+
+/** Which signal colour a site's state deserves. */
+function toneOf(site: SiteRow): 'danger' | 'warn' | 'ok' | 'fg-faint' {
+  if (site.needs_attention) return 'danger';
+  if (site.state === 'serving' || site.state === 'running' || site.state === 'active') return 'ok';
+  if (site.state === 'disabled' || site.state === 'stopped') return 'fg-faint';
+  return 'warn';
+}
+
+/**
+ * What a site is doing, said the way somebody would say it.
+ *
+ * ratline's own `detail` is already a sentence when there is something wrong
+ * ("the unit exited 1 four times in a minute"), so it wins; the rest is assembled
+ * from what is known rather than printing `state: active` at a person.
+ */
+function doingWhat(site: SiteRow): string {
+  if (site.detail) return site.detail;
+  const runtime = site.runtime ? ` · ${site.runtime}` : '';
+  const owner = site.owner ? ` · belongs to ${site.owner}` : '';
+  const doing =
+    site.state === 'disabled' ? 'Not being served'
+    : site.state === 'serving' ? 'Serving files'
+    : site.needs_attention ? 'Not answering'
+    : 'Running';
+  return `${doing}${runtime}${owner}`;
+}
+
+/**
+ * The state of the server, as a sentence.
+ *
+ * The front page used to open with the hostname and a count, which is two facts
+ * and no answer. What somebody wants on arriving is whether anything is wrong —
+ * so that is the heading, and the hostname moves to the bar at the top where a
+ * label belongs.
+ */
+function headline(status?: Status): string {
+  if (!status) return 'Reading the server';
+  const n = status.sites;
+  const sites = `${spell(n)} ${n === 1 ? 'site' : 'sites'}`;
+  const stopped = (status.sites_detail ?? []).filter((s) => s.needs_attention).length;
+  if (n === 0) return 'No sites yet.';
+  if (stopped === 0) return `${capital(sites)}, all serving.`;
+  if (stopped === n) return `${capital(sites)}, and ${n === 1 ? 'it is' : 'none are'} serving.`;
+  return `${capital(sites)}, ${spell(stopped)} of them in trouble.`;
+}
+
+/**
+ * Uptime, and how much wants looking at.
+ *
+ * The count comes from the same function the band below renders, so the sentence
+ * and the list can never disagree — which they did when this counted the raw
+ * fields and the band deduplicated them.
+ */
+function secondLine(status?: Status): string {
+  if (!status) return 'Asking ratline what is on this server.';
+  const parts: string[] = [];
+  if (status.uptime) parts.push(`Up ${status.uptime}.`);
+  const total = attentionItems(status).length;
+  if (total === 0) parts.push('Nothing wants looking at.');
+  else if (total === 1) parts.push('One thing wants looking at.');
+  else parts.push(`${capital(spell(total))} things want looking at.`);
+  return parts.join(' ');
+}
+
+/** Small numbers read better as words in a sentence; past twelve they do not. */
+function spell(n: number): string {
+  const words = ['no', 'one', 'two', 'three', 'four', 'five', 'six',
+    'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  // Indexed access is checked in this project, and a count is not guaranteed to
+  // be in range — a negative or absent one falls through to the digits.
+  return (n >= 0 && n <= 12 ? words[n] : undefined) ?? String(n);
+}
+
+function capital(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
  * One band naming what a human has to decide about, instead of six cards counting
  * things nobody was asked to count.
  *
@@ -181,78 +276,37 @@ export function Overview() {
  * decide what counts as a problem; `ratline status` does, and this repeats it.
  */
 function Attention({ status }: { status: Status }) {
-  const items: { key: string; subject?: string; text: string; to?: string }[] = [];
-
-  for (const cert of status.certificates_detail ?? []) {
-    items.push({
-      key: `cert:${cert.name}`,
-      subject: cert.name,
-      text:
-        cert.days_remaining <= 0
-          ? 'the certificate has expired'
-          : `the certificate expires in ${cert.days_remaining} ${
-              cert.days_remaining === 1 ? 'day' : 'days'
-            }`,
-      to: '/certs',
-    });
-  }
-
-  for (const site of status.sites_detail ?? []) {
-    if (!site.needs_attention) continue;
-    items.push({
-      key: `site:${site.domain}`,
-      subject: site.domain,
-      text: site.detail || site.state,
-      to: `/sites/${encodeURIComponent(site.domain)}`,
-    });
-  }
-
-  // Anything ratline raised that is not already on the list.
-  //
-  // `warnings` is ratline's own prose and usually restates what the structured
-  // rows above already say — "www.example.com renews in 12 days and its last
-  // attempt failed" beside a certificate row for the same domain. Saying it twice
-  // makes the band look longer than the problem is, so a warning naming a subject
-  // that is already listed is dropped in favour of the row, which links to it.
-  const named = new Set(items.map((i) => i.subject).filter(Boolean) as string[]);
-  for (const warning of status.warnings ?? []) {
-    if ([...named].some((subject) => warning.includes(subject))) continue;
-    items.push({ key: `warn:${warning}`, text: warning });
-  }
-
+  const items = attentionItems(status);
   if (items.length === 0) return null;
 
   return (
-    <section
-      className="rounded-[var(--radius-card)] border border-[var(--warn)]/30 bg-[var(--warn-soft)] px-3.5 py-3"
-      aria-labelledby="attention-heading"
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-[var(--warn)]">
-          <WarningIcon />
-        </span>
+    <section className="banner banner-warn" aria-labelledby="attention-heading">
+      <span className="text-[var(--warn)]">
+        <WarningIcon />
+      </span>
+      <div className="min-w-0">
         <h2 id="attention-heading" className="text-sm font-semibold">
-          {items.length === 1 ? 'One thing needs attention' : `${items.length} things need attention`}
+          {items.length === 1 ? 'One thing wants looking at' : `${items.length} things want looking at`}
         </h2>
+        <ul className="mt-2 space-y-2 text-sm">
+          {items.map((item) => (
+            <li key={item.id} className="leading-snug">
+              {item.subject &&
+                (item.to ? (
+                  <Link className="font-medium hover:underline" to={item.to}>
+                    {item.subject}
+                  </Link>
+                ) : (
+                  <span className="font-medium">{item.subject}</span>
+                ))}
+              <span className={item.subject ? 'text-[var(--warn-ink)]' : ''}>
+                {item.subject ? ' — ' : ''}
+                {item.text}
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
-      <ul className="mt-2 space-y-2 text-sm">
-        {items.map((item) => (
-          <li key={item.key} className="leading-snug">
-            {item.subject &&
-              (item.to ? (
-                <Link className="mono text-xs font-medium hover:underline" to={item.to}>
-                  {item.subject}
-                </Link>
-              ) : (
-                <span className="mono text-xs font-medium">{item.subject}</span>
-              ))}
-            <span className={item.subject ? 'text-[var(--fg-muted)]' : ''}>
-              {item.subject ? ' — ' : ''}
-              {item.text}
-            </span>
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }
