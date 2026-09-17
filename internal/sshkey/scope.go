@@ -119,6 +119,21 @@ func Options(g *Grant) string {
 	return strings.Join(opts, ",")
 }
 
+// presetNames are the --only values ratline-shell understands. The preset is written
+// into the forced command inside authorized_keys, between the double quotes of
+// command="…", so it is the one free string on that line: a value with a quote, a space
+// or a newline in it would end the options and begin whatever came next.
+var presetNames = map[string]bool{"sftp-only": true, "rsync-only": true, "git-only": true}
+
+// ValidatePreset refuses a command preset ratline-shell would not recognise.
+func ValidatePreset(name string) error {
+	if name == "" || presetNames[name] {
+		return nil
+	}
+	return rlerr.Usagef("%q is not a command preset", name).
+		WithHint("use sftp-only, rsync-only or git-only")
+}
+
 // forcedCommand is the wrapper invocation for a confined key.
 func forcedCommand(g *Grant) string {
 	if g.Scope != state.ScopeSite {

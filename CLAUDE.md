@@ -143,6 +143,25 @@ environment. No script is built from user input and the admin URI never appears 
   and `EnsureDir` `Lstat` the component they touch and refuse a symlink; site provisioning
   calls `system.CheckNoSymlinks` from the root-owned `/home` boundary down, to catch one
   swapped higher up the path than a single `Lstat` can see.
+- **Root never resolves a path through a link a tenant could have placed.** Anything
+  root reads or writes under `/home/<tenant>` goes through `system.OpenDirNoFollow`,
+  `WriteFileAtomic`, `EnsureDir`, `ReadFileNoFollow` or `OpenFileNoFollow`. They walk the
+  path one component at a time with `O_NOFOLLOW` (following only root-owned links, so
+  `/var/run` → `/run` still works) and then act on the *descriptor* with the `*at`
+  syscalls. An `Lstat` followed by an `os.Chown` by path is the bug class that let a
+  tenant rename a fresh `.ssh` away, drop a symlink in its place, and have root chown
+  the target to them. `CheckNoSymlinks` is a belt over that brace, not a substitute.
+- **PID 1 and nginx never open a path under a tenant's home.** No unit carries
+  `EnvironmentFile=` or `StandardOutput=append:`; `.env` and a job's log are opened by
+  `ratline-shell exec` as the service user, in the `ExecStart` line, after `User=` has
+  taken effect. nginx's per-site logs live under `paths.nginx_log_dir` (root-owned,
+  tenant-group-readable), because nginx's master opens them as root on every reload.
+  `doctor` flags a vhost or unit that still does either; `reconcile --fix` re-renders it.
+- **A site-scoped SSH key sees only its site.** `ratline-shell` serves SFTP itself
+  (`pkg/sftp`, rooted at the site directory, symlinks resolved and refused if they leave,
+  no link creation); rsync, `scp -O` and git have every path argument checked; the
+  program comes from a fixed list of directories, never `PATH`. `sftp-server -d` is not a
+  chroot — a scoped key could `cd ..` and append itself an unrestricted key.
 
 ## The panel's own invariants
 
@@ -272,6 +291,19 @@ environment. No script is built from user input and the admin URI never appears 
   so `nginx -t` failed every restore. The creation now lives in `nginx.Apply` itself.
   When a template starts naming a new path, put its creation where the template is
   applied, not in the one caller you happen to be looking at.
+- **macOS says ENOTDIR, Linux says ELOOP** when `open(O_DIRECTORY|O_NOFOLLOW)` meets a
+  symlink. Classify a component with `fstatat(AT_SYMLINK_NOFOLLOW)`, never by errno, or
+  the trusted-path walk refuses every path on the machine the tests run on.
+- **Template comments contain directive names.** A test asserting that no unit carries
+  `EnvironmentFile=` matched the comment explaining why it does not. Strip `#` lines
+  before asserting on a rendered unit, which is also what systemd reads.
+- **The dry-run state-write bug had an eleventh instance.** `user disable/enable`,
+  `user password set`, `cert delete/revoke/autorenew`, `key add/remove/prune` all wrote
+  state under `--dry-run`, and `update --dry-run` performed the real update, unlocked —
+  which the panel's Preview button invoked. Every `m.State.*` write needs the guard, and
+  a command that cannot rehearse itself has to say so rather than run.
+- **An in-process SFTP client's Create sends the permissions flag with no attribute
+  bytes.** `Request.Attributes()` is then nil; check it before reading `.Mode`.
 - **A mutation test only counts if the mutation applied.** Two edits to the panel's policy
   and argv code silently did not match (gofmt had realigned the strings), so the tests
   "passed" while proving nothing. Check the file changed before believing the result — the

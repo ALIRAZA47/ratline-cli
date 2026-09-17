@@ -59,14 +59,14 @@ sshd's forced command plus the `ratline-shell` wrapper, which:
 - resolves every path argument on those commands, following symlinks, and refuses
   anything outside the site directory
 
-For `rsync`, `scp` and `git` this confines the session to the site directory. **SFTP
-is the exception.** `internal-sftp` runs with the site as its starting directory, but
-`-d` is not a chroot: an ordinary SFTP client can still `cd ..` and reach anything the
-owner's UID can — which is every site that user owns, and their `~/.ssh`. Give a
-contractor who only needs file transfer their own system user, or a `git`/`rsync`
-workflow rather than SFTP; a modern `scp` speaks the SFTP protocol, so pass `scp -O`
-to keep it on the confined path. Kernel-enforced isolation is one system user per
-site.
+For `rsync`, `scp -O` and `git` this confines the session to the site directory
+through the path checks above. SFTP — which is also what a modern `scp` speaks — is
+served by `ratline-shell` itself rather than by OpenSSH's `sftp-server`: the site
+directory is `/`, every path a client names is resolved (symlinks included) and
+refused unless it lands inside, and a session cannot create symlinks or hard links.
+`sftp-server -d` was tried first and is not a chroot: it sets the starting directory
+and an ordinary client could still `cd ..` to the tenant's `~/.ssh`. Kernel-enforced
+isolation is still one system user per site.
 
 This reliably stops accidents on the rsync and git paths. A contractor's rsync cannot
 reach a sibling site; a misconfigured CI job cannot overwrite the wrong directory.

@@ -157,12 +157,17 @@ func TestRunExecLoadsTheEnvironmentAndRedirectsOutput(t *testing.T) {
 	}
 
 	// A missing environment file is EnvironmentFile=-PATH: not an error.
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devnull.Close()
 	args = []string{"--env-file", filepath.Join(dir, "absent"), "--", printenv, "PATH"}
 	proc, err = os.StartProcess(os.Args[0], []string{os.Args[0], "-test.run=TestRunExecLoadsTheEnvironmentAndRedirectsOutput"}, &os.ProcAttr{
 		Env: append(os.Environ(),
 			"RATLINE_SHELL_EXEC_HELPER=1",
 			"RATLINE_SHELL_EXEC_ARGS="+strings.Join(args, "\n")),
-		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+		Files: []*os.File{os.Stdin, devnull, os.Stderr},
 	})
 	if err != nil {
 		t.Fatal(err)
