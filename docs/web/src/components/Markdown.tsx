@@ -170,7 +170,7 @@ export function Markdown({ source, skipTitle = false }: MarkdownProps) {
             if (b.level === 1) {
               return (
                 <div key={n} className="prose">
-                  <h1 className="text-2xl font-bold tracking-tight text-strong">
+                  <h1 className="text-3xl tracking-tight text-strong">
                     <Inline text={b.text} />
                   </h1>
                 </div>

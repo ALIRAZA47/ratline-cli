@@ -56,7 +56,13 @@ export function Overview() {
               }
             >
               {!status.sites_detail || status.sites_detail.length === 0 ? (
-              <Empty>No sites yet. Make one from Sites &rarr; New site.</Empty>
+              <Empty>
+                No sites yet.{' '}
+                <Link className="underline" to="/sites/new">
+                  Put one up
+                </Link>
+                .
+              </Empty>
             ) : (
               <ul>
                 {status.sites_detail.map((site) => (

@@ -77,8 +77,12 @@ export function RefGroupHeading({
   id?: string;
 }) {
   return (
-    <div className="not-prose mt-9 mb-1">
-      <h2 id={id} className="label text-muted">
+    <div className="not-prose mt-10 mb-1.5">
+      {/* Set as a heading rather than as a micro-label. "What it refuses" and "Exit
+          codes" are the questions a reader is actually scanning for on a command page,
+          and eleven-pixel uppercase tracking renders them as captions on the thing above
+          instead of as the sections they are. */}
+      <h2 id={id} className="font-sans text-[0.9375rem] font-semibold text-strong">
         {title}
       </h2>
       {children && (
@@ -117,30 +121,50 @@ export function RefRow({
   children: ReactNode;
 }) {
   return (
+    /* Two columns where there is room for two: the identifier and its metadata on the
+       left, the meaning beside it. That is what makes a twenty-flag list scannable — the
+       eye runs down one rail of names rather than down alternating name, prose, name,
+       prose. Below `sm` the two stack, and it is the same element either way, so the
+       anchor id is never on something `display: none` and a deep link always scrolls. */
     <div
       id={anchor}
       className={[
-        'group scroll-mt-[calc(var(--header-h)+1.75rem)] py-3.5 pr-4 target:bg-accent-soft',
+        'group grid scroll-mt-[calc(var(--header-h)+1.75rem)] gap-x-6 gap-y-1.5 py-3.5 pr-4',
+        'sm:grid-cols-[minmax(0,12.5rem)_minmax(0,1fr)] target:bg-accent-soft',
         indent ? 'ml-4 border-l border-line pl-4' : 'pl-4',
       ].join(' ')}
     >
-      <dt className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
-        {lead ?? (
-          <a
-            href={`#${anchor}`}
-            className="font-mono text-[0.8125rem] font-semibold whitespace-nowrap text-strong no-underline hover:text-accent"
-          >
-            {name}
-          </a>
-        )}
-        {arg && <span className="font-mono text-[0.8125rem] break-words text-muted">{arg}</span>}
-        {type && <span className="font-mono text-2xs text-faint">{type}</span>}
-        {meta?.map(([k, v]) => (
-          <span key={k} className="font-mono text-2xs text-faint">
-            {k} <span className="text-muted">{v}</span>
+      <dt className="self-start">
+        <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+          {lead ?? (
+            <a
+              href={`#${anchor}`}
+              className="font-mono text-[0.8125rem] font-semibold whitespace-nowrap text-strong no-underline hover:text-accent"
+            >
+              {name}
+            </a>
+          )}
+          {arg && <span className="font-mono text-[0.8125rem] break-words text-muted">{arg}</span>}
+          {type && <span className="font-mono text-2xs text-faint">{type}</span>}
+          {pills}
+        </span>
+        {/* The default always on its own line, never flowed in after the type. Wrapping
+            it only when it happened not to fit gave the column a ragged second line on
+            some rows and not others, which is exactly the thing that stops a list of
+            twenty flags reading as one rail. */}
+        {meta && meta.length > 0 && (
+          <span className="mt-1 block font-mono text-2xs text-faint">
+            {meta.map(([k, v], i) => (
+              <span key={k}>
+                {i > 0 && ' · '}
+                {k} <span className="text-muted">{v}</span>
+              </span>
+            ))}
           </span>
-        ))}
-        {pills}
+        )}
+      </dt>
+      <dd className="min-w-0 text-[0.9375rem] leading-relaxed text-fg">
+        {children}
         {/* The anchor, revealed on hover. "Which flag was it that…" is the single most
             common thing anybody needs to send a colleague.
 
@@ -151,13 +175,10 @@ export function RefRow({
           href={`#${anchor}`}
           aria-hidden="true"
           tabIndex={-1}
-          className="ml-auto shrink-0 font-mono text-xs text-faint no-underline opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
+          className="ml-2 inline-block align-baseline font-mono text-xs text-faint no-underline opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
         >
           #
         </a>
-      </dt>
-      <dd className="mt-1.5 max-w-[var(--content-w)] text-[0.9375rem] leading-relaxed text-fg">
-        {children}
       </dd>
     </div>
   );

@@ -162,7 +162,10 @@ export function Argv({ argv }: { argv: string[] | string | undefined }) {
   if (!argv || argv.length === 0) return null;
   const line = Array.isArray(argv) ? argv.join(' ') : argv;
   return (
-    <pre className="mono overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] px-3 py-2 text-2xs text-[var(--fg-muted)]">
+    // Wraps rather than scrolls. This box exists so somebody can read the command
+    // before it runs, and a `site add` with eight flags in a narrow column had its
+    // second half behind a horizontal scrollbar nobody thinks to drag.
+    <pre className="mono whitespace-pre-wrap rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] px-3 py-2 text-2xs text-[var(--fg-muted)] [overflow-wrap:anywhere]">
       $ ratline {line.replace(/^ratline\s+/, '')}
     </pre>
   );

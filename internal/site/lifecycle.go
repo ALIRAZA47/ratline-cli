@@ -629,6 +629,32 @@ func (m *Manager) ProcessReport(ctx context.Context, site *state.Site) (*runtime
 	return node.PM2Report(ctx, rc)
 }
 
+// UsesPM2 reports whether a site is *configured* to run under PM2.
+//
+// Separate from ProcessReport on purpose. ProcessReport asks the running daemon and so
+// answers "nothing" whenever the daemon cannot be reached — PM2 missing from the
+// tenant's node_modules after a failed deploy, an environment that will not resolve, a
+// list that does not parse. Anything deciding *where a site's logs live* must not depend
+// on that, because where they live is a property of how the site is configured and does
+// not change when the application falls over. It was ProcessReport, and `site logs --app`
+// therefore read the journal on exactly the sites whose output never reaches the journal
+// — a PM2 site that had crashed showed an empty screen, which is the one moment somebody
+// is certain to be looking.
+func (m *Manager) UsesPM2(site *state.Site) bool {
+	if site == nil || site.Runtime != "node" {
+		return false
+	}
+	id, err := m.identity(site.Owner)
+	if err != nil {
+		// The owner not resolving is a broken site, not a direct-supervision one. PM2 is
+		// the default for node, so assume the default rather than silently sending a
+		// reader to the wrong log.
+		return runtime.ProcessManagerFor(&runtime.Context{Cfg: m.Cfg, Site: site}) == runtime.ProcessManagerPM2
+	}
+	rc := runtime.NewContext(m.Cfg, m.Log, m.Runner, site, id, m.DryRun)
+	return runtime.ProcessManagerFor(rc) == runtime.ProcessManagerPM2
+}
+
 // ReapplyUnit re-renders and reinstalls a dynamic site's unit.
 //
 // Needed when something that changes the unit's *shape* changes — the process

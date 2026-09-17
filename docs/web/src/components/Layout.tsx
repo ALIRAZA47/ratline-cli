@@ -9,6 +9,21 @@ import { Toc, TocInline } from './Toc';
 
 const currentVersion = releases[0]?.version ?? '';
 
+/**
+ * The header's own navigation: the four things somebody arrives wanting.
+ *
+ * Deliberately not the subject list — that is the sidebar's job, and a header that
+ * repeats it gives a reader two navigations to choose between and no reason to prefer
+ * either. These are the four entry points that are not a subject: where to start, the
+ * generated reference, the long-form topics, and what changed.
+ */
+const TOP_NAV = [
+  { label: 'Start', to: '/quickstart' },
+  { label: 'Commands', to: '/reference' },
+  { label: 'In depth', to: '/topics' },
+  { label: 'Releases', to: '/releases' },
+];
+
 function MenuIcon({ open }: { open: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" fill="none">
@@ -148,35 +163,60 @@ export function Layout() {
             <MenuIcon open={drawer} />
           </button>
 
-          <Link to="/" className="flex items-center gap-2.5 no-underline">
-            <span className="font-mono text-[0.9375rem] font-semibold tracking-tight text-strong">
-              ratline
-            </span>
-            <span aria-hidden="true" className="hidden h-4 w-px bg-line-strong sm:block" />
+          {/* The wordmark is the serif, at a size that reads as a masthead rather than a
+              logo. It is the one place the brand appears, so it is worth the room. */}
+          <Link to="/" className="flex items-baseline gap-2.5 no-underline">
+            <span className="font-serif text-xl tracking-tight text-strong">ratline</span>
             <span className="hidden text-sm text-muted sm:inline">docs</span>
           </Link>
+
+          {/* Four destinations, not a menu of everything: the subjects live in the
+              sidebar, and a second copy of them up here would be two navigations
+              disagreeing about which one is the way in. */}
+          <nav aria-label="Sections" className="ml-6 hidden items-center gap-5 md:flex">
+            {TOP_NAV.map((t) => {
+              const active = pathname === t.to || pathname.startsWith(`${t.to}/`);
+              return (
+                <Link
+                  key={t.to}
+                  to={t.to}
+                  aria-current={active ? 'page' : undefined}
+                  className={`text-sm no-underline transition-colors ${
+                    active ? 'font-medium text-strong' : 'text-muted hover:text-strong'
+                  }`}
+                >
+                  {t.label}
+                </Link>
+              );
+            })}
+          </nav>
 
           <div className="ml-auto flex items-center gap-2">
             {currentVersion && (
               <Link
                 to="/releases"
-                className="hidden rounded-full border border-line bg-sunken px-2.5 py-1 font-mono text-2xs text-muted no-underline transition-colors hover:border-line-strong hover:text-strong md:inline-block"
+                className="hidden rounded-full border border-line bg-sunken px-2.5 py-1 font-mono text-2xs text-muted no-underline transition-colors hover:border-line-strong hover:text-strong lg:inline-block"
               >
                 {currentVersion}
               </Link>
             )}
 
+            {/* A field, not a button: a reader who has been here before reaches a flag
+                faster by typing it than by walking the tree, so the way in says so in
+                words and shows the key that opens it. */}
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
               aria-label="Search the documentation"
               aria-keyshortcuts="/ Meta+K"
-              className="flex items-center gap-2 rounded-md border border-line bg-raised px-2.5 py-1.5 text-sm text-muted shadow-[var(--shadow-card)] transition-colors hover:border-line-strong hover:bg-hover sm:w-[13rem]"
+              className="flex items-center gap-2 rounded-md border border-line-strong bg-raised px-2.5 py-1.5 text-left text-sm text-faint shadow-[var(--shadow-card)] transition-colors hover:border-accent hover:bg-hover sm:w-[15rem]"
             >
               <SearchIcon />
-              <span className="hidden sm:inline">Search</span>
+              <span className="hidden truncate sm:inline">
+                Search a command, a flag, an error…
+              </span>
               <kbd className="ml-auto hidden rounded border border-line bg-sunken px-1.5 py-px font-mono text-2xs text-faint sm:inline">
-                ⌘K
+                /
               </kbd>
             </button>
 
@@ -310,8 +350,9 @@ export function Layout() {
       <footer className="mt-4 border-t border-line py-8">
         <div className="mx-auto max-w-[var(--shell-max)] px-4 text-xs leading-relaxed text-muted lg:px-6">
           <p className="max-w-[var(--content-w)]">
-            ratline documentation. No external fonts, no CDN, no analytics, no network calls at
-            runtime — this page is the whole thing.
+            ratline documentation. No CDN, no analytics, no network calls at runtime — the two
+            typefaces are served from this origin with everything else, so this page is the whole
+            thing.
           </p>
         </div>
       </footer>

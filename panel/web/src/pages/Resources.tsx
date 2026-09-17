@@ -7,6 +7,7 @@ import { useApi } from '../lib/hooks';
 import type { Action, Tenant } from '../lib/types';
 import { Card, Empty, ErrorBox, Facts, Spinner } from '../components/ui';
 import { WarningIcon } from '../components/icons';
+import { Value } from '../components/Value';
 import { factsFrom, firstArg } from './Sites';
 
 /**
@@ -363,6 +364,7 @@ export function Databases() {
       dataKey="databases"
       group="databases"
       primary={{ id: 'db.create', label: 'New database' }}
+      rowLink={(d) => `/databases/${encodeURIComponent(String(d.name ?? ''))}`}
       describe={(d) => {
         const users = Array.isArray(d.users) ? (d.users as unknown[]).length : 0;
         return {
@@ -397,5 +399,97 @@ export function Runtimes() {
         tone: r.default ? 'ok' : undefined,
       })}
     />
+  );
+}
+
+/**
+ * One database: what it is, who can reach it, and how to connect to it.
+ *
+ * No password is on this page, and there is no "Show" button that reveals one. Reading
+ * a secret goes through the action surface, where it is recorded against a name — the
+ * panel showing it inline would make the audit trail a matter of which page somebody
+ * happened to open. What is here is everything else you need to write a connection
+ * string, plus the command that fills in the rest.
+ */
+export function DatabaseDetail() {
+  const { name = '' } = useParams();
+  const db = useApi<Record<string, unknown>>(`/api/databases/${encodeURIComponent(name)}`);
+  const actions = useApi<Action[]>('/api/actions?group=databases');
+  const [openAction, setOpenAction] = useState<string | null>(null);
+  const action = useApi<Action>(openAction ? `/api/actions/${openAction}` : null);
+
+  const info = db.data ?? {};
+  const users = Array.isArray(info.users) ? (info.users as Record<string, unknown>[]) : [];
+  // "A MongoDB database", or just "A database" when the engine is not recorded —
+  // never "A database database", which is what a bare fallback into the noun gives.
+  const engine = info.engine ? String(info.engine) : '';
+  const owner = info.owner ? String(info.owner) : '';
+
+  return (
+    <Page
+      title={name}
+      lede={[
+        engine ? `A ${engine} database on this server` : 'A database on this server',
+        owner ? `belonging to ${owner}` : '',
+        users.length === 0
+          ? 'with no logins yet'
+          : users.length === 1
+            ? 'with one login that can reach it, and nothing else'
+            : `with ${users.length} logins that can reach it, and nothing else`,
+      ]
+        .filter(Boolean)
+        .join(', ')
+        .concat('.')}
+      back={{ to: '/databases', label: 'Databases' }}
+      actions={
+        <MoreMenu
+          actions={actions.data ?? []}
+          loading={actions.loading}
+          onPick={setOpenAction}
+          label="Commands"
+          empty="No database commands are available to you."
+        />
+      }
+    >
+      <ErrorBox error={db.error} />
+      {db.loading && !db.data && <Spinner />}
+
+      {openAction && (
+        <Card>
+          {action.loading && <Spinner />}
+          <ErrorBox error={action.error} />
+          {action.data && (
+            <ActionForm
+              action={action.data}
+              initialArgs={firstArg(action.data, name)}
+              onDone={() => db.reload()}
+            />
+          )}
+        </Card>
+      )}
+
+      {users.length > 0 && (
+        <Card title="Logins">
+          <ul>
+            {users.map((u, i) => (
+              <li key={String(u.name ?? i)} className="listrow items-start py-3">
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="mono text-sm">{String(u.name ?? '')}</span>
+                  <span className="text-2xs text-[var(--fg-muted)]">
+                    <Value value={u.roles ?? u.role ?? 'no roles recorded'} />
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {db.data && (
+        <Card title="What ratline knows">
+          <Facts rows={factsFrom(db.data)} />
+        </Card>
+      )}
+    </Page>
   );
 }

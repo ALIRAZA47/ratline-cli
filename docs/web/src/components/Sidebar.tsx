@@ -10,10 +10,11 @@ import type { NavItem } from '../data/nav';
  * into sections of the configuration page. Matching on pathname would light up all twelve
  * of them at once the moment you opened that page.
  *
- * The active entry is the accent colour, semibold, against a two-pixel accent rail. No
- * filled background: in a column that can hold eighty-six monospace command names, a block
- * of colour reads as a selected row in a table rather than as "you are here", and the rail
- * alone tracks the eye down the list.
+ * The active entry is a rounded, inset pill in the accent's faintest tint. The hairline
+ * down the left stays: it is what tells a nested list of command names apart from the
+ * section above it, and without it eighty-six entries read as one undifferentiated column.
+ * A pill rather than a full-bleed row, because a row of colour running to both edges of
+ * the column reads as a selected row in a table rather than as "you are here".
  */
 function NavList({ items, here }: { items: NavItem[]; here: string }) {
   return (
@@ -21,11 +22,11 @@ function NavList({ items, here }: { items: NavItem[]; here: string }) {
       {items.map((item) => {
         const cls = (active: boolean) =>
           [
-            '-ml-px block border-l-2 py-[0.3rem] pl-3 pr-2 leading-snug no-underline transition-colors',
+            'ml-1.5 block rounded-md py-[0.3rem] pl-2.5 pr-2 leading-snug no-underline transition-colors',
             item.mono ? 'font-mono text-[0.8125rem]' : 'text-sm',
             active
-              ? 'border-accent font-semibold text-accent'
-              : 'border-transparent text-muted hover:border-line-strong hover:text-strong',
+              ? 'bg-accent-soft font-medium text-accent-ink'
+              : 'text-muted hover:bg-hover hover:text-strong',
           ].join(' ');
         const active = here === item.to;
         return (

@@ -5,6 +5,24 @@ import { Argv, Badge, ErrorBox, Field } from './ui';
 import { Value } from './Value';
 
 /**
+ * One step of a form asked a few questions at a time.
+ *
+ * `fields` names positional arguments and flags by their ratline names. It is a
+ * *grouping*, never a declaration: a field the steps do not mention is not dropped, it
+ * is collected into an "Anything else" step before the review. That is what keeps a
+ * wizard honest against a binary it does not control — a ratline release that adds a
+ * flag to `site add` still offers it here, in a step nobody had to write.
+ */
+export interface FormStep {
+  /** The short name in the rail down the side. */
+  title: string;
+  /** The question at the top of the step. */
+  heading: string;
+  lede?: string;
+  fields: string[];
+}
+
+/**
  * A form for any ratline command.
  *
  * The fields are not written down anywhere in this application. They come from
@@ -32,12 +50,24 @@ export function ActionForm({
   initialArgs = {},
   onDone,
   compact = false,
+  steps,
+  onCancel,
 }: {
   action: Action;
   /** Pre-filled positional arguments, for a form opened from a site or a tenant. */
   initialArgs?: Record<string, string>;
   onDone?: (result: RunResult) => void;
   compact?: boolean;
+  /**
+   * Ask the same questions a few at a time instead of all at once.
+   *
+   * Everything below — the argv preview, the secret on stdin, the typed-back
+   * confirmation, the submit — is unchanged and shared. Only which fields are on
+   * screen changes, because a second form component would be a second place for the
+   * rules that stop argv injection to drift out of step with the first.
+   */
+  steps?: FormStep[];
+  onCancel?: () => void;
 }) {
   const [args, setArgs] = useState<Record<string, string>>(() => ({ ...initialArgs }));
   const [flags, setFlags] = useState<Record<string, string | boolean>>({});
@@ -67,6 +97,72 @@ export function ActionForm({
 
   const target = action.args?.[0] ? (args[action.args[0].name] ?? '') : '';
   const confirmed = !action.destructive || confirm.trim() === target;
+
+  /**
+   * The steps, resolved against the fields this action actually has.
+   *
+   * Recomputed as the runtime changes, because `visibleFlags` does: choosing Python
+   * on `site add` makes --app-module apply and --entry not, and a step that had
+   * resolved once would go on showing the Node question.
+   */
+  const [stepIndex, setStepIndex] = useState(0);
+  const plan = useMemo(() => {
+    if (!steps) return null;
+    // In the order the step names them, not the catalogue's alphabetical one. A step
+    // headed "Which server user owns it?" that opens with --branch because b sorts
+    // before u has asked its question and then buried the answer.
+    const argsOf = (names: string[]) =>
+      names.flatMap((n) => (action.args ?? []).filter((a) => a.name === n));
+    const flagsOf = (names: string[]) =>
+      names.flatMap((n) => visibleFlags.filter((f) => f.name === n));
+
+    const claimed = new Set(steps.flatMap((s) => s.fields));
+    const resolved = steps.map((s) => ({
+      ...s,
+      args: argsOf(s.fields),
+      flags: flagsOf(s.fields),
+      review: false,
+    }));
+
+    // Everything the steps did not name. Offered rather than hidden — see FormStep.
+    const restArgs = (action.args ?? []).filter((a) => !claimed.has(a.name));
+    const restFlags = visibleFlags.filter((f) => !claimed.has(f.name));
+    if (restArgs.length > 0 || restFlags.length > 0) {
+      resolved.push({
+        title: 'Anything else',
+        heading: 'Anything else you want to set',
+        lede: 'These have sensible defaults. Most sites never need them.',
+        fields: [],
+        args: restArgs,
+        flags: restFlags,
+        review: false,
+      });
+    }
+
+    resolved.push({
+      title: 'Check and create',
+      heading: 'Check it over',
+      lede: 'Nothing has happened yet. This is exactly what is about to run.',
+      fields: [],
+      args: [],
+      flags: [],
+      review: true,
+    });
+    return resolved;
+  }, [steps, action.args, visibleFlags]);
+
+  // A step that emptied out — the last runtime-specific question disappearing when the
+  // runtime changed — must not strand somebody on a blank page.
+  const at = plan ? Math.min(stepIndex, plan.length - 1) : 0;
+  const current = plan?.[at];
+  const onReview = !plan || (current?.review ?? false);
+
+  /** Required fields in this step only, so Continue gates on what is on screen. */
+  const stepIncomplete =
+    current !== undefined &&
+    !current.review &&
+    (current.args.some((a) => a.required && !args[a.name]) ||
+      current.flags.some((f) => f.required && !flags[f.name]));
 
   /**
    * The command this form is about to run, as the server would build it.
@@ -135,15 +231,28 @@ export function ActionForm({
     (action.stdin !== undefined && secret === '') ||
     (action.stdin?.key_label !== undefined && secretKey === '');
 
-  return (
+  const form = (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
+        // Enter on a question is "next", not "create". A wizard exists so that
+        // nothing is provisioned before somebody has seen the whole of it.
+        if (!onReview) {
+          if (!stepIncomplete) setStepIndex(at + 1);
+          return;
+        }
         void submit('run');
       }}
     >
-      {!compact && (
+      {current && !current.review && (
+        <header className="space-y-1">
+          <h2 className="font-serif text-xl">{current.heading}</h2>
+          {current.lede && <p className="text-sm text-[var(--fg-muted)]">{current.lede}</p>}
+        </header>
+      )}
+
+      {!compact && !plan && (
         <header className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold">{action.title}</h2>
@@ -161,7 +270,7 @@ export function ActionForm({
         </header>
       )}
 
-      {(action.args ?? []).map((arg) => (
+      {(current ? current.args : (action.args ?? [])).map((arg) => (
         <Field key={arg.name} label={arg.name} required={arg.required}>
           <input
             className="field field-mono"
@@ -199,9 +308,9 @@ export function ActionForm({
         </div>
       )}
 
-      {visibleFlags.length > 0 && (
+      {(current ? current.flags : visibleFlags).length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
-          {visibleFlags.map((flag) => (
+          {(current ? current.flags : visibleFlags).map((flag) => (
             <FlagField
               key={flag.name}
               flag={flag}
@@ -212,7 +321,7 @@ export function ActionForm({
         </div>
       )}
 
-      {hiddenCount > 0 && (
+      {hiddenCount > 0 && !plan && (
         <button type="button" className="btn btn-ghost text-xs" onClick={() => setShowAll(true)}>
           Show {hiddenCount} more {hiddenCount === 1 ? 'flag' : 'flags'} for the other runtimes
         </button>
@@ -233,9 +342,32 @@ export function ActionForm({
         </Field>
       )}
 
+      {/* What you said, in the words you were asked in. The argv below is the exact
+          truth and the reason it is shown; this is the readable version of the same
+          thing, because "--app-module=app.main:app" is not what anybody answered. */}
+      {plan && onReview && (
+        <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+          {plan
+            .filter((s) => !s.review)
+            .flatMap((s) => [
+              ...s.args.map((a) => [a.name, args[a.name] ?? ''] as const),
+              ...s.flags.map((f) => [f.name, flags[f.name]] as const),
+            ])
+            .filter(([, v]) => v !== undefined && v !== '' && v !== false)
+            .map(([name, v]) => (
+              <div key={name} className="contents">
+                <dt className="text-[var(--fg-faint)]">{name}</dt>
+                <dd className="min-w-0 [overflow-wrap:anywhere]">
+                  {v === true ? 'Yes' : String(v)}
+                </dd>
+              </div>
+            ))}
+        </dl>
+      )}
+
       {preview && (
         <div className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-sunken)]/40 px-3.5 py-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h3 className="text-xs font-semibold">What will run</h3>
             <span className="hint">
               Built by the server, not guessed here — this is the command, exactly.
@@ -247,35 +379,98 @@ export function ActionForm({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {action.mutates && (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy !== null || missingRequired}
-            onClick={() => void submit('preview')}
-          >
-            {busy === 'preview' ? 'Rehearsing…' : 'Dry run'}
+      {plan && !onReview ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="submit" className="btn btn-primary" disabled={stepIncomplete}>
+            Continue
           </button>
-        )}
-        <button
-          type="submit"
-          className={`btn ${action.destructive ? 'btn-danger' : 'btn-primary'}`}
-          disabled={busy !== null || missingRequired || !confirmed}
-        >
-          {busy === 'run' ? 'Running…' : action.mutates ? action.title : 'Run'}
-        </button>
-        {action.mutates && (
-          <span className="hint">
-            A dry run writes nothing at any layer — it is the same code path with the
-            writes turned off.
-          </span>
-        )}
-      </div>
+          {at > 0 ? (
+            <button type="button" className="btn" onClick={() => setStepIndex(at - 1)}>
+              Back
+            </button>
+          ) : (
+            onCancel && (
+              <button type="button" className="btn" onClick={onCancel}>
+                Cancel
+              </button>
+            )
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {action.mutates && (
+            <button
+              type="button"
+              className="btn"
+              disabled={busy !== null || missingRequired}
+              onClick={() => void submit('preview')}
+            >
+              {busy === 'preview' ? 'Rehearsing…' : 'Dry run'}
+            </button>
+          )}
+          <button
+            type="submit"
+            className={`btn ${action.destructive ? 'btn-danger' : 'btn-primary'}`}
+            disabled={busy !== null || missingRequired || !confirmed}
+          >
+            {busy === 'run' ? 'Running…' : action.mutates ? action.title : 'Run'}
+          </button>
+          {plan && at > 0 && (
+            <button type="button" className="btn" onClick={() => setStepIndex(at - 1)}>
+              Back
+            </button>
+          )}
+          {action.mutates && (
+            <span className="hint">
+              A dry run writes nothing at any layer — it is the same code path with the
+              writes turned off.
+            </span>
+          )}
+        </div>
+      )}
 
       <ErrorBox error={error} />
       {result && <Result result={result} />}
     </form>
+  );
+
+  if (!plan) return form;
+
+  return (
+    <div className="flex flex-col gap-7 md:flex-row md:gap-10">
+      {/* The rail is a map, not a menu. A step ahead of where you are is not
+          reachable by clicking it — the questions build on each other, and the
+          runtime chosen in step two decides which questions step three even has. */}
+      <ol className="flex shrink-0 flex-col gap-3 md:w-48">
+        {plan.map((s, i) => (
+          <li key={s.title} className="flex items-center gap-2.5">
+            <span
+              className={`stepnum ${i === at ? 'stepnum-on' : i < at ? 'stepnum-done' : ''}`}
+              aria-hidden="true"
+            >
+              {i < at ? '✓' : i + 1}
+            </span>
+            {i < at ? (
+              <button
+                type="button"
+                className="text-left text-sm text-[var(--fg-muted)] hover:underline"
+                onClick={() => setStepIndex(i)}
+              >
+                {s.title}
+              </button>
+            ) : (
+              <span
+                className={`text-sm ${i === at ? 'font-medium' : 'text-[var(--fg-faint)]'}`}
+                aria-current={i === at ? 'step' : undefined}
+              >
+                {s.title}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      <div className="min-w-0 flex-1">{form}</div>
+    </div>
   );
 }
 

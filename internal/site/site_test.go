@@ -464,3 +464,40 @@ func lifecycleFixture(t *testing.T) (*state.Store, *Manager, *state.Site) {
 	mgr.State = st
 	return st, mgr, site
 }
+
+// Where a site's application log lives is a property of how the site is configured, and
+// `site logs --app` has to decide from that rather than from whether PM2 answers.
+//
+// It used to decide from ProcessReport, which runs `pm2 jlist` as the tenant: a site
+// whose PM2 could not be reached — a deploy that took node_modules with it, a daemon
+// that died — was read as "not PM2 supervised" and the reader was sent to the journal,
+// which on a PM2 site carries PM2's own messages and never the application's. The screen
+// came up empty at the one moment somebody was certain to be looking at it.
+//
+// The Manager here has no Runner at all, which is the negative case made structural:
+// anything that tried to ask a daemon would have to dereference a nil one.
+func TestUsesPM2AsksTheConfigurationRatherThanTheDaemon(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		site  *state.Site
+		cfgPM string
+		want  bool
+	}{
+		{"node, nothing chosen, so the default", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node"}, "", true},
+		{"node, pm2 on the site", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node", ProcessManager: "pm2"}, "", true},
+		{"node, direct on the site", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node", ProcessManager: "direct"}, "", false},
+		{"node, direct by configuration", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node"}, "direct", false},
+		{"node, the site overrides the configuration", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node", ProcessManager: "pm2"}, "direct", true},
+		{"python has no PM2", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "python"}, "", false},
+		{"bun has no PM2", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "bun"}, "", false},
+		{"static has no PM2", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "static"}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := testManager()
+			m.Cfg.Runtimes.NodeProcessManager = tc.cfgPM
+			if got := m.UsesPM2(tc.site); got != tc.want {
+				t.Errorf("UsesPM2 = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
