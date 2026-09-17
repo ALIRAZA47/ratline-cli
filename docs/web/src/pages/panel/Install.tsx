@@ -31,7 +31,22 @@ export function PanelInstall() {
         ]}
       />
 
-      <H2 id="install">Install</H2>
+      <H2 id="alongside">On a new server, with ratline</H2>
+      <p>
+        If ratline is not on the machine yet, install both in one command rather than doing this
+        twice &mdash; ratline&rsquo;s own installer will bring the panel with it:
+      </p>
+      <CodeBlock
+        lang="shell"
+        code={`curl -fsSL https://ratline.alirazakhan.me/install.sh \\
+  | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh`}
+      />
+      <p>
+        It asks about the panel interactively when you leave both variables off. Everything below
+        is the same thing on a server that already runs ratline.
+      </p>
+
+      <H2 id="install">On a server that already runs ratline</H2>
       <Terminal>{`$ curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh
 → Architecture: amd64
 → Driving ratline v0.14.1

@@ -25,6 +25,17 @@ Dana, signing in from an address, asked for the deploy that ratline recorded as 
 
 ## Installing it
 
+The quickest path is to say so when ratline itself goes on:
+
+```sh
+curl -fsSL https://ratline.alirazakhan.me/install.sh \
+  | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh
+```
+
+That installs both, sets ratline up, and then hands over to the panel's own installer
+for the rest. The section below is the same thing on a server that already runs
+ratline.
+
 On a server that is already running ratline, with tenants and sites on it. That is the
 normal case and nothing about it is special: the panel writes its own configuration,
 its own database and its own unit, and touches none of ratline's.

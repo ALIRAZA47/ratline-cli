@@ -54,10 +54,45 @@ less install.sh && sudo sh install.sh`}
       />
 
       <div className="prose">
+        <H3>With the web panel</H3>
+        <p>
+          The panel is a separate binary and a separate service, and the same command can put it on
+          at the same time:
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        code={`curl -fsSL https://ratline.alirazakhan.me/install.sh \
+  | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh`}
+      />
+
+      <div className="prose">
+        <p>
+          You are asked about it interactively when neither variable is set. An unattended run that
+          does not ask for it gets ratline alone — a server that did not request a web service
+          should not find one listening on it. <code>PANEL_ADMIN_EMAIL</code> is who the panel’s
+          first account belongs to; its generated password is printed once. Without a terminal to
+          ask on and without that address the installer refuses before anything is downloaded,
+          rather than leaving a panel answering and unclaimed.
+        </p>
+        <p>
+          Adding it to a server that already runs ratline is the panel’s own one-liner, and{' '}
+          <Link to="/panel/install">the panel’s installation page</Link> covers the rest.
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        code="curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh"
+      />
+
+      <div className="prose">
         <p>
           <code>RATLINE_VERSION=v0.4.0</code> pins a release, <code>ASSUME_YES=1</code> answers every
-          prompt for Ansible or cloud-init, <code>NO_INIT=1</code> installs the binaries and stops,
-          and <code>PREFIX</code> moves the target from <code>/usr/local</code>.
+          prompt for Ansible or cloud-init, <code>NO_INIT=1</code> installs the binaries and stops,{' '}
+          <code>WITH_PANEL=1</code> brings the panel along, and <code>PREFIX</code> moves the target
+          from <code>/usr/local</code>.
         </p>
         <p>
           Upgrading later is one command too: <code>ratline update</code> checksums the new release,

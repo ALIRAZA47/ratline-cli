@@ -39,6 +39,52 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.18.0',
+    date: '2026-09-17',
+    summary:
+      'The panel, rewritten for somebody who is not a sysadmin: warm paper and a serif in place of the terminal palette, and every screen saying what happened in a sentence rather than naming a field. The installer can now put it on at the same time as ratline.',
+    upgrade: 'ratline update',
+    assertions: 679,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'The panel speaks in sentences',
+        body:
+          'The panel was built for somebody who already knows what a systemd unit is. It is now for somebody who knows what their site is and not much else. The front page opens with “Three sites, one of them in trouble.” rather than a hostname and a count — two facts and no answer. The five resource lists were one shared table, and one change converted all of them: a server user reads “Active · cannot open a shell · lives in /home/blog” instead of four columns you have to decode against a header row. Work and Activity say what happened — “Ali deployed api.example.com”, “Sam rehearsed making the database shopdb, and nothing was written”. ratline’s own vocabulary is translated where it is the tool’s word and not a person’s: a tenant is a server user, runtimes are languages, jobs are work.',
+      },
+      {
+        kind: 'feature',
+        title: 'A new look, carried in the binary',
+        body:
+          'Warm paper and warm ink against a deep sea blue, Newsreader over Public Sans. The obvious palette for a server tool is a dark terminal, and this goes the other way deliberately, because the people it is for are not at a terminal; the dark theme is re-pitched warm to match. Both faces ride in the bundle rather than being fetched — the panel’s Content-Security-Policy is font-src \'self\', and a panel is often reached on a private network with no route out to a font host. Latin subsets of both variable fonts come to about 85 KB, and both are OFL.',
+      },
+      {
+        kind: 'feature',
+        title: 'The installer can bring the panel with it',
+        body:
+          'One command for a whole server, rather than two installs and remembering the second. You are asked about it interactively; an unattended run that does not ask for it gets ratline alone, because a server that did not request a web service should not find one listening on it. With no terminal to ask on and no address for the first account, it refuses before anything is downloaded rather than leaving a panel answering and unclaimed.',
+        code: `curl -fsSL https://ratline.alirazakhan.me/install.sh \\
+  | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh`,
+      },
+      {
+        kind: 'fix',
+        title: 'A site’s page no longer shows you JSON, or breaks on it',
+        body:
+          'A site carried its certificate as one line of JSON — twenty fields with nothing to break at — so it could not wrap and set the width of the card, pushing the page sideways. The layout half was two lines: the value column was sized 1fr, which floors at the content’s max-content width, so an unbreakable value widens it by definition. The other half is a renderer with a general rule rather than a list of known fields, because ratline can add one in any release: an object becomes labelled rows, a timestamp becomes a date and how far away it is, a long path wraps anywhere. A field nobody has named still arrives readable.',
+      },
+      {
+        kind: 'fix',
+        title: 'The front page counted one thing and listed another',
+        body:
+          'Its opening sentence counted the raw warning fields while the band below deduplicated them, so it said “three things want looking at” above a list of two. Both now come from one function.',
+      },
+    ],
+    known: [
+      'The stepped “new site” flow from the design is not built yet: creating a site still opens the generated form inline, which works but is not the guided version. The same goes for filtering a site’s logs.',
+      'Three tables are deliberately still tables — the environment list, the team roster and signed-in sessions. Each is genuinely tabular and carries per-row controls; a role dropdown and three buttons do not become prose without getting worse.',
+    ],
+  },
+  {
     version: 'v0.17.0',
     date: '2026-09-17',
     summary:

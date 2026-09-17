@@ -156,8 +156,8 @@ export function PanelOverview() {
           to="/panel/install"
           title="Install it"
           >
-            One command onto a server already running ratline. It creates the first super
-            admin itself.
+            One command, on a server that already runs ratline or at the same time as it.
+            It creates the first super admin itself.
           </CardLink>
         <CardLink
           to="/panel/domain"
