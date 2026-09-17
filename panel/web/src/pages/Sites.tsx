@@ -20,9 +20,7 @@ import {
 } from '../components/ui';
 
 export function Sites() {
-  const { data, error, loading, reload } = useApi<{ sites: Site[] }>('/api/sites');
-  const [creating, setCreating] = useState(false);
-  const create = useApi<Action>(creating ? '/api/actions/site.add' : null);
+  const { data, error, loading } = useApi<{ sites: Site[] }>('/api/sites');
 
   const sites = data?.sites ?? [];
 
@@ -31,30 +29,14 @@ export function Sites() {
       title="Sites"
       lede="One address, one owner, one service behind it."
       actions={
-        <button className="btn btn-primary" onClick={() => setCreating((v) => !v)}>
-          {creating ? 'Cancel' : 'New site'}
-        </button>
+        // A page rather than a panel that unfolds here. `site add` asks enough
+        // questions to be worth its own screen and its own URL — one somebody can
+        // come back to, or send to a colleague.
+        <Link className="btn btn-primary" to="/sites/new">
+          New site
+        </Link>
       }
     >
-      {creating && (
-        <Card title="Provision a site">
-          {create.loading && <Spinner />}
-          <ErrorBox error={create.error} />
-          {create.data && (
-            <ActionForm
-              action={create.data}
-              compact
-              onDone={(res) => {
-                if (res.ok && !res.job_id) {
-                  setCreating(false);
-                  reload();
-                }
-              }}
-            />
-          )}
-        </Card>
-      )}
-
       <ErrorBox error={error} />
       {loading && !data ? (
         <Spinner />

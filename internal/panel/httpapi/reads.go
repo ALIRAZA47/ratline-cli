@@ -229,6 +229,18 @@ func (s *Server) handleTenants(w http.ResponseWriter, r *http.Request, c *Caller
 	s.serveRead(w, r, c, "user list")
 }
 
+// handleDatabase is one database: its engine, its owner, and the logins that can
+// reach it. Passwords are not here — reading one is a deliberate act through the
+// action surface, where it is recorded against a name.
+func (s *Server) handleDatabase(w http.ResponseWriter, r *http.Request, c *Caller) {
+	name := r.PathValue("name")
+	if err := validate.DatabaseName(name); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.serveRead(w, r, c, "db show", name)
+}
+
 func (s *Server) handleTenant(w http.ResponseWriter, r *http.Request, c *Caller) {
 	name := r.PathValue("name")
 	if err := validate.Username(name); err != nil {

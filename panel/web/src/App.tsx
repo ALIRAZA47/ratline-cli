@@ -4,7 +4,16 @@ import { useSession } from './lib/session';
 import { Accept, SignIn, Setup } from './pages/SignIn';
 import { Overview } from './pages/Overview';
 import { SiteDetail, SiteLogs, Sites } from './pages/Sites';
-import { Certificates, Databases, Keys, Runtimes, TenantDetail, Tenants } from './pages/Resources';
+import { NewSite } from './pages/NewSite';
+import {
+  Certificates,
+  DatabaseDetail,
+  Databases,
+  Keys,
+  Runtimes,
+  TenantDetail,
+  Tenants,
+} from './pages/Resources';
 import { JobDetail, Jobs } from './pages/Jobs';
 import { Activity } from './pages/Activity';
 import { Team } from './pages/Team';
@@ -44,6 +53,7 @@ export default function App() {
       >
         <Route index element={<Overview />} />
         <Route path="sites" element={<Sites />} />
+        <Route path="sites/new" element={<NewSite />} />
         <Route path="sites/:domain" element={<SiteDetail />} />
         <Route path="sites/:domain/logs" element={<SiteLogs />} />
         <Route path="tenants" element={<Tenants />} />
@@ -51,6 +61,7 @@ export default function App() {
         <Route path="certs" element={<Certificates />} />
         <Route path="keys" element={<Keys />} />
         <Route path="databases" element={<Databases />} />
+        <Route path="databases/:name" element={<DatabaseDetail />} />
         <Route path="runtimes" element={<Runtimes />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetail />} />

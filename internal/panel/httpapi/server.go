@@ -104,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/keys", s.authed(s.handleKeys))
 	mux.Handle("GET /api/certs", s.authed(s.handleCerts))
 	mux.Handle("GET /api/databases", s.authed(s.handleDatabases))
+	mux.Handle("GET /api/databases/{name}", s.authed(s.handleDatabase))
 	mux.Handle("GET /api/runtimes", s.authed(s.handleRuntimes))
 	mux.Handle("GET /api/doctor", s.authed(s.handleDoctor))
 
