@@ -1,4 +1,6 @@
 /bin/
+# A stray `go build ./cmd/ratline-shell` with no -o lands here.
+/ratline-shell
 /dist/
 coverage.out
 *.test
@@ -35,3 +37,7 @@ docs/web/src/generated/
 
 # Copied from packaging/panel-install.sh at build time; the source is there, not here.
 docs/web/public/panel.sh
+
+# Eval runs of the agent plugin write their results beside the cases; the cases are
+# source, the results are not.
+/plugins/ratline/evals/results/

@@ -1,0 +1,13 @@
+{
+  "name": "ratline",
+  "version": "0.1.0",
+  "description": "Deploy to, diagnose and operate a ratline server. Every skill and agent is a caller of the ratline CLI: it reads `ratline schema` for the flags, rehearses with --dry-run, sends secrets on stdin and branches on the exit-code contract.",
+  "author": {
+    "name": "Ali Raza Khan",
+    "url": "https://github.com/ALIRAZA47"
+  },
+  "homepage": "https://ratline.alirazakhan.me/guides/agents",
+  "repository": "https://github.com/ALIRAZA47/ratline-cli",
+  "license": "AGPL-3.0-only",
+  "keywords": ["ratline", "vps", "deploy", "nginx", "systemd", "hosting", "mcp"]
+}

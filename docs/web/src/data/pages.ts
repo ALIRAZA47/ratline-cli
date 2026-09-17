@@ -240,7 +240,7 @@ export const pageMeta: Record<string, PageMeta> = {
     keywords: [
       'ai', 'agent', 'llm', 'mcp', 'model context protocol', 'claude', 'automation',
       'schema', 'machine readable', 'json', 'tool use', 'copilot', 'autonomous deploy',
-      'ratline mcp', 'ratline schema',
+      'ratline mcp', 'ratline schema', 'plugin', 'skills', 'claude code', 'agent skills',
     ],
   },
   '/guides/github-actions': {

@@ -90,7 +90,7 @@ ratline schema | jq -r '.. | objects | select(.required == true) | .name'`}
   "mcpServers": {
     "ratline": {
       "command": "ssh",
-      "args": ["root@server.example.com", "ratline", "mcp"]
+      "args": ["-T", "root@server.example.com", "sudo", "ratline", "mcp"]
     }
   }
 }`}
@@ -132,6 +132,59 @@ ratline schema | jq -r '.. | objects | select(.required == true) | .name'`}
           is an invitation to find a way around it. If it calls one by name anyway, the
           error says what it is and which flag would enable it — so the agent tells you,
           rather than looping.
+        </p>
+      </Callout>
+
+      <div className="prose">
+        <H2 id="plugin">Skills and agents, ready made</H2>
+        <p>
+          The repository ships a Claude Code plugin that wires all of this up: the read-only
+          MCP server over SSH, ten skills that teach an agent how to do a job with ratline,
+          and five agents split by how much they are allowed to change.
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        prompt
+        code={`/plugin marketplace add ALIRAZA47/ratline-cli
+/plugin install ratline@ratline
+export RATLINE_HOST=root@203.0.113.5     # or an alias from ~/.ssh/config`}
+      />
+
+      <Facts
+        rows={[
+          ['ratline-deploy', 'any application: read the repo, provision, ship, verify over HTTPS'],
+          ['ratline-ci', 'deploy on push with a key that can run exactly one command as root'],
+          ['ratline-server-setup', 'a bare Ubuntu or Debian VPS to a working server'],
+          ['ratline-diagnose', 'troubleshoot first, logs second, one fix, re-check'],
+          ['ratline-secrets · -access · -databases · -jobs', 'the resources a site needs, each done the safe way'],
+          ['ratline-operate · -panel', 'day two, and the web interface'],
+        ]}
+      />
+
+      <div className="prose">
+        <p>
+          The agents: <code>ratline-deployer</code> dry-runs every mutation and asks before
+          anything irreversible; <code>ratline-oncall</code> holds only the read-only MCP
+          tools, so it cannot change the server even if asked; <code>ratline-operator</code>{' '}
+          runs maintenance passes and needs a typed yes for upgrades, restores and drift
+          repair; <code>ratline-access-admin</code> handles keys and tenants and never
+          touches sshd's core settings or the last admin key;{' '}
+          <code>ratline-invariant-reviewer</code> reviews a change to ratline itself.
+        </p>
+      </div>
+
+      <Callout tone="note" title="Callers, not a second ratline">
+        <p>
+          The skills are written the way the web panel is. They look flags up in{' '}
+          <code>ratline schema</code> rather than remembering them, rehearse with{' '}
+          <code>--dry-run</code>, send secrets on stdin, never hand-write an nginx file or
+          a unit, and say plainly when ratline cannot host something. Every command and
+          flag they name is checked against the binary in CI, so a release that renames a
+          flag fails the build instead of teaching an agent a flag that no longer exists.
+          They follow the open Agent Skills format, so another agent can use them by
+          copying a skill's directory from <code>plugins/ratline/skills</code>.
         </p>
       </Callout>
 

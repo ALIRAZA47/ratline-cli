@@ -182,6 +182,10 @@ completions: build ## Generate shell completions into dist/completions
 docs-commands: build ## Regenerate docs/reference/commands.md from the binary
 	bash scripts/gen-commands.sh ./bin/$(BINARY) docs/reference/commands.md
 
+.PHONY: check-skills
+check-skills: build ## Check the agent plugin names only commands and flags the binary has
+	python3 scripts/check-skills.py ./bin/$(BINARY) plugins/ratline
+
 .PHONY: man
 man: build ## Generate man pages into dist/man
 	mkdir -p $(DIST)/man

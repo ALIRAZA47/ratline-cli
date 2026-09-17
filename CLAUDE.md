@@ -220,6 +220,23 @@ environment. No script is built from user input and the admin URI never appears 
   (commands), `data/subjects.ts` (which pages belong to which subject), `data/pages.ts`
   (labels, blurbs, search keywords). Sections are **subjects**, not document kinds — a
   subject owns its commands, concepts, in-depth topics, runbooks and config settings.
+- `plugins/ratline/` is the **Claude Code plugin**: ten skills, five agents and a read-only
+  MCP config, installable from this repository as a marketplace (`.claude-plugin/
+  marketplace.json`). The skills are callers of the CLI, exactly as the panel is, and are
+  meant to stay thin: facts come from `ratline schema` and `ratline explain` on the installed
+  binary, so the skills teach workflow and judgement rather than flag lists. Every `ratline`
+  command and `--flag` they name is checked against `ratline schema` by
+  `scripts/check-skills.py` (`make check-skills`, and CI). Rename a flag and the check fails
+  until the skill is updated; the on-call agent's `tools` list names the MCP tools as
+  `mcp__plugin_ratline_ratline__*`, which is how a plugin-provided server is addressed.
+  The skills have an eval suite under `plugins/ratline/evals` for `claude plugin eval`
+  (see the plugin README for the flags); a skill change that touches what an agent would
+  run is worth a `--runs 1` pass of the affected case before merging.
+  `scripts/check-skills.py` descends into a ratline command line carried inside a quoted
+  argument — a `--command '/usr/local/bin/ratline site deploy … --json'` sudoers grant, or
+  an `ssh host "ratline …"` — because that string is the one a rule pins and a wrong flag
+  in it is the most expensive kind. A mutation test that only tried a fenced code block
+  passed while that whole class went unchecked.
 - `docs/reference/commands.md` is **generated**. Change the help text in Go and run
   `make docs-commands`; do not hand-edit it. CI regenerates it and fails on a diff.
 

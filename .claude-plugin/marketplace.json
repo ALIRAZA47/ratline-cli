@@ -1,0 +1,21 @@
+{
+  "name": "ratline",
+  "owner": {
+    "name": "Ali Raza Khan",
+    "url": "https://github.com/ALIRAZA47"
+  },
+  "metadata": {
+    "description": "Skills and agents for operating a ratline server from Claude Code: deploy any application, wire CI, diagnose, manage access, databases, jobs and upgrades. Everything runs through the ratline CLI.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "ratline",
+      "source": "./plugins/ratline",
+      "description": "Deploy to, diagnose and operate a ratline server. Ten skills, five agents and a read-only MCP server over SSH.",
+      "version": "0.1.0",
+      "category": "devops",
+      "keywords": ["ratline", "vps", "deploy", "nginx", "systemd", "hosting", "ubuntu", "debian"]
+    }
+  ]
+}

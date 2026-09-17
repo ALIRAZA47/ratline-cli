@@ -81,7 +81,7 @@ export const topicGroups: { title: string; blurb: string; names: string[] }[] = 
   {
     title: 'Running it',
     blurb: 'Deploys, the ceilings that hold, and what to do when something breaks.',
-    names: ['deploys', 'limits', 'safety', 'diagnose'],
+    names: ['deploys', 'limits', 'safety', 'diagnose', 'agents'],
   },
   {
     title: 'The web interface',

@@ -1,0 +1,19 @@
+$ ratline troubleshoot api.acme.example
+api.acme.example  —  python, owned by acme
+
+  ok    enabled
+  ok    nginx configuration  —  /etc/nginx/sites-available/api.acme.example.conf
+  ok    nginx accepts the configuration
+  ok    site directory  —  /home/acme/api.acme.example
+  ok    systemd unit  —  active, pid 41822
+  FAIL  the application is listening where nginx expects  —  the socket is
+        mode 0640; nginx needs 0660 to connect, so every request is a 502
+  --    the application answers a request  —  not checked: listening has to
+        pass first
+  warn  a current certificate is attached  —  6 days left
+  ok    3 checks passed
+
+Likely cause: the socket is mode 0640; nginx needs 0660 to connect, so every
+              request is a 502
+Try:          ratline site restart api.acme.example
+Background:   ratline explain sockets

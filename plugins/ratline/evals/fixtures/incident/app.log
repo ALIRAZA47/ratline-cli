@@ -1,0 +1,4 @@
+[2026-09-17 02:59:58 +0000] [41822] [INFO] Starting gunicorn 23.0.0
+[2026-09-17 02:59:58 +0000] [41822] [INFO] Listening at: unix:/run/ratline/acme-api_acme_example/app.sock (41822)
+[2026-09-17 02:59:58 +0000] [41822] [INFO] Using worker: uvicorn.workers.UvicornWorker
+[2026-09-17 02:59:59 +0000] [41830] [INFO] Booting worker with pid: 41830

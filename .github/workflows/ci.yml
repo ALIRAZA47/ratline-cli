@@ -71,6 +71,14 @@ jobs:
             exit 1
           fi
 
+      # The skills and agents under plugins/ratline tell an AI agent which commands to
+      # run as root on somebody's server. A flag a release renamed is not a typo there,
+      # it is a wrong command with a confident source, so they are checked against
+      # `ratline schema` the same way the generated reference is.
+      - name: The agent plugin names only commands and flags the binary has
+        if: matrix.arch == 'amd64'
+        run: python3 scripts/check-skills.py ./bin/ratline plugins/ratline
+
       - name: Smoke test
         run: |
           set -euo pipefail

@@ -120,6 +120,26 @@ Exit codes are a contract, documented in
 [reference/exit-codes.md](docs/reference/exit-codes.md). `--dry-run` prints every
 mutation without making it.
 
+## AI agents
+
+An agent asked to deploy something will read `--help`, infer a flag and run it as root. So
+ratline publishes its whole surface as JSON (`ratline schema`), speaks MCP (`ratline mcp`,
+read-only unless told otherwise), and ships a Claude Code plugin whose skills and agents
+are callers of the CLI in exactly the way the web panel is:
+
+```
+/plugin marketplace add ALIRAZA47/ratline-cli
+/plugin install ratline@ratline
+export RATLINE_HOST=root@203.0.113.5
+```
+
+Ten skills (deploy any application, wire CI, set a server up, diagnose, secrets, access,
+databases, jobs, day-two operations, the panel) and five agents, including an on-call
+responder that holds only the read-only tools and so cannot change the server even if
+asked. Every command and flag they name is checked against `ratline schema` in CI. The
+skills follow the open Agent Skills format, so other agents can use them too:
+[plugins/ratline](plugins/ratline/), or `ratline explain agents` on the server.
+
 ## The web panel
 
 ```bash

@@ -1,0 +1,88 @@
+# .github/workflows/deploy.yml — deploy a Node site to a ratline server on push.
+#
+# What the runner holds: an SSH key scoped to ONE tenant, and a sudo grant on the server
+# that lets that tenant run exactly ONE command as root:
+#   /usr/local/bin/ratline site deploy app.example.com --install --build --restart --json
+# The argument list in the "Deploy" step must match that grant character for character.
+#
+# Lines marked CHANGE are the ones to adapt. Everything else is the shape.
+name: deploy
+
+on:
+  push:
+    branches: [main]            # CHANGE: the branch that deploys
+  workflow_dispatch:
+
+concurrency:
+  # Two rsyncs into one directory would have ratline build a mixture of both.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RATLINE_HOST: server.example.com   # CHANGE
+  RATLINE_TENANT: acme               # CHANGE
+  RATLINE_DOMAIN: app.example.com    # CHANGE
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production          # so a deploy can require a reviewer
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. Fail on the runner before anything reaches the server.
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: npm }   # CHANGE: the version the site runs
+      - run: npm ci
+      - run: npm run typecheck --if-present
+      - run: npm run lint --if-present
+
+      # 2. Authorise this runner. The host key is pinned, not trusted on first use.
+      - name: Authorise this runner
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${{ secrets.RATLINE_SSH_KEY }}" > ~/.ssh/deploy
+          chmod 0600 ~/.ssh/deploy
+          printf '%s\n' "${{ secrets.RATLINE_HOST_KEY }}" | tr -d '\r' > ~/.ssh/known_hosts
+
+      # 3. Copy the source as the tenant, so the files are owned by the tenant.
+      #    Never ship a .env: the server's environment is set with `ratline site env set`.
+      - name: Copy the source
+        run: |
+          rsync -az --delete \
+            --exclude .git --exclude node_modules --exclude .next --exclude dist --exclude '.env*' \
+            -e "ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes" \
+            ./ "${RATLINE_TENANT}@${RATLINE_HOST}:${RATLINE_DOMAIN}/app/"
+
+      # 4. The one command the grant allows. --json is part of the pinned argv.
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes "${RATLINE_TENANT}@${RATLINE_HOST}" \
+            "sudo /usr/local/bin/ratline site deploy ${RATLINE_DOMAIN} --install --build --restart --json" \
+            | tee deploy.json
+          # 5. Read the envelope. A deploy that reported a problem is a red build.
+          jq -e '.ok == true' deploy.json > /dev/null
+
+      - name: What is serving
+        if: always()
+        run: jq -r '.data | "health: \(.health // "n/a")"' deploy.json || true
+
+# Python: swap step 1 for
+#   - uses: actions/setup-python@v5
+#     with: { python-version: '3.12' }
+#   - run: pip install -r requirements.txt
+#   - run: python -m compileall -q .
+# add --exclude venv to the rsync, and make the Deploy flags match the grant:
+#   --install --restart --json                       (FastAPI, Flask)
+#   --install --migrate --collectstatic --restart --json   (Django)
+#
+# Static, built on the runner: no sudo grant and no Deploy step at all. Use a SITE-scoped
+# key, build, then publish the output into the document root:
+#   - run: npm ci && npm run build
+#   - name: Publish
+#     run: |
+#       rsync -az --delete -e "ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes" \
+#         ./dist/ "${RATLINE_TENANT}@${RATLINE_HOST}:${RATLINE_DOMAIN}/public/"

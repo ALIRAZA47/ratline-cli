@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ratline": {
+      "command": "ssh",
+      "args": [
+        "-T",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "${RATLINE_HOST:-ratline}",
+        "sudo", "ratline", "mcp"
+      ]
+    }
+  }
+}

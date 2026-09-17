@@ -1,0 +1,3812 @@
+{
+  "tool": "ratline",
+  "version": "v0.18.0",
+  "envelope": {
+    "description": "Every command with --json writes exactly one object to stdout. Logs go to stderr, so stdout is always parseable.",
+    "failure": {
+      "command": "string",
+      "error": {
+        "code": "int",
+        "hint": "string",
+        "message": "string",
+        "name": "string"
+      },
+      "ok": false,
+      "version": "string"
+    },
+    "success": {
+      "command": "string",
+      "data": "object",
+      "ok": true,
+      "version": "string"
+    }
+  },
+  "exit_codes": [
+    {
+      "code": 0,
+      "name": "ok",
+      "meaning": "success"
+    },
+    {
+      "code": 1,
+      "name": "error",
+      "meaning": "an unclassified failure; read the message"
+    },
+    {
+      "code": 2,
+      "name": "usage",
+      "meaning": "the arguments were wrong; fix them rather than retrying"
+    },
+    {
+      "code": 3,
+      "name": "precondition_failed",
+      "meaning": "the system is not in a state where this can run; the hint names what to change"
+    },
+    {
+      "code": 4,
+      "name": "external_command_failed",
+      "meaning": "an external command failed; its output is in the error"
+    },
+    {
+      "code": 5,
+      "name": "locked",
+      "meaning": "another ratline invocation holds the lock; retry shortly"
+    },
+    {
+      "code": 6,
+      "name": "rollback_failed",
+      "meaning": "the operation failed and so did its undo; the server needs a human"
+    },
+    {
+      "code": 7,
+      "name": "health_check_failed",
+      "meaning": "it started but never answered; the previous version is still serving"
+    },
+    {
+      "code": 8,
+      "name": "acme_challenge_failed",
+      "meaning": "the certificate challenge failed; do not retry blindly, it costs a rate limit"
+    },
+    {
+      "code": 9,
+      "name": "rate_limited",
+      "meaning": "the CA's limit would be exceeded; wait rather than retrying"
+    },
+    {
+      "code": 10,
+      "name": "input_required",
+      "meaning": "input was needed and there was no terminal; supply it as a flag or on stdin"
+    }
+  ],
+  "global_flags": [
+    {
+      "name": "config",
+      "type": "string",
+      "usage": "Configuration file (default /etc/ratline/config.yaml)",
+      "required": false
+    },
+    {
+      "name": "dry-run",
+      "type": "bool",
+      "usage": "Print every mutation without making it",
+      "required": false
+    },
+    {
+      "name": "interactive",
+      "short": "i",
+      "type": "bool",
+      "usage": "Ask which options to set before running (arguments are still required)",
+      "required": false
+    },
+    {
+      "name": "json",
+      "type": "bool",
+      "usage": "Machine-readable output on stdout; logs on stderr",
+      "required": false
+    },
+    {
+      "name": "no-input",
+      "type": "bool",
+      "usage": "Never prompt; fail instead (implied when stdout is not a terminal)",
+      "required": false
+    },
+    {
+      "name": "quiet",
+      "short": "q",
+      "type": "bool",
+      "usage": "Errors only",
+      "required": false
+    },
+    {
+      "name": "verbose",
+      "short": "v",
+      "type": "bool",
+      "usage": "Debug logging",
+      "required": false
+    },
+    {
+      "name": "yes",
+      "short": "y",
+      "type": "bool",
+      "usage": "Assume yes; required for destructive operations without a terminal",
+      "required": false
+    }
+  ],
+  "commands": [
+    {
+      "path": "ratline backup",
+      "name": "backup",
+      "summary": "Archive a user's home or a single site",
+      "description": "Writes a gzipped tar of the tenant's home or the site directory, including the\napplication code, the logs and the .env.",
+      "args": [
+        "<user|domain>"
+      ],
+      "flags": [
+        {
+          "name": "out",
+          "type": "string",
+          "usage": "Directory to write the archive into",
+          "required": false
+        }
+      ],
+      "mutates": true,
+      "needs_root": true,
+      "examples": [
+        "ratline backup acme --out /var/backups/ratline",
+        "ratline backup example.com --out /mnt/backup"
+      ]
+    },
+    {
+      "path": "ratline cert",
+      "name": "cert",
+      "summary": "Issue, attach, renew and import TLS certificates",
+      "description": "Certificates are a resource with their own lifecycle, not a flag on 'site add'.",
+      "mutates": false,
+      "needs_root": true,
+      "subcommands": [
+        {
+          "path": "ratline cert account",
+          "name": "account",
+          "summary": "Inspect the ACME account",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline cert account register",
+              "name": "register",
+              "summary": "Record the ACME contact address and accept the terms",
+              "flags": [
+                {
+                  "name": "email",
+                  "type": "string",
+                  "usage": "Contact address (required)",
+                  "required": true
+                }
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline cert account show",
+              "name": "show",
+              "summary": "Show the ACME account state",
+              "mutates": false,
+              "needs_root": true
+            }
+          ]
+        },
+        {
+          "path": "ratline cert attach",
+          "name": "attach",
+          "summary": "Point a site's vhost at an existing certificate",
+          "description": "How one SAN certificate serves several vhosts, and how an imported or\nalready-issued certificate is put to use without a new ACME exchange.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "cert",
+              "type": "string",
+              "usage": "Certificate to attach (default: one named after the domain)",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert auto-renew",
+          "name": "auto-renew",
+          "summary": "Inspect or change automatic renewal",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline cert auto-renew disable",
+              "name": "disable",
+              "summary": "Disable automatic renewal for one certificate",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline cert auto-renew enable",
+              "name": "enable",
+              "summary": "Enable automatic renewal for one certificate",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline cert auto-renew status",
+              "name": "status",
+              "summary": "Report whether renewal is actually wired up",
+              "mutates": false,
+              "needs_root": true
+            }
+          ]
+        },
+        {
+          "path": "ratline cert delete",
+          "name": "delete",
+          "summary": "Delete a certificate, refusing while a site still uses it",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "keep-files",
+              "type": "bool",
+              "usage": "Remove the state record but leave the files on disk",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert detach",
+          "name": "detach",
+          "summary": "Revert a site to plain HTTP",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert import",
+          "name": "import",
+          "summary": "Install a third-party certificate",
+          "description": "For a Cloudflare Origin certificate, ZeroSSL, or a corporate CA.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "cert",
+              "type": "string",
+              "usage": "Certificate, ideally the full chain (required)",
+              "required": true
+            },
+            {
+              "name": "chain",
+              "type": "string",
+              "usage": "Intermediates, if not already in --cert",
+              "required": false
+            },
+            {
+              "name": "key",
+              "type": "string",
+              "usage": "Private key, not passphrase-encrypted (required)",
+              "required": true
+            },
+            {
+              "name": "no-attach",
+              "type": "bool",
+              "usage": "Install without pointing the vhost at it",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline cert import example.com --cert origin.pem --key origin.key"
+          ]
+        },
+        {
+          "path": "ratline cert issue",
+          "name": "issue",
+          "summary": "Obtain a certificate and attach it to the site",
+          "description": "Runs every preflight check first and reports all the problems at once, because\nfixing one per attempt is a poor way to spend a rate-limit budget and the\ncertificate authority counts failed validations.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "acme-ca-bundle",
+              "type": "string",
+              "usage": "Trust store for a private ACME server, for this issuance only; set acme.ca_bundle in config or renewal cannot verify the CA",
+              "required": false
+            },
+            {
+              "name": "acme-directory",
+              "type": "string",
+              "usage": "ACME directory URL, for a private CA such as step-ca (default: the configured one)",
+              "required": false
+            },
+            {
+              "name": "alias",
+              "type": "stringArray",
+              "usage": "SAN to include, replacing the site's own aliases (repeatable)",
+              "required": false,
+              "repeatable": true
+            },
+            {
+              "name": "challenge",
+              "type": "string",
+              "default": "http",
+              "usage": "http (webroot) or dns; a wildcard forces dns",
+              "required": false
+            },
+            {
+              "name": "dns-cleanup-hook",
+              "type": "string",
+              "usage": "With --dns-provider manual: a script that removes the TXT record afterwards",
+              "required": false
+            },
+            {
+              "name": "dns-credentials",
+              "type": "string",
+              "usage": "Credentials file for the DNS plugin, which must be 0600",
+              "required": false
+            },
+            {
+              "name": "dns-hook",
+              "type": "string",
+              "usage": "With --dns-provider manual: a root-owned script that publishes the TXT record",
+              "required": false
+            },
+            {
+              "name": "dns-propagation",
+              "type": "int",
+              "usage": "Seconds to wait for the TXT record before validating",
+              "required": false
+            },
+            {
+              "name": "dns-provider",
+              "type": "string",
+              "usage": "certbot DNS plugin (cloudflare, route53, ...), or 'manual' with --dns-hook for any other",
+              "required": false
+            },
+            {
+              "name": "dry-run",
+              "type": "bool",
+              "usage": "Validate fully without issuing, and without spending budget",
+              "required": false
+            },
+            {
+              "name": "email",
+              "type": "string",
+              "usage": "ACME contact address",
+              "required": false
+            },
+            {
+              "name": "force",
+              "type": "bool",
+              "usage": "Re-issue even if a valid certificate exists, and proceed past preflight",
+              "required": false
+            },
+            {
+              "name": "key-type",
+              "type": "string",
+              "usage": "ecdsa or rsa (default from config)",
+              "required": false
+            },
+            {
+              "name": "no-attach",
+              "type": "bool",
+              "usage": "Obtain the certificate without pointing the vhost at it",
+              "required": false
+            },
+            {
+              "name": "san",
+              "type": "stringArray",
+              "usage": "Extra SAN not registered as a site alias (repeatable)",
+              "required": false,
+              "repeatable": true
+            },
+            {
+              "name": "staging",
+              "type": "bool",
+              "usage": "Use the staging endpoint: real exchange, untrusted certificate, generous limits",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline cert issue example.com --email admin@example.com",
+            "ratline cert issue example.com --dry-run",
+            "ratline cert issue '*.example.com' --challenge dns \\",
+            "--dns-provider cloudflare --dns-credentials /etc/ratline/dns/cloudflare.ini"
+          ]
+        },
+        {
+          "path": "ratline cert list",
+          "name": "list",
+          "summary": "List every certificate on this server, including ones issued by hand",
+          "flags": [
+            {
+              "name": "expiring",
+              "type": "int",
+              "usage": "Only certificates expiring within this many days",
+              "required": false
+            },
+            {
+              "name": "orphaned",
+              "type": "bool",
+              "usage": "Only certificates no site uses",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert renew",
+          "name": "renew",
+          "summary": "Renew certificates that are due",
+          "description": "Run twice daily by ratline-cert-renew.timer.",
+          "args": [
+            "[<domain>]"
+          ],
+          "flags": [
+            {
+              "name": "all",
+              "type": "bool",
+              "usage": "Every certificate",
+              "required": false
+            },
+            {
+              "name": "dry-run",
+              "type": "bool",
+              "usage": "Exercise the challenge without replacing anything",
+              "required": false
+            },
+            {
+              "name": "force",
+              "type": "bool",
+              "usage": "Renew even if not due",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert revoke",
+          "name": "revoke",
+          "summary": "Ask the certificate authority to revoke a certificate",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "reason",
+              "type": "string",
+              "usage": "keycompromise, superseded or cessationofoperation",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert selfsign",
+          "name": "selfsign",
+          "summary": "Generate an untrusted placeholder so a site can serve HTTPS immediately",
+          "description": "So a site can serve HTTPS the moment it is created, before DNS is pointed.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "days",
+              "type": "int",
+              "default": "365",
+              "usage": "Validity in days",
+              "required": false
+            },
+            {
+              "name": "no-attach",
+              "type": "bool",
+              "usage": "Generate without pointing the vhost at it",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert show",
+          "name": "show",
+          "summary": "Show a certificate in full",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline cert test-renewal",
+          "name": "test-renewal",
+          "summary": "Dry-run every certificate, to find breakage before it matters",
+          "description": "Exercises the real challenge for every managed certificate without replacing\nanything and without spending rate-limit budget.",
+          "mutates": false,
+          "needs_root": true
+        }
+      ]
+    },
+    {
+      "path": "ratline config",
+      "name": "config",
+      "summary": "Read and change ratline's own configuration",
+      "description": "The configuration lives at /etc/ratline/config.yaml and is read on every\ninvocation, so there is nothing to reload after a change.",
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline config get acme.email",
+        "ratline config set acme.email ops@example.com",
+        "ratline config set features.db_provisioning true",
+        "ratline config unset defaults.memory_max     # back to the default",
+        "ratline config show --changed",
+        "ratline config reference | less"
+      ],
+      "subcommands": [
+        {
+          "path": "ratline config edit",
+          "name": "edit",
+          "summary": "Open the configuration in $EDITOR, and refuse to save it broken",
+          "description": "Opens a copy in $EDITOR. On exit the copy is validated, and only replaces the\nreal file if it loads — so a typo cannot leave every other command broken.",
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline config get",
+          "name": "get",
+          "summary": "Print one setting's value",
+          "description": "Prints the value in effect, and says whether it comes from the file or from the\nbuilt-in default. That difference is the useful part: a setting absent from the\nfile behaves as the default today and would change if the default ever did.",
+          "args": [
+            "<setting>"
+          ],
+          "mutates": false,
+          "needs_root": false,
+          "examples": [
+            "ratline config get acme.renew_before_days"
+          ]
+        },
+        {
+          "path": "ratline config path",
+          "name": "path",
+          "summary": "Print the path of the configuration file in use",
+          "description": "Useful in a script, and worth checking when a change appears not to have taken:\n--config and the built-in default can disagree about which file is being read.",
+          "mutates": false,
+          "needs_root": false
+        },
+        {
+          "path": "ratline config reference",
+          "name": "reference",
+          "summary": "Print the shipped configuration, with every setting explained",
+          "description": "The commented file ratline ships, with every default and the reasoning behind it.",
+          "mutates": false,
+          "needs_root": false
+        },
+        {
+          "path": "ratline config set",
+          "name": "set",
+          "summary": "Change one setting",
+          "description": "Edits the file in place, preserving its comments, then validates the result. If\nthe change would produce a file that does not load, the previous one is put back\nand the error names the setting.",
+          "args": [
+            "<setting>",
+            "<value>"
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline config set acme.email ops@example.com",
+            "ratline config set features.db_provisioning true",
+            "ratline config set defaults.memory_max 1G"
+          ]
+        },
+        {
+          "path": "ratline config show",
+          "name": "show",
+          "summary": "Show the settings in effect",
+          "description": "Every setting, with where its value came from. A prefix narrows it to one\nsection — 'ratline config show acme' — and --changed shows only what differs from\nthe shipped defaults, which is usually the question being asked.",
+          "args": [
+            "[prefix]"
+          ],
+          "flags": [
+            {
+              "name": "changed",
+              "type": "bool",
+              "usage": "Only settings that differ from the shipped defaults",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": false,
+          "examples": [
+            "ratline config show --changed",
+            "ratline config show databases"
+          ]
+        },
+        {
+          "path": "ratline config unset",
+          "name": "unset",
+          "summary": "Remove a setting, so its built-in default applies again",
+          "description": "Deletes the line rather than blanking it. Those are different: an absent setting\ntakes the built-in default, and an empty one is an explicit empty value — which\nfor a path or an address is usually not what anybody wants.",
+          "args": [
+            "<setting>"
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline config unset defaults.memory_max"
+          ]
+        },
+        {
+          "path": "ratline config validate",
+          "name": "validate",
+          "summary": "Check a configuration file without applying it",
+          "description": "Loads the file and reports every problem at once rather than the first. Useful\nbefore copying a configuration onto a server, and in CI.",
+          "args": [
+            "[path]"
+          ],
+          "mutates": false,
+          "needs_root": false
+        }
+      ]
+    },
+    {
+      "path": "ratline db",
+      "name": "db",
+      "summary": "Provision MongoDB, MySQL or Redis databases and users",
+      "description": "Creates databases and least-privilege users on a MongoDB server, and writes the\nconnection string into a site's .env so the application picks it up on restart.",
+      "flags": [
+        {
+          "name": "engine",
+          "type": "string",
+          "default": "mongo",
+          "usage": "Database engine: mongo, mysql or redis",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline db install",
+        "ratline db ping",
+        "ratline db create shop --owner acme --attach shop.example.com",
+        "ratline db user add reports --database shop --role read",
+        "ratline db access allow 203.0.113.19",
+        "ratline db list --live",
+        "ratline db install --engine mysql",
+        "ratline db create shop --engine mysql --owner acme --attach shop.example.com"
+      ],
+      "subcommands": [
+        {
+          "path": "ratline db access",
+          "name": "access",
+          "summary": "Control which addresses can reach this host's MongoDB",
+          "description": "Manages remote access to the MongoDB server `ratline db install` set up. By\ndefault that server listens only on localhost. Allowing an address adds a ufw rule\nadmitting it to port 27017 and — on the first address — reconfigures mongod to\nlisten on all interfaces, in that order: the firewall stands guard before the\ndoor opens. Revoking the last address puts mongod back on localhost only.",
+          "mutates": false,
+          "needs_root": true,
+          "examples": [
+            "ratline db access allow 203.0.113.19          # one machine",
+            "ratline db access allow 10.8.0.0/24 --note vpn # a network",
+            "ratline db access list",
+            "ratline db access revoke 203.0.113.19"
+          ],
+          "subcommands": [
+            {
+              "path": "ratline db access allow",
+              "name": "allow",
+              "summary": "Let an address or network reach MongoDB",
+              "description": "Adds a ufw rule admitting the address to port 27017. The first allowed address\nalso reconfigures mongod to listen beyond localhost and restarts it — firewall\nrule first, wider bind second, and the outcome is verified against the running\nserver: it must still enforce authorization, and it must actually be listening\nwhere the config says.",
+              "args": [
+                "<address>"
+              ],
+              "flags": [
+                {
+                  "name": "note",
+                  "type": "string",
+                  "usage": "A word on whose address this is, shown in the list",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline db access allow 203.0.113.19",
+                "ratline db access allow 10.8.0.0/24 --note \"office vpn\""
+              ]
+            },
+            {
+              "path": "ratline db access list",
+              "name": "list",
+              "summary": "Show who can reach this host's MongoDB",
+              "description": "Shows the allowed addresses, what mongod is bound to, and whether the firewall\nis still standing guard — together, because each is meaningless without the\nothers.",
+              "mutates": false,
+              "needs_root": true
+            },
+            {
+              "path": "ratline db access revoke",
+              "name": "revoke",
+              "summary": "Stop an address reaching MongoDB",
+              "description": "Deletes the ufw rule an allow created. Revoking the last allowed address also\nputs mongod back to listening on localhost only, restarts it, and verifies both\nfacts against the running server.",
+              "args": [
+                "<address>"
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline db access revoke 203.0.113.19"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "ratline db connect",
+          "name": "connect",
+          "summary": "Point ratline at a MongoDB server and turn provisioning on",
+          "description": "Stores the admin connection string, turns on features.db_provisioning, and proves\nthe credentials work before committing either. If the server cannot be reached, or\nrejects them, nothing is left behind.",
+          "flags": [
+            {
+              "name": "admin-user",
+              "type": "string",
+              "default": "admin",
+              "usage": "MySQL admin account name (with --engine mysql)",
+              "required": false
+            },
+            {
+              "name": "force",
+              "type": "bool",
+              "usage": "Replace an existing connection string",
+              "required": false
+            },
+            {
+              "name": "from-file",
+              "type": "string",
+              "usage": "Read the connection string from a file",
+              "required": false
+            },
+            {
+              "name": "stdin",
+              "type": "bool",
+              "usage": "Read the connection string (or, with --engine mysql, the password) from stdin",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline db connect",
+            "ratline db connect --stdin < /root/mongodb.uri",
+            "ratline db connect --from-file /root/atlas.uri",
+            "ratline db ping"
+          ]
+        },
+        {
+          "path": "ratline db create",
+          "name": "create",
+          "summary": "Create a database, a user scoped to it, and optionally attach it to a site",
+          "description": "Creates the database, creates a user whose only role is on that database, and\nprints the connection string once.",
+          "args": [
+            "<name>"
+          ],
+          "flags": [
+            {
+              "name": "attach",
+              "type": "string",
+              "usage": "Write the connection string into this site's .env",
+              "required": false
+            },
+            {
+              "name": "collection",
+              "type": "string",
+              "usage": "Initial collection, so the database is visible",
+              "required": false
+            },
+            {
+              "name": "env-key",
+              "type": "string",
+              "usage": "Variable name for --attach (default: databases.mongodb.env_key)",
+              "required": false
+            },
+            {
+              "name": "no-user",
+              "type": "bool",
+              "usage": "Create the database only, without a user",
+              "required": false
+            },
+            {
+              "name": "owner",
+              "type": "string",
+              "usage": "Tenant that owns this database (required)",
+              "required": true
+            },
+            {
+              "name": "role",
+              "type": "string",
+              "usage": "Role on this database (default: databases.mongodb.default_role)",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Username to create (default: <database>_app)",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline db create shop --owner acme",
+            "ratline db create shop --owner acme --attach shop.example.com",
+            "ratline db create analytics --owner acme --role dbOwner",
+            "ratline db create legacy --owner acme --no-user   # adopt an existing schema"
+          ]
+        },
+        {
+          "path": "ratline db disable",
+          "name": "disable",
+          "summary": "Turn database provisioning off",
+          "description": "Clears features.db_provisioning, so the db commands refuse rather than acting.",
+          "flags": [
+            {
+              "name": "forget",
+              "type": "bool",
+              "usage": "Also remove the stored admin connection string",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline db drop",
+          "name": "drop",
+          "summary": "Drop a database and its users",
+          "description": "Drops the database, every collection in it, and every user ratline created for\nit. This destroys data and cannot be undone, so it asks first and needs the\ndatabase's name typed back.",
+          "args": [
+            "<name>"
+          ],
+          "flags": [
+            {
+              "name": "force",
+              "type": "bool",
+              "usage": "Skip the confirmation",
+              "required": false
+            },
+            {
+              "name": "keep-database",
+              "type": "bool",
+              "usage": "Remove the users but leave the data",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline db dump",
+          "name": "dump",
+          "summary": "Write a compressed archive of one database",
+          "description": "One gzipped archive file, scoped to the named database, written 0600.",
+          "args": [
+            "<database>"
+          ],
+          "flags": [
+            {
+              "name": "out",
+              "type": "string",
+              "usage": "Directory to write into (default <backup_dir>/databases)",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline db dump app_example_com",
+            "ratline db dump app_example_com --out /mnt/backups"
+          ]
+        },
+        {
+          "path": "ratline db enable",
+          "name": "enable",
+          "summary": "Turn database provisioning on",
+          "description": "Sets features.db_provisioning. Use 'ratline db connect' instead if you have not\nstored a connection string yet — that does both, and proves the credentials work\nbefore committing to either.",
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline db install",
+          "name": "install",
+          "summary": "Install MongoDB on this host, secure it, and attach it",
+          "description": "Installs MongoDB Community from MongoDB's official apt repository and leaves it in\nthe state the rest of `ratline db` assumes: enforcing authorization, reachable only\nfrom this machine, with a root-role admin user whose password you choose.",
+          "flags": [
+            {
+              "name": "admin-user",
+              "type": "string",
+              "default": "admin",
+              "usage": "Name for the root-role admin user",
+              "required": false
+            },
+            {
+              "name": "mongodb-version",
+              "type": "string",
+              "usage": "Release series to install (default: newest this host supports)",
+              "required": false
+            },
+            {
+              "name": "stdin",
+              "type": "bool",
+              "usage": "Read the admin password from stdin (for automation; a terminal is prompted)",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline db install",
+            "ratline db install --stdin < /root/mongo-admin-password",
+            "ratline db create shop --owner acme",
+            "ratline db access allow 203.0.113.19   # if another machine needs in"
+          ]
+        },
+        {
+          "path": "ratline db list",
+          "name": "list",
+          "summary": "List databases ratline provisioned, or everything on the server",
+          "description": "By default this lists what ratline recorded, with the tenant that owns each.",
+          "flags": [
+            {
+              "name": "live",
+              "type": "bool",
+              "usage": "Ask the server rather than reading ratline's index",
+              "required": false
+            },
+            {
+              "name": "owner",
+              "type": "string",
+              "usage": "Only this tenant's databases",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": false
+        },
+        {
+          "path": "ratline db ping",
+          "name": "ping",
+          "summary": "Check that the MongoDB server is reachable and enforcing authentication",
+          "description": "Connects with the configured admin credentials and reports the server's version\nand topology.",
+          "mutates": false,
+          "needs_root": false
+        },
+        {
+          "path": "ratline db restore",
+          "name": "restore",
+          "summary": "Load an archive back into a database",
+          "description": "Restores what `ratline db dump` wrote.",
+          "args": [
+            "<archive>"
+          ],
+          "flags": [
+            {
+              "name": "drop",
+              "type": "bool",
+              "usage": "Replace what is there rather than merging into it",
+              "required": false
+            },
+            {
+              "name": "into",
+              "type": "string",
+              "usage": "Restore into this database instead of the one it came from",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline db restore /var/backups/ratline/databases/app_example_com-20260807T120000Z.archive.gz",
+            "ratline db restore app.archive.gz --into app_staging",
+            "ratline db restore app.archive.gz --drop     # replace what is there"
+          ]
+        },
+        {
+          "path": "ratline db roles",
+          "name": "roles",
+          "summary": "List the roles ratline will grant, and what each allows",
+          "description": "Every one of these is scoped to a single database.",
+          "mutates": false,
+          "needs_root": false
+        },
+        {
+          "path": "ratline db show",
+          "name": "show",
+          "summary": "Show a database, its users and what it holds",
+          "args": [
+            "<name>"
+          ],
+          "flags": [
+            {
+              "name": "live",
+              "type": "bool",
+              "default": "true",
+              "usage": "Also ask the server for its statistics and users",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": false
+        },
+        {
+          "path": "ratline db user",
+          "name": "user",
+          "summary": "Add, inspect, re-role and remove MongoDB users",
+          "description": "Users are scoped to one database. A password is shown once — MongoDB stores a\nhash, so nothing can print it again — and --attach writes it straight into a\nsite's .env instead, which keeps it out of your shell history entirely.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline db user add",
+              "name": "add",
+              "summary": "Create a MongoDB user scoped to one database",
+              "description": "Creates a user whose only role is on the named database, and prints the\nconnection string once.",
+              "args": [
+                "<username>"
+              ],
+              "flags": [
+                {
+                  "name": "attach",
+                  "type": "string",
+                  "usage": "Write the connection string into this site's .env",
+                  "required": false
+                },
+                {
+                  "name": "database",
+                  "type": "string",
+                  "usage": "Database this user has a role on (required)",
+                  "required": true
+                },
+                {
+                  "name": "env-key",
+                  "type": "string",
+                  "usage": "Variable name for --attach",
+                  "required": false
+                },
+                {
+                  "name": "role",
+                  "type": "string",
+                  "usage": "Role to grant (default: databases.mongodb.default_role)",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline db user add reports --database shop --role read",
+                "ratline db user add worker --database shop --attach worker.example.com"
+              ]
+            },
+            {
+              "path": "ratline db user delete",
+              "name": "delete",
+              "summary": "Remove a MongoDB user",
+              "description": "Removes the user from the server. Its data is untouched — a user is a credential,\nnot a container.",
+              "args": [
+                "<username>"
+              ],
+              "flags": [
+                {
+                  "name": "auth-db",
+                  "type": "string",
+                  "usage": "Authentication database, when the username is ambiguous",
+                  "required": false
+                },
+                {
+                  "name": "force",
+                  "type": "bool",
+                  "usage": "Do not ask, even when a site depends on it",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline db user grant",
+              "name": "grant",
+              "summary": "Change a user's role on its database",
+              "description": "Replaces the user's roles with exactly the one named.",
+              "args": [
+                "<username>"
+              ],
+              "flags": [
+                {
+                  "name": "auth-db",
+                  "type": "string",
+                  "usage": "Authentication database, when the username is ambiguous",
+                  "required": false
+                },
+                {
+                  "name": "role",
+                  "type": "string",
+                  "usage": "Role to grant, replacing any existing (required)",
+                  "required": true
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline db user grant reports --role read",
+                "ratline db user grant shop_app --role readWrite"
+              ]
+            },
+            {
+              "path": "ratline db user list",
+              "name": "list",
+              "summary": "List MongoDB users",
+              "description": "By default this lists the users ratline created, with the sites holding their\ncredentials.",
+              "flags": [
+                {
+                  "name": "database",
+                  "type": "string",
+                  "usage": "Only users of this database",
+                  "required": false
+                },
+                {
+                  "name": "live",
+                  "type": "bool",
+                  "usage": "Ask the server rather than reading ratline's index",
+                  "required": false
+                }
+              ],
+              "mutates": false,
+              "needs_root": false
+            },
+            {
+              "path": "ratline db user password",
+              "name": "password",
+              "summary": "Rotate a user's password",
+              "description": "Generates a new password, sets it on the server, and prints it once.",
+              "args": [
+                "<username>"
+              ],
+              "flags": [
+                {
+                  "name": "all-sites",
+                  "type": "bool",
+                  "usage": "Update every site already holding this credential",
+                  "required": false
+                },
+                {
+                  "name": "attach",
+                  "type": "string",
+                  "usage": "Also write the new string into this site's .env",
+                  "required": false
+                },
+                {
+                  "name": "auth-db",
+                  "type": "string",
+                  "usage": "Authentication database, when the username is ambiguous",
+                  "required": false
+                },
+                {
+                  "name": "env-key",
+                  "type": "string",
+                  "usage": "Variable name for --attach",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline db user password shop_app --all-sites",
+                "ratline db user password shop_app --attach shop.example.com"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "ratline doctor",
+      "name": "doctor",
+      "summary": "Check the server, or diagnose one thing on it",
+      "description": "With no argument, runs every check ratline knows how to run: the nginx\nconfiguration, failed services, dead sockets, certificate expiry, orphaned\nconfiguration, drift between state and the filesystem, permission anomalies,\nallocated but unused ports, and the SSH key audit.",
+      "args": [
+        "[subject]"
+      ],
+      "flags": [
+        {
+          "name": "all",
+          "type": "bool",
+          "usage": "With a subject: show every step, not only the ones that need attention",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline doctor                       # everything, as a cron job would",
+        "ratline doctor app.example.com       # why is this site broken",
+        "ratline doctor ssh                   # including the lockout guard"
+      ]
+    },
+    {
+      "path": "ratline explain",
+      "name": "explain",
+      "summary": "Explain how part of ratline works",
+      "description": "Longer-form answers than a help page can carry: how sites are laid out on\ndisk, why a node site is supervised by PM2, what turns a working application\ninto a silent 502, what happens when a deploy fails halfway.",
+      "args": [
+        "[topic]"
+      ],
+      "flags": [
+        {
+          "name": "raw",
+          "type": "bool",
+          "usage": "Print the markdown source without terminal formatting",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": false,
+      "examples": [
+        "ratline explain",
+        "ratline explain sockets",
+        "ratline explain node | less"
+      ]
+    },
+    {
+      "path": "ratline export",
+      "name": "export",
+      "summary": "Dump the full state as JSON, for migration",
+      "description": "Contains no private key material: public key blobs and fingerprints only.\nCertificate private keys are never read, let alone exported.",
+      "mutates": false,
+      "needs_root": true
+    },
+    {
+      "path": "ratline import",
+      "name": "import",
+      "summary": "Rebuild tenants and sites on this server from an export",
+      "description": "Reads what 'ratline export' wrote on another server and rebuilds the shape here:\ntenants, their SSH keys, their sites with every setting, the aliases, and which\nsites were disabled.",
+      "args": [
+        "<file>"
+      ],
+      "flags": [
+        {
+          "name": "only",
+          "type": "stringSlice",
+          "usage": "Import just these tenants, and their sites",
+          "required": false,
+          "repeatable": true
+        },
+        {
+          "name": "skip-keys",
+          "type": "bool",
+          "usage": "Do not restore SSH keys",
+          "required": false
+        },
+        {
+          "name": "skip-sites",
+          "type": "bool",
+          "usage": "Restore the tenants but not their sites",
+          "required": false
+        }
+      ],
+      "mutates": true,
+      "needs_root": true,
+      "examples": [
+        "ratline export > server.json          # on the old server",
+        "ratline import server.json            # on the new one",
+        "ratline import server.json --dry-run  # the plan, writing nothing",
+        "ratline import server.json --only acme"
+      ]
+    },
+    {
+      "path": "ratline init",
+      "name": "init",
+      "summary": "Set up this server: configuration, directories and defaults",
+      "description": "Seeds /etc/ratline/config.yaml, creates the directories ratline needs, and\nrecords the ACME contact address and the administrator account.",
+      "flags": [
+        {
+          "name": "admin-user",
+          "type": "string",
+          "usage": "Account that holds global-scope SSH keys",
+          "required": false
+        },
+        {
+          "name": "agree-tos",
+          "type": "bool",
+          "usage": "Accept the certificate authority's subscriber agreement",
+          "required": false
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "usage": "ACME contact address",
+          "required": false
+        },
+        {
+          "name": "write-config-only",
+          "type": "bool",
+          "usage": "Seed the configuration and directories, then stop",
+          "required": false
+        }
+      ],
+      "mutates": true,
+      "needs_root": true
+    },
+    {
+      "path": "ratline key",
+      "name": "key",
+      "summary": "Add, inspect and revoke SSH keys across the three scopes",
+      "description": "Keys are a managed resource with three scopes:",
+      "mutates": false,
+      "needs_root": true,
+      "subcommands": [
+        {
+          "path": "ratline key add",
+          "name": "add",
+          "summary": "Install a public key at one of the three scopes",
+          "flags": [
+            {
+              "name": "allow-duplicate",
+              "type": "bool",
+              "usage": "Permit a fingerprint that is already installed elsewhere",
+              "required": false
+            },
+            {
+              "name": "allow-shell",
+              "type": "bool",
+              "usage": "Site scope only: permit an interactive shell (weakens the confinement)",
+              "required": false
+            },
+            {
+              "name": "command",
+              "type": "string",
+              "usage": "Named preset from config: sftp-only, rsync-only or git-only",
+              "required": false
+            },
+            {
+              "name": "expires",
+              "type": "string",
+              "usage": "Expiry as a date (2026-12-31) or a duration (90d)",
+              "required": false
+            },
+            {
+              "name": "from",
+              "type": "stringSlice",
+              "usage": "Restrict to these source addresses, e.g. 203.0.113.0/24",
+              "required": false,
+              "repeatable": true
+            },
+            {
+              "name": "from-github",
+              "type": "string",
+              "usage": "Fetch a user's public keys from github.com",
+              "required": false
+            },
+            {
+              "name": "from-gitlab",
+              "type": "string",
+              "usage": "Fetch a user's public keys from gitlab.com",
+              "required": false
+            },
+            {
+              "name": "isolation",
+              "type": "string",
+              "usage": "Site scope only: default, or strict to add a chroot (needs features.strict_isolation)",
+              "required": false
+            },
+            {
+              "name": "key",
+              "type": "stringArray",
+              "usage": "Public key: the key itself, a path, an https URL, or - for stdin (repeatable)",
+              "required": false,
+              "repeatable": true
+            },
+            {
+              "name": "label",
+              "type": "string",
+              "usage": "Human label, so this key can be recognised later (required)",
+              "required": true
+            },
+            {
+              "name": "no-agent-forwarding",
+              "type": "bool",
+              "usage": "Refuse agent forwarding (the default outside global scope)",
+              "required": false
+            },
+            {
+              "name": "no-port-forwarding",
+              "type": "bool",
+              "usage": "Refuse port forwarding (already the default)",
+              "required": false
+            },
+            {
+              "name": "no-pty",
+              "type": "bool",
+              "usage": "Refuse a PTY",
+              "required": false
+            },
+            {
+              "name": "scope",
+              "type": "string",
+              "usage": "global, user or site (required)",
+              "required": true
+            },
+            {
+              "name": "sftp-only",
+              "type": "bool",
+              "usage": "Force SFTP with no shell",
+              "required": false
+            },
+            {
+              "name": "site",
+              "type": "string",
+              "usage": "Domain, for --scope site",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant, for --scope user",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline key add --scope global --label \"Ali MacBook\" --key ~/.ssh/id_ed25519.pub",
+            "ratline key add --scope user --user acme --label \"Acme ops\" --from-github acme-ops",
+            "ratline key add --scope site --site example.com --label \"Contractor\" \\",
+            "--key contractor.pub --from 203.0.113.0/24 --expires 90d"
+          ]
+        },
+        {
+          "path": "ratline key audit",
+          "name": "audit",
+          "summary": "Report duplicate, weak, stale, expired and unmanaged keys",
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline key list",
+          "name": "list",
+          "summary": "List keys, optionally filtered by scope, staleness or expiry",
+          "flags": [
+            {
+              "name": "expiring",
+              "type": "int",
+              "usage": "Only keys expiring within this many days",
+              "required": false
+            },
+            {
+              "name": "scope",
+              "type": "string",
+              "usage": "Only this scope",
+              "required": false
+            },
+            {
+              "name": "site",
+              "type": "string",
+              "usage": "Only this site",
+              "required": false
+            },
+            {
+              "name": "unused",
+              "type": "int",
+              "usage": "Only keys not seen in this many days",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Only this tenant",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": true,
+          "examples": [
+            "ratline key list",
+            "ratline key list --scope site --site example.com",
+            "ratline key list --unused 90        # stale contractor access"
+          ]
+        },
+        {
+          "path": "ratline key move",
+          "name": "move",
+          "summary": "Move a key to a different scope",
+          "args": [
+            "<fingerprint|label|id>"
+          ],
+          "flags": [
+            {
+              "name": "site",
+              "type": "string",
+              "usage": "Domain, for --to-scope site",
+              "required": false
+            },
+            {
+              "name": "to-scope",
+              "type": "string",
+              "usage": "New scope: global, user or site",
+              "required": true
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant, for --to-scope user",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline key move SHA256:x9K… --to-scope site --site example.com"
+          ]
+        },
+        {
+          "path": "ratline key prune",
+          "name": "prune",
+          "summary": "Remove expired keys and record key usage",
+          "description": "Run daily by ratline-key-prune.timer.",
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline key remove",
+          "name": "remove",
+          "summary": "Remove a key from one scope",
+          "args": [
+            "<fingerprint|label|id>"
+          ],
+          "flags": [
+            {
+              "name": "everywhere",
+              "type": "bool",
+              "usage": "Remove the key from every scope on this server",
+              "required": false
+            },
+            {
+              "name": "force",
+              "type": "bool",
+              "usage": "Proceed even if this is the last credential for a scope",
+              "required": false
+            },
+            {
+              "name": "scope",
+              "type": "string",
+              "usage": "Only this scope",
+              "required": false
+            },
+            {
+              "name": "site",
+              "type": "string",
+              "usage": "Only this site",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Only this tenant",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline key revoke",
+          "name": "revoke",
+          "summary": "Remove a key from every scope and add it to the revoked list",
+          "args": [
+            "<fingerprint|label|id>"
+          ],
+          "flags": [
+            {
+              "name": "force",
+              "type": "bool",
+              "usage": "Proceed even if this is the last credential for a scope",
+              "required": false
+            },
+            {
+              "name": "scope",
+              "type": "string",
+              "usage": "Only this scope",
+              "required": false
+            },
+            {
+              "name": "site",
+              "type": "string",
+              "usage": "Only this site",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Only this tenant",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline key show",
+          "name": "show",
+          "summary": "Show one key in full",
+          "args": [
+            "<fingerprint|label|id>"
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline key sync",
+          "name": "sync",
+          "summary": "Re-render every authorized_keys file from state",
+          "description": "Rewrites the managed block in each file. Keys an operator added by hand outside\nthe markers are preserved exactly as they are.",
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline key test",
+          "name": "test",
+          "summary": "Explain in plain English exactly what a key can reach",
+          "description": "Answers the question that matters before someone finds out the hard way:\nwhat can this key actually do on this server?",
+          "args": [
+            "<fingerprint|label|id>"
+          ],
+          "mutates": false,
+          "needs_root": true
+        }
+      ]
+    },
+    {
+      "path": "ratline logs",
+      "name": "logs",
+      "summary": "Tail a site's log (the same as 'site logs')",
+      "description": "Where the application log comes from depends on how the site is supervised.",
+      "args": [
+        "<domain>"
+      ],
+      "flags": [
+        {
+          "name": "access",
+          "type": "bool",
+          "usage": "The nginx access log",
+          "required": false
+        },
+        {
+          "name": "app",
+          "type": "bool",
+          "usage": "The application log (the default for a dynamic site)",
+          "required": false
+        },
+        {
+          "name": "error",
+          "type": "bool",
+          "usage": "The nginx error log",
+          "required": false
+        },
+        {
+          "name": "follow",
+          "type": "bool",
+          "usage": "Keep printing as lines arrive",
+          "required": false
+        },
+        {
+          "name": "journal",
+          "type": "bool",
+          "usage": "The systemd journal for the unit rather than the application's own log",
+          "required": false
+        },
+        {
+          "name": "lines",
+          "type": "int",
+          "default": "100",
+          "usage": "How many lines to show",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": true
+    },
+    {
+      "path": "ratline mcp",
+      "name": "mcp",
+      "summary": "Serve ratline to an AI agent over MCP on stdin and stdout",
+      "description": "Speaks the Model Context Protocol over stdio, so an agent can read the state of\nthis server and — with --allow-mutations — deploy to it, without shelling out and\nparsing output meant for a person.",
+      "flags": [
+        {
+          "name": "allow-mutations",
+          "type": "bool",
+          "usage": "Also expose the tools that change this server (site deploy, site restart)",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": false,
+      "examples": [
+        "ratline mcp",
+        "ratline mcp --allow-mutations   # adds site deploy and site restart"
+      ]
+    },
+    {
+      "path": "ratline new",
+      "name": "new",
+      "summary": "Provision a whole stack in one command",
+      "description": "A tenant, a site, optionally a database and a certificate — in one command, with\ndefaults that suit the runtime.",
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline new node app.example.com --user acme --with-db",
+        "ratline new python api.example.com --user acme --app-module app.main:app --asgi",
+        "ratline new static www.example.com --user acme --spa --tls --email ops@example.com"
+      ],
+      "subcommands": [
+        {
+          "path": "ratline new bun",
+          "name": "bun",
+          "summary": "A tenant, a Bun site and optionally a database, in one command",
+          "description": "Defaults suited to a Bun application: bun straight under systemd, a Unix socket,\nand a TypeScript entry point run without a build step.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "build-command",
+              "type": "string",
+              "usage": "Build command; a multi-step build belongs in a script",
+              "required": false
+            },
+            {
+              "name": "bun",
+              "type": "string",
+              "usage": "Managed Bun version, e.g. 1.2",
+              "required": false
+            },
+            {
+              "name": "db-env-key",
+              "type": "string",
+              "usage": "Variable the connection string is written to (default MONGODB_URI)",
+              "required": false
+            },
+            {
+              "name": "db-name",
+              "type": "string",
+              "usage": "Name for that database (default: derived from the domain)",
+              "required": false
+            },
+            {
+              "name": "email",
+              "type": "string",
+              "usage": "ACME contact address, for --tls",
+              "required": false
+            },
+            {
+              "name": "entry",
+              "type": "string",
+              "default": "server.ts",
+              "usage": "The file that starts the server",
+              "required": false
+            },
+            {
+              "name": "install-command",
+              "type": "string",
+              "usage": "Dependency install command",
+              "required": false
+            },
+            {
+              "name": "listen",
+              "type": "string",
+              "usage": "socket (default) or port",
+              "required": false
+            },
+            {
+              "name": "package-manager",
+              "type": "string",
+              "usage": "npm, pnpm, yarn or bun (bun by default)",
+              "required": false
+            },
+            {
+              "name": "public",
+              "type": "string",
+              "usage": "Directory nginx serves directly, bypassing the application",
+              "required": false
+            },
+            {
+              "name": "ssh-key",
+              "type": "string",
+              "usage": "Public key for the tenant: the key itself, a path, or an https URL",
+              "required": false
+            },
+            {
+              "name": "tls",
+              "type": "bool",
+              "usage": "Also issue a certificate; DNS must already point here",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant that owns this site; created if it does not exist (required)",
+              "required": true
+            },
+            {
+              "name": "with-db",
+              "type": "bool",
+              "usage": "Also create a MongoDB database and attach it to the site",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline new bun app.example.com --user acme --with-db",
+            "ratline new bun api.example.com --user acme --entry src/index.ts --bun 1.2"
+          ]
+        },
+        {
+          "path": "ratline new node",
+          "name": "node",
+          "summary": "A tenant, a Node site and optionally a database, in one command",
+          "description": "Defaults suited to a Node application: PM2 supervision, a Unix socket, and the\npackage manager detected from the lockfile.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "build-command",
+              "type": "string",
+              "usage": "Build command; a multi-step build belongs in a script",
+              "required": false
+            },
+            {
+              "name": "db-env-key",
+              "type": "string",
+              "usage": "Variable the connection string is written to (default MONGODB_URI)",
+              "required": false
+            },
+            {
+              "name": "db-name",
+              "type": "string",
+              "usage": "Name for that database (default: derived from the domain)",
+              "required": false
+            },
+            {
+              "name": "email",
+              "type": "string",
+              "usage": "ACME contact address, for --tls",
+              "required": false
+            },
+            {
+              "name": "entry",
+              "type": "string",
+              "default": "server.js",
+              "usage": "The file that starts the server",
+              "required": false
+            },
+            {
+              "name": "install-command",
+              "type": "string",
+              "usage": "Dependency install command",
+              "required": false
+            },
+            {
+              "name": "instances",
+              "type": "int",
+              "usage": "PM2 cluster workers",
+              "required": false
+            },
+            {
+              "name": "listen",
+              "type": "string",
+              "usage": "socket (default) or port",
+              "required": false
+            },
+            {
+              "name": "node",
+              "type": "string",
+              "usage": "Managed Node version, e.g. 24",
+              "required": false
+            },
+            {
+              "name": "package-manager",
+              "type": "string",
+              "usage": "npm, pnpm, yarn or bun (detected from the lockfile)",
+              "required": false
+            },
+            {
+              "name": "public",
+              "type": "string",
+              "usage": "Directory nginx serves directly, bypassing the application",
+              "required": false
+            },
+            {
+              "name": "ssh-key",
+              "type": "string",
+              "usage": "Public key for the tenant: the key itself, a path, or an https URL",
+              "required": false
+            },
+            {
+              "name": "tls",
+              "type": "bool",
+              "usage": "Also issue a certificate; DNS must already point here",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant that owns this site; created if it does not exist (required)",
+              "required": true
+            },
+            {
+              "name": "with-db",
+              "type": "bool",
+              "usage": "Also create a MongoDB database and attach it to the site",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline new node app.example.com --user acme --with-db",
+            "ratline new node app.example.com --user acme --listen port \\",
+            "--entry .next/standalone/server.js --build-command ./bin/build"
+          ]
+        },
+        {
+          "path": "ratline new python",
+          "name": "python",
+          "summary": "A tenant, a Python site and optionally a database, in one command",
+          "description": "Defaults suited to a Python application: a virtualenv, Gunicorn on a Unix socket,\nand workers derived from the CPU count.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "app-module",
+              "type": "string",
+              "usage": "Import path of the callable, e.g. app.main:app (required)",
+              "required": true
+            },
+            {
+              "name": "asgi",
+              "type": "bool",
+              "usage": "Treat the application as ASGI",
+              "required": false
+            },
+            {
+              "name": "db-env-key",
+              "type": "string",
+              "usage": "Variable the connection string is written to (default MONGODB_URI)",
+              "required": false
+            },
+            {
+              "name": "db-name",
+              "type": "string",
+              "usage": "Name for that database (default: derived from the domain)",
+              "required": false
+            },
+            {
+              "name": "email",
+              "type": "string",
+              "usage": "ACME contact address, for --tls",
+              "required": false
+            },
+            {
+              "name": "manage-py",
+              "type": "string",
+              "usage": "Django manage.py, enabling --migrate and --collectstatic on deploys",
+              "required": false
+            },
+            {
+              "name": "python",
+              "type": "string",
+              "usage": "Managed Python version, e.g. 3.12",
+              "required": false
+            },
+            {
+              "name": "requirements",
+              "type": "string",
+              "usage": "Requirements file",
+              "required": false
+            },
+            {
+              "name": "server",
+              "type": "string",
+              "usage": "gunicorn (default) or uvicorn",
+              "required": false
+            },
+            {
+              "name": "ssh-key",
+              "type": "string",
+              "usage": "Public key for the tenant: the key itself, a path, or an https URL",
+              "required": false
+            },
+            {
+              "name": "static-dir",
+              "type": "string",
+              "usage": "Directory nginx serves directly",
+              "required": false
+            },
+            {
+              "name": "static-url",
+              "type": "string",
+              "usage": "URL prefix for it",
+              "required": false
+            },
+            {
+              "name": "tls",
+              "type": "bool",
+              "usage": "Also issue a certificate; DNS must already point here",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant that owns this site; created if it does not exist (required)",
+              "required": true
+            },
+            {
+              "name": "with-db",
+              "type": "bool",
+              "usage": "Also create a MongoDB database and attach it to the site",
+              "required": false
+            },
+            {
+              "name": "workers",
+              "type": "int",
+              "usage": "Gunicorn workers",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline new python api.example.com --user acme --app-module app.main:app --asgi --with-db",
+            "ratline new python site.example.com --user acme \\",
+            "--app-module project.wsgi:application --manage-py manage.py"
+          ]
+        },
+        {
+          "path": "ratline new static",
+          "name": "static",
+          "summary": "A tenant and a static site, in one command",
+          "description": "No unit, no socket, nothing running: nginx serves the files and that is all.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "build-command",
+              "type": "string",
+              "usage": "Build command",
+              "required": false
+            },
+            {
+              "name": "build-output",
+              "type": "string",
+              "usage": "Directory the build writes, published as the document root",
+              "required": false
+            },
+            {
+              "name": "db-env-key",
+              "type": "string",
+              "usage": "Variable the connection string is written to (default MONGODB_URI)",
+              "required": false
+            },
+            {
+              "name": "db-name",
+              "type": "string",
+              "usage": "Name for that database (default: derived from the domain)",
+              "required": false
+            },
+            {
+              "name": "email",
+              "type": "string",
+              "usage": "ACME contact address, for --tls",
+              "required": false
+            },
+            {
+              "name": "index",
+              "type": "string",
+              "usage": "Index document (default index.html)",
+              "required": false
+            },
+            {
+              "name": "root",
+              "type": "string",
+              "usage": "Document root under the site directory (default public)",
+              "required": false
+            },
+            {
+              "name": "spa",
+              "type": "bool",
+              "usage": "Serve the index document for unmatched paths",
+              "required": false
+            },
+            {
+              "name": "ssh-key",
+              "type": "string",
+              "usage": "Public key for the tenant: the key itself, a path, or an https URL",
+              "required": false
+            },
+            {
+              "name": "tls",
+              "type": "bool",
+              "usage": "Also issue a certificate; DNS must already point here",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant that owns this site; created if it does not exist (required)",
+              "required": true
+            },
+            {
+              "name": "with-db",
+              "type": "bool",
+              "usage": "Also create a MongoDB database and attach it to the site",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline new static www.example.com --user acme --tls --email ops@example.com",
+            "ratline new static app.example.com --user acme --spa \\",
+            "--build-command 'npm run build' --build-output dist"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "ratline reconcile",
+      "name": "reconcile",
+      "summary": "Report or repair drift between state and the system",
+      "description": "The filesystem, the systemd units and /etc/passwd are the source of truth; the\nstate database is an index. This command compares the two, and with --fix\nre-renders every configuration file from state.",
+      "flags": [
+        {
+          "name": "fix",
+          "type": "bool",
+          "usage": "Repair what can be repaired, rather than only reporting",
+          "required": false
+        }
+      ],
+      "mutates": true,
+      "needs_root": true
+    },
+    {
+      "path": "ratline restore",
+      "name": "restore",
+      "summary": "Put a backup archive back, and rebuild what serves it",
+      "description": "The counterpart to 'ratline backup'. Reads the archive, works out whether it is a\nsite or a whole home, and puts it back.",
+      "args": [
+        "<archive.tar.gz>"
+      ],
+      "flags": [
+        {
+          "name": "force",
+          "type": "bool",
+          "usage": "Replace the directory if it already exists",
+          "required": false
+        },
+        {
+          "name": "no-start",
+          "type": "bool",
+          "usage": "Restore without starting the service",
+          "required": false
+        }
+      ],
+      "mutates": true,
+      "needs_root": true,
+      "examples": [
+        "ratline restore /var/backups/ratline/example.com-20260105T120000Z.tar.gz",
+        "ratline restore acme-20260105T120000Z.tar.gz --force",
+        "ratline restore example.com-20260105T120000Z.tar.gz --no-start",
+        "ratline restore example.com-20260105T120000Z.tar.gz --dry-run"
+      ]
+    },
+    {
+      "path": "ratline runtime",
+      "name": "runtime",
+      "summary": "Install and select managed Node, Bun and Python versions",
+      "description": "Managed interpreters live under /opt/ratline/runtimes and are invoked by absolute\npath from each unit's ExecStart.",
+      "mutates": false,
+      "needs_root": true,
+      "subcommands": [
+        {
+          "path": "ratline runtime default",
+          "name": "default",
+          "summary": "Set the version new sites use when they do not pin one",
+          "args": [
+            "<node|bun|python>",
+            "<version>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline runtime install",
+          "name": "install",
+          "summary": "Install a managed interpreter into /opt/ratline/runtimes",
+          "args": [
+            "<node|bun|python>",
+            "<version>"
+          ],
+          "flags": [
+            {
+              "name": "baseline",
+              "type": "bool",
+              "usage": "bun: force the build for x86-64 CPUs without AVX2 (detected from /proc/cpuinfo by default)",
+              "required": false
+            },
+            {
+              "name": "pm2-version",
+              "type": "string",
+              "usage": "node: pin PM2 to this version rather than the latest",
+              "required": false
+            },
+            {
+              "name": "with-pm2",
+              "type": "bool",
+              "usage": "node: also install PM2, which is what a node site is supervised by unless --daemon direct is used",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline runtime install node 22 --with-pm2",
+            "ratline runtime install bun 1.2",
+            "ratline runtime install python 3.12"
+          ]
+        },
+        {
+          "path": "ratline runtime list",
+          "name": "list",
+          "summary": "List installed versions and which sites use each",
+          "mutates": false,
+          "needs_root": true
+        }
+      ]
+    },
+    {
+      "path": "ratline schema",
+      "name": "schema",
+      "summary": "Print the whole command surface as JSON, for tools and agents",
+      "description": "Every command, every flag with its type and whether it is required, the exit\ncodes and the shape of the --json envelope.",
+      "mutates": false,
+      "needs_root": false,
+      "examples": [
+        "ratline schema | jq '.commands[] | select(.name==\"site\")'",
+        "ratline schema | jq -r '.. | objects | select(.required==true) | .name'"
+      ]
+    },
+    {
+      "path": "ratline site",
+      "name": "site",
+      "summary": "Create and manage sites",
+      "description": "A site is one domain owned by one user, served by nginx from inside that user's\nhome. There are three runtimes:",
+      "mutates": false,
+      "needs_root": true,
+      "subcommands": [
+        {
+          "path": "ratline site add",
+          "name": "add",
+          "summary": "Provision a site: directories, vhost, service and TLS",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "alias",
+              "type": "stringArray",
+              "usage": "Additional server name (repeatable)",
+              "required": false,
+              "repeatable": true
+            },
+            {
+              "name": "app-module",
+              "type": "string",
+              "usage": "python: import path of the callable, e.g. app.main:app",
+              "required": false
+            },
+            {
+              "name": "asgi",
+              "type": "bool",
+              "usage": "python: treat the application as ASGI",
+              "required": false
+            },
+            {
+              "name": "branch",
+              "type": "string",
+              "default": "main",
+              "usage": "Branch to clone",
+              "required": false
+            },
+            {
+              "name": "build-command",
+              "type": "string",
+              "usage": "Build command",
+              "required": false
+            },
+            {
+              "name": "build-output",
+              "type": "string",
+              "usage": "Directory the build writes, published as the document root",
+              "required": false
+            },
+            {
+              "name": "bun",
+              "type": "string",
+              "usage": "bun: managed Bun version, e.g. 1.2",
+              "required": false
+            },
+            {
+              "name": "client-max-body-size",
+              "type": "string",
+              "usage": "Upload limit, e.g. 20M",
+              "required": false
+            },
+            {
+              "name": "cpu-quota",
+              "type": "string",
+              "usage": "CPU ceiling, e.g. 100%",
+              "required": false
+            },
+            {
+              "name": "daemon",
+              "type": "string",
+              "usage": "node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)",
+              "required": false
+            },
+            {
+              "name": "email",
+              "type": "string",
+              "usage": "ACME contact address",
+              "required": false
+            },
+            {
+              "name": "entry",
+              "type": "string",
+              "usage": "node, bun: the file that starts the server",
+              "required": false
+            },
+            {
+              "name": "hsts",
+              "type": "bool",
+              "usage": "Send Strict-Transport-Security (only with a trusted certificate)",
+              "required": false
+            },
+            {
+              "name": "index",
+              "type": "string",
+              "default": "index.html",
+              "usage": "static: index document",
+              "required": false
+            },
+            {
+              "name": "install-command",
+              "type": "string",
+              "usage": "Dependency install command",
+              "required": false
+            },
+            {
+              "name": "instances",
+              "type": "int",
+              "default": "1",
+              "usage": "node: PM2 cluster workers, all sharing the one socket inside the one unit",
+              "required": false
+            },
+            {
+              "name": "listen",
+              "type": "string",
+              "default": "socket",
+              "usage": "node, bun: socket or port",
+              "required": false
+            },
+            {
+              "name": "manage-py",
+              "type": "string",
+              "usage": "python: Django manage.py, enabling --migrate and --collectstatic",
+              "required": false
+            },
+            {
+              "name": "memory-max",
+              "type": "string",
+              "usage": "Memory ceiling, e.g. 512M",
+              "required": false
+            },
+            {
+              "name": "no-enable",
+              "type": "bool",
+              "usage": "Write the configuration without enabling or starting it",
+              "required": false
+            },
+            {
+              "name": "node",
+              "type": "string",
+              "usage": "node: managed Node version, e.g. 22",
+              "required": false
+            },
+            {
+              "name": "package-manager",
+              "type": "string",
+              "usage": "node, bun: npm, pnpm, yarn or bun (detected from the lockfile)",
+              "required": false
+            },
+            {
+              "name": "public",
+              "type": "string",
+              "usage": "Directory nginx serves directly, bypassing the application",
+              "required": false
+            },
+            {
+              "name": "python",
+              "type": "string",
+              "usage": "python: managed Python version, e.g. 3.12",
+              "required": false
+            },
+            {
+              "name": "relax",
+              "type": "stringSlice",
+              "usage": "Turn off a named systemd hardening directive for this site",
+              "required": false,
+              "repeatable": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "usage": "Clone this repository into the application directory",
+              "required": false
+            },
+            {
+              "name": "requirements",
+              "type": "string",
+              "usage": "python: requirements file (detected by default)",
+              "required": false
+            },
+            {
+              "name": "root",
+              "type": "string",
+              "usage": "static: document root under the site directory (default public)",
+              "required": false
+            },
+            {
+              "name": "runtime",
+              "type": "string",
+              "usage": "static, node, bun or python (required)",
+              "required": true
+            },
+            {
+              "name": "server",
+              "type": "string",
+              "usage": "python: gunicorn or uvicorn (default gunicorn)",
+              "required": false
+            },
+            {
+              "name": "spa",
+              "type": "bool",
+              "usage": "static: serve the index document for unmatched paths",
+              "required": false
+            },
+            {
+              "name": "ssl",
+              "type": "string",
+              "default": "letsencrypt",
+              "usage": "letsencrypt, selfsigned or none",
+              "required": false
+            },
+            {
+              "name": "start-command",
+              "type": "string",
+              "usage": "Start command, as an argv (no shell)",
+              "required": false
+            },
+            {
+              "name": "static-dir",
+              "type": "string",
+              "usage": "python: directory behind --static-url",
+              "required": false
+            },
+            {
+              "name": "static-url",
+              "type": "string",
+              "usage": "python: URL prefix nginx serves from disk, e.g. /static",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Owning tenant (required)",
+              "required": true
+            },
+            {
+              "name": "workers",
+              "type": "int",
+              "usage": "python: worker processes (default (2 x cores) + 1, capped)",
+              "required": false
+            },
+            {
+              "name": "wsgi",
+              "type": "bool",
+              "usage": "python: treat the application as WSGI",
+              "required": false
+            },
+            {
+              "name": "www-redirect",
+              "type": "string",
+              "default": "none",
+              "usage": "Canonical host: apex, www or none",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site add static.example.com --user acme --runtime static --spa",
+            "ratline site add api.example.com --user acme --runtime python \\",
+            "--app-module app.main:app --workers 3",
+            "ratline site add app.example.com --user acme --runtime node \\",
+            "--entry server.js --node 22",
+            "ratline site add edge.example.com --user acme --runtime bun \\",
+            "--entry server.ts --bun 1.2"
+          ]
+        },
+        {
+          "path": "ratline site alias",
+          "name": "alias",
+          "summary": "Add or remove a site's additional server names",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline site alias add",
+              "name": "add",
+              "summary": "Add an alias and re-render the vhost",
+              "args": [
+                "<domain>",
+                "<alias>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site alias remove",
+              "name": "remove",
+              "summary": "Remove an alias and re-render the vhost",
+              "args": [
+                "<domain>",
+                "<alias>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            }
+          ]
+        },
+        {
+          "path": "ratline site clone",
+          "name": "clone",
+          "summary": "Copy a site's configuration to a new domain",
+          "description": "Every setting the source has, on a new domain: runtime, versions, commands,\nlimits, deploy hooks, and its jobs and workers.",
+          "args": [
+            "<source-domain>",
+            "<new-domain>"
+          ],
+          "flags": [
+            {
+              "name": "db-name",
+              "type": "string",
+              "usage": "Name for that database (default: derived from the new domain)",
+              "required": false
+            },
+            {
+              "name": "start",
+              "type": "bool",
+              "usage": "Start the copy once it is built",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Tenant to own the copy (default: the source's)",
+              "required": false
+            },
+            {
+              "name": "with-db",
+              "type": "bool",
+              "usage": "Also create an empty database and attach it",
+              "required": false
+            },
+            {
+              "name": "with-files",
+              "type": "bool",
+              "usage": "Also clone the repository and install and build it",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site clone app.example.com staging.example.com",
+            "ratline site clone app.example.com staging.example.com --with-files --start",
+            "ratline site clone app.example.com sandbox.example.com --user sandbox --with-db"
+          ]
+        },
+        {
+          "path": "ratline site cron",
+          "name": "cron",
+          "summary": "Scheduled jobs for a site",
+          "description": "A job runs on a schedule as the site's tenant, in the site's directory, with the\nsite's .env and the site's sandbox and memory ceiling.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline site cron add",
+              "name": "add",
+              "summary": "Add a scheduled job",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "flags": [
+                {
+                  "name": "command",
+                  "type": "string",
+                  "usage": "What to run, as a path and arguments (required)",
+                  "required": true
+                },
+                {
+                  "name": "description",
+                  "type": "string",
+                  "usage": "What this job is for",
+                  "required": false
+                },
+                {
+                  "name": "disabled",
+                  "type": "bool",
+                  "usage": "Create it without arming the timer",
+                  "required": false
+                },
+                {
+                  "name": "memory-max",
+                  "type": "string",
+                  "usage": "Memory ceiling for this job (default: the site's)",
+                  "required": false
+                },
+                {
+                  "name": "persistent",
+                  "type": "bool",
+                  "usage": "Run a firing missed while the server was off",
+                  "required": false
+                },
+                {
+                  "name": "schedule",
+                  "type": "string",
+                  "usage": "When to run: cron ('0 3 * * *') or systemd ('daily') (required)",
+                  "required": true
+                },
+                {
+                  "name": "timeout",
+                  "type": "string",
+                  "usage": "Give up after this long, e.g. 30m",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline site cron add app.example.com nightly \\",
+                "--schedule '0 3 * * *' --command '/home/acme/app.example.com/app/bin/nightly'",
+                "ratline site cron add app.example.com digest \\",
+                "--schedule 'Mon *-*-* 09:00' --command '…/bin/digest' --persistent"
+              ]
+            },
+            {
+              "path": "ratline site cron list",
+              "name": "list",
+              "summary": "List a site's jobs",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": false,
+              "needs_root": false
+            },
+            {
+              "path": "ratline site cron logs",
+              "name": "logs",
+              "summary": "Show what a job last printed",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "flags": [
+                {
+                  "name": "lines",
+                  "short": "n",
+                  "type": "int",
+                  "default": "50",
+                  "usage": "How many lines",
+                  "required": false
+                }
+              ],
+              "mutates": false,
+              "needs_root": false
+            },
+            {
+              "path": "ratline site cron remove",
+              "name": "remove",
+              "summary": "Remove a job",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site cron run",
+              "name": "run",
+              "summary": "Run a scheduled job now, without waiting for its timer",
+              "description": "Starts the job's service directly. The timer is untouched, so this does not\naffect when it next runs on its own.",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            }
+          ]
+        },
+        {
+          "path": "ratline site delete",
+          "name": "delete",
+          "summary": "Delete a site, its vhost, its service and its logs",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "backup",
+              "type": "string",
+              "usage": "Archive the site into this directory first",
+              "required": false
+            },
+            {
+              "name": "purge",
+              "type": "bool",
+              "usage": "Also delete the site directory and its contents",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site deploy",
+          "name": "deploy",
+          "summary": "Pull, install, build, migrate and restart, rolling back if it fails",
+          "description": "Runs the chain you ask for, health checks the result, and reverts to the previous\ncommit if the application does not come back healthy.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "build",
+              "type": "bool",
+              "usage": "Run the build command",
+              "required": false
+            },
+            {
+              "name": "collectstatic",
+              "type": "bool",
+              "usage": "Run Django collectstatic (needs --manage-py)",
+              "required": false
+            },
+            {
+              "name": "install",
+              "type": "bool",
+              "usage": "Install dependencies",
+              "required": false
+            },
+            {
+              "name": "migrate",
+              "type": "bool",
+              "usage": "Run Django migrations (needs --manage-py)",
+              "required": false
+            },
+            {
+              "name": "pull",
+              "type": "bool",
+              "usage": "git pull in the application directory",
+              "required": false
+            },
+            {
+              "name": "restart",
+              "type": "bool",
+              "usage": "Restart the service and wait for health",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site deploy api.example.com",
+            "ratline site deploy api.example.com --pull --install --migrate --collectstatic --restart"
+          ]
+        },
+        {
+          "path": "ratline site deploy-key",
+          "name": "deploy-key",
+          "summary": "Manage the outbound key a site uses to clone a private repository",
+          "description": "The private half never leaves this server: it is 0600, owned by the site user,\nand used only by git over SSH. The public half is printed for you to paste into\nthe repository's deploy keys.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline site deploy-key create",
+              "name": "create",
+              "summary": "Generate an outbound keypair for a site",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "type",
+                  "type": "string",
+                  "default": "ed25519",
+                  "usage": "Key type: ed25519 or rsa",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site deploy-key remove",
+              "name": "remove",
+              "summary": "Delete a site's outbound keypair",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site deploy-key rotate",
+              "name": "rotate",
+              "summary": "Replace a site's outbound keypair",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "type",
+                  "type": "string",
+                  "default": "ed25519",
+                  "usage": "Key type: ed25519 or rsa",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site deploy-key show",
+              "name": "show",
+              "summary": "Print a site's outbound public key",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": false,
+              "needs_root": true
+            }
+          ]
+        },
+        {
+          "path": "ratline site disable",
+          "name": "disable",
+          "summary": "Take a site offline, returning 503 while keeping certificate renewal working",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site enable",
+          "name": "enable",
+          "summary": "Enable a site and start its service",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site env",
+          "name": "env",
+          "summary": "Manage a site's environment variables",
+          "description": "Values live in the site's .env, which is 0600 and owned by the tenant. The\nservice loads it as that user when it starts, so the application receives values\nnginx can never serve and root never reads a file the tenant controls.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline site env get",
+              "name": "get",
+              "summary": "Show one variable, masked unless --reveal",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "reveal",
+                  "type": "bool",
+                  "usage": "Print the real value",
+                  "required": false
+                }
+              ],
+              "mutates": false,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site env import",
+              "name": "import",
+              "summary": "Merge a .env file into a site's environment",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "file",
+                  "type": "string",
+                  "usage": "The .env file to import (required)",
+                  "required": true
+                }
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site env list",
+              "name": "list",
+              "summary": "List variables, masked unless --reveal",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "reveal",
+                  "type": "bool",
+                  "usage": "Print the real values",
+                  "required": false
+                }
+              ],
+              "mutates": false,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site env set",
+              "name": "set",
+              "summary": "Set one or more variables and restart the service",
+              "description": "KEY=VALUE sets a value directly. A bare KEY is asked for instead, without\nechoing what you type — which is how a secret should be set from a terminal.",
+              "args": [
+                "<domain>",
+                "[KEY=VALUE"
+              ],
+              "flags": [
+                {
+                  "name": "stdin",
+                  "type": "bool",
+                  "usage": "Read KEY=VALUE lines from stdin, keeping secrets out of argv",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline site env set api.example.com LOG_LEVEL=info",
+                "ratline site env set api.example.com DATABASE_URL",
+                "ratline site env set api.example.com --stdin < vars.env"
+              ]
+            },
+            {
+              "path": "ratline site env unset",
+              "name": "unset",
+              "summary": "Remove a variable and restart the service",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            }
+          ]
+        },
+        {
+          "path": "ratline site health",
+          "name": "health",
+          "summary": "Ask each site whether it is actually answering",
+          "description": "Makes an HTTP request through the site's own socket or port and records the\nresult, so 'is it up' has an answer that does not depend on somebody watching.",
+          "args": [
+            "[domain...]"
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site health                     # every site",
+            "ratline site health app.example.com",
+            "ratline site health --quiet             # exit code only, for a monitor"
+          ]
+        },
+        {
+          "path": "ratline site hook",
+          "name": "hook",
+          "summary": "Run something of your own before or after a deploy",
+          "description": "Two hooks per site, each a command run as the tenant, in the application\ndirectory, with the site's environment — the same conditions as the build\ncommand.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline site hook clear",
+              "name": "clear",
+              "summary": "Remove a site's hooks",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "after",
+                  "type": "bool",
+                  "usage": "Clear the post-deploy hook",
+                  "required": false
+                },
+                {
+                  "name": "before",
+                  "type": "bool",
+                  "usage": "Clear the pre-deploy hook",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true
+            },
+            {
+              "path": "ratline site hook set",
+              "name": "set",
+              "summary": "Set a site's pre- or post-deploy hook",
+              "args": [
+                "<domain>"
+              ],
+              "flags": [
+                {
+                  "name": "after",
+                  "type": "string",
+                  "usage": "Run this once the site is up and answering",
+                  "required": false
+                },
+                {
+                  "name": "before",
+                  "type": "string",
+                  "usage": "Run this after the pull, before install and build",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline site hook set app.example.com \\",
+                "--after /home/acme/app.example.com/app/bin/smoke-test",
+                "ratline site hook set app.example.com \\",
+                "--before …/bin/maintenance-on --after …/bin/maintenance-off"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "ratline site list",
+          "name": "list",
+          "summary": "List sites",
+          "flags": [
+            {
+              "name": "runtime",
+              "type": "string",
+              "usage": "Only this runtime",
+              "required": false
+            },
+            {
+              "name": "user",
+              "type": "string",
+              "usage": "Only this tenant's sites",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site logs",
+          "name": "logs",
+          "summary": "Show a site's application, access or error log",
+          "description": "Where the application log comes from depends on how the site is supervised.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "access",
+              "type": "bool",
+              "usage": "The nginx access log",
+              "required": false
+            },
+            {
+              "name": "app",
+              "type": "bool",
+              "usage": "The application log (the default for a dynamic site)",
+              "required": false
+            },
+            {
+              "name": "error",
+              "type": "bool",
+              "usage": "The nginx error log",
+              "required": false
+            },
+            {
+              "name": "follow",
+              "type": "bool",
+              "usage": "Keep printing as lines arrive",
+              "required": false
+            },
+            {
+              "name": "journal",
+              "type": "bool",
+              "usage": "The systemd journal for the unit rather than the application's own log",
+              "required": false
+            },
+            {
+              "name": "lines",
+              "type": "int",
+              "default": "100",
+              "usage": "How many lines to show",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site reload",
+          "name": "reload",
+          "summary": "Reload a site's workers without dropping requests, where the runtime allows",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site restart",
+          "name": "restart",
+          "summary": "Restart a site's service",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site runtime",
+          "name": "runtime",
+          "summary": "Change a site's interpreter version, then rebuild and restart",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "bun",
+              "type": "string",
+              "usage": "Bun version to move to",
+              "required": false
+            },
+            {
+              "name": "daemon",
+              "type": "string",
+              "usage": "node: move this site to pm2 or direct supervision",
+              "required": false
+            },
+            {
+              "name": "node",
+              "type": "string",
+              "usage": "Node version to move to",
+              "required": false
+            },
+            {
+              "name": "python",
+              "type": "string",
+              "usage": "Python version to move to",
+              "required": false
+            },
+            {
+              "name": "relax",
+              "type": "stringSlice",
+              "usage": "Turn off a named systemd hardening directive for this site",
+              "required": false,
+              "repeatable": true
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site runtime app.example.com --node 22",
+            "ratline site runtime edge.example.com --bun 1.2",
+            "ratline site runtime api.example.com --python 3.12"
+          ]
+        },
+        {
+          "path": "ratline site scale",
+          "name": "scale",
+          "summary": "Change workers, instances or resource ceilings",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "client-max-body-size",
+              "type": "string",
+              "usage": "Upload ceiling, e.g. 100M — the commonest cause of a mystery 413",
+              "required": false
+            },
+            {
+              "name": "cpu-quota",
+              "type": "string",
+              "usage": "CPU ceiling, e.g. 100%",
+              "required": false
+            },
+            {
+              "name": "instances",
+              "type": "int",
+              "usage": "node: PM2 cluster workers",
+              "required": false
+            },
+            {
+              "name": "memory-max",
+              "type": "string",
+              "usage": "Memory ceiling, e.g. 512M",
+              "required": false
+            },
+            {
+              "name": "workers",
+              "type": "int",
+              "usage": "Worker processes",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site scale api.example.com --workers 6",
+            "ratline site scale api.example.com --memory-max 1G --cpu-quota 200%",
+            "ratline site scale www.example.com --client-max-body-size 100M"
+          ]
+        },
+        {
+          "path": "ratline site show",
+          "name": "show",
+          "summary": "Show a site's runtime, service state, socket, certificate and last deploy",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site start",
+          "name": "start",
+          "summary": "Start a site's service",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site status",
+          "name": "status",
+          "summary": "Show a site's service state",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site stop",
+          "name": "stop",
+          "summary": "Stop a site's service",
+          "args": [
+            "<domain>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline site troubleshoot",
+          "name": "troubleshoot",
+          "summary": "Walk one site's request path and find where it breaks",
+          "description": "The site-scoped spelling of 'ratline troubleshoot', which diagnoses anything.",
+          "args": [
+            "<domain>"
+          ],
+          "flags": [
+            {
+              "name": "all",
+              "type": "bool",
+              "usage": "Show every step, not only the ones that need attention",
+              "required": false
+            }
+          ],
+          "mutates": false,
+          "needs_root": true,
+          "examples": [
+            "ratline site troubleshoot app.example.com"
+          ]
+        },
+        {
+          "path": "ratline site worker",
+          "name": "worker",
+          "summary": "Long-running background processes for a site",
+          "description": "A worker runs alongside the site's own service, as the same tenant, with the same\ndirectory, .env, sandbox and ceiling — a queue consumer, a websocket process, a\nscheduler daemon.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline site worker add",
+              "name": "add",
+              "summary": "Add a long-running worker",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "flags": [
+                {
+                  "name": "command",
+                  "type": "string",
+                  "usage": "What to run, as a path and arguments (required)",
+                  "required": true
+                },
+                {
+                  "name": "description",
+                  "type": "string",
+                  "usage": "What this worker is for",
+                  "required": false
+                },
+                {
+                  "name": "disabled",
+                  "type": "bool",
+                  "usage": "Create it without starting it",
+                  "required": false
+                },
+                {
+                  "name": "memory-max",
+                  "type": "string",
+                  "usage": "Memory ceiling for this worker (default: the site's)",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline site worker add app.example.com queue \\",
+                "--command '/home/acme/app.example.com/app/bin/worker'"
+              ]
+            },
+            {
+              "path": "ratline site worker list",
+              "name": "list",
+              "summary": "List a site's workers",
+              "args": [
+                "<domain>"
+              ],
+              "mutates": false,
+              "needs_root": false
+            },
+            {
+              "path": "ratline site worker logs",
+              "name": "logs",
+              "summary": "Show what a worker last printed",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "flags": [
+                {
+                  "name": "lines",
+                  "short": "n",
+                  "type": "int",
+                  "default": "50",
+                  "usage": "How many lines",
+                  "required": false
+                }
+              ],
+              "mutates": false,
+              "needs_root": false
+            },
+            {
+              "path": "ratline site worker remove",
+              "name": "remove",
+              "summary": "Remove a worker",
+              "args": [
+                "<domain>",
+                "<name>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "ratline status",
+      "name": "status",
+      "summary": "Show everything on this server on one screen",
+      "description": "The inventory and the health of it: tenants, sites and what state each one is\nin, certificates that need attention, and a count of anything 'ratline doctor'\nwould report.",
+      "flags": [
+        {
+          "name": "quiet",
+          "type": "bool",
+          "usage": "Only the summary counts, without the per-site table",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline status",
+        "ratline status --json | jq '.sites_detail[] | select(.needs_attention)'"
+      ]
+    },
+    {
+      "path": "ratline troubleshoot",
+      "name": "troubleshoot",
+      "summary": "Find why something is broken, in the order things depend on each other",
+      "description": "Diagnoses anything ratline manages. The subject is worked out from the\nargument — a domain is a site, a name is a tenant, SHA256:… is a key — and\n'nginx', 'ssh' and 'server' name the subsystems. With no argument it\ndiagnoses the server.",
+      "args": [
+        "[subject]"
+      ],
+      "flags": [
+        {
+          "name": "all",
+          "type": "bool",
+          "usage": "Show every step, not only the ones that need attention",
+          "required": false
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "usage": "Say what the subject is when the name is ambiguous: server, site, user, key, certificate, nginx, ssh",
+          "required": false
+        },
+        {
+          "name": "probe-timeout",
+          "type": "duration",
+          "default": "0s",
+          "usage": "How long any single network probe may take (default 3s)",
+          "required": false
+        }
+      ],
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline troubleshoot                          # the server",
+        "ratline troubleshoot app.example.com          # one site's request path",
+        "ratline troubleshoot acme                     # a tenant: account, home, keys, sites",
+        "ratline troubleshoot SHA256:AbC…              # can this key log in, and to what",
+        "ratline troubleshoot nginx",
+        "ratline troubleshoot ssh                      # including the lockout guard",
+        "ratline troubleshoot app.example.com --json | jq -r .data.likely_cause"
+      ]
+    },
+    {
+      "path": "ratline update",
+      "name": "update",
+      "summary": "Update ratline itself, in place, on a live server",
+      "description": "Replaces the installed binaries with a newer release. One command, and it is\nsafe to run on a server that is serving traffic.",
+      "flags": [
+        {
+          "name": "allow-unverified",
+          "type": "bool",
+          "usage": "Install even when the release publishes no SHA256SUMS (refused by default)",
+          "required": false
+        },
+        {
+          "name": "base-url",
+          "type": "string",
+          "usage": "Where releases live (default: the project's GitHub releases)",
+          "required": false
+        },
+        {
+          "name": "check",
+          "type": "bool",
+          "usage": "Report whether an update is available and change nothing",
+          "required": false
+        },
+        {
+          "name": "no-panel",
+          "type": "bool",
+          "usage": "Leave ratline-panel alone; update only ratline itself",
+          "required": false
+        },
+        {
+          "name": "rollback",
+          "type": "bool",
+          "usage": "Restore the binary this command last replaced",
+          "required": false
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "usage": "Install this version rather than the latest",
+          "required": false
+        }
+      ],
+      "mutates": true,
+      "needs_root": true,
+      "examples": [
+        "ratline update                       # to the latest release",
+        "ratline update --check               # is there one? change nothing",
+        "ratline update --version 1.2.0",
+        "ratline update --rollback            # back to the previous binary",
+        "ratline update --base-url https://mirror.example.internal/ratline"
+      ]
+    },
+    {
+      "path": "ratline user",
+      "name": "user",
+      "summary": "Create and manage tenant accounts",
+      "description": "Each user is a sandbox: its own system account, group, home tree and SSH keys.\nMaking one is cheap on purpose — one user per site is the recommended pattern\nwhenever a site is run by someone you do not fully trust.",
+      "mutates": false,
+      "needs_root": true,
+      "subcommands": [
+        {
+          "path": "ratline user add",
+          "name": "add",
+          "summary": "Create a tenant account with a home tree and key-only SSH",
+          "args": [
+            "<username>"
+          ],
+          "flags": [
+            {
+              "name": "comment",
+              "type": "string",
+              "usage": "Description recorded in /etc/passwd",
+              "required": false
+            },
+            {
+              "name": "memory-max",
+              "type": "string",
+              "usage": "Default memory ceiling inherited by this user's sites, e.g. 512M",
+              "required": false
+            },
+            {
+              "name": "password-login",
+              "type": "bool",
+              "usage": "Allow password login (default: keys only)",
+              "required": false
+            },
+            {
+              "name": "quota",
+              "type": "string",
+              "usage": "Disk quota, e.g. 20G (needs filesystem quota support)",
+              "required": false
+            },
+            {
+              "name": "sftp-only",
+              "type": "bool",
+              "usage": "SFTP only, chrooted to the home directory, with no shell",
+              "required": false
+            },
+            {
+              "name": "shell",
+              "type": "string",
+              "usage": "Login shell (default from config; /usr/sbin/nologin to disable)",
+              "required": false
+            },
+            {
+              "name": "ssh-key",
+              "type": "stringArray",
+              "usage": "Public key: the key itself, a path, an https URL, or - for stdin (repeatable)",
+              "required": false,
+              "repeatable": true
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline user add acme --ssh-key ~/.ssh/id_ed25519.pub",
+            "ratline user add contractor --sftp-only --quota 5G",
+            "cat key.pub | ratline user add ci --ssh-key -"
+          ]
+        },
+        {
+          "path": "ratline user delete",
+          "name": "delete",
+          "summary": "Delete a user, refusing while they still own sites unless --purge",
+          "args": [
+            "<username>"
+          ],
+          "flags": [
+            {
+              "name": "backup",
+              "type": "string",
+              "usage": "Archive the home directory into this directory first",
+              "required": false
+            },
+            {
+              "name": "purge",
+              "type": "bool",
+              "usage": "Also delete every site the user owns",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline user disable",
+          "name": "disable",
+          "summary": "Lock a user's login and stop all their sites",
+          "args": [
+            "<username>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline user enable",
+          "name": "enable",
+          "summary": "Re-enable a user and restart their sites",
+          "args": [
+            "<username>"
+          ],
+          "mutates": true,
+          "needs_root": true
+        },
+        {
+          "path": "ratline user list",
+          "name": "list",
+          "summary": "List tenant accounts",
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline user password",
+          "name": "password",
+          "summary": "Manage passwords (keys are preferred)",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline user password set",
+              "name": "set",
+              "summary": "Set a password, read from stdin",
+              "description": "The password is never taken from the command line, where it would appear in\nthe process table, the shell history and the audit log.",
+              "args": [
+                "<username>"
+              ],
+              "flags": [
+                {
+                  "name": "stdin",
+                  "type": "bool",
+                  "usage": "Read the password from stdin",
+                  "required": false
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline user password set alice --stdin < password.txt"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "ratline user show",
+          "name": "show",
+          "summary": "Show a user's home, sites, keys, disk usage and services",
+          "args": [
+            "<username>"
+          ],
+          "mutates": false,
+          "needs_root": true
+        },
+        {
+          "path": "ratline user sudo",
+          "name": "sudo",
+          "summary": "Grant or revoke a narrow sudo permission (off unless users.allow_sudo)",
+          "description": "Created users get no sudo. This exists because a real deployment occasionally\nneeds one specific command — a client's CI restarting their own service.",
+          "mutates": false,
+          "needs_root": true,
+          "subcommands": [
+            {
+              "path": "ratline user sudo grant",
+              "name": "grant",
+              "summary": "Install a sudo rule for exactly the commands named",
+              "args": [
+                "<username>"
+              ],
+              "flags": [
+                {
+                  "name": "command",
+                  "type": "stringArray",
+                  "usage": "An absolute command with its full arguments (repeatable, required)",
+                  "required": true,
+                  "repeatable": true
+                }
+              ],
+              "mutates": true,
+              "needs_root": true,
+              "examples": [
+                "ratline user sudo grant acme \\",
+                "--command '/usr/bin/systemctl restart ratline-acme-example_com.service'"
+              ]
+            },
+            {
+              "path": "ratline user sudo list",
+              "name": "list",
+              "summary": "List the tenants with a ratline-installed sudo grant",
+              "mutates": false,
+              "needs_root": true
+            },
+            {
+              "path": "ratline user sudo revoke",
+              "name": "revoke",
+              "summary": "Remove a tenant's sudo grant",
+              "args": [
+                "<username>"
+              ],
+              "mutates": true,
+              "needs_root": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "ratline version",
+      "name": "version",
+      "summary": "Print the version, the host and the available runtimes",
+      "mutates": false,
+      "needs_root": false
+    }
+  ],
+  "notes": [
+    "Every mutating command accepts --dry-run, which writes nothing at any layer. Run it first and read the plan.",
+    "Exit codes are a contract; branch on them rather than on message text.",
+    "Secrets are never accepted as flag values. --stdin, or a prompt on a terminal.",
+    "Commands are safe to run twice: re-running one that has already been applied reports what exists rather than failing."
+  ]
+}
