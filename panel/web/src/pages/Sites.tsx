@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Page } from '../components/Layout';
 import { ActionForm } from '../components/ActionForm';
 import { MoreMenu } from '../components/MoreMenu';
+import { Value, labelFor } from '../components/Value';
 import { useApi } from '../lib/hooks';
 import type { Action, ActionRecord, Site } from '../lib/types';
 import {
@@ -352,17 +353,15 @@ export function firstArg(action: Action, value: string): Record<string, string> 
  * shape per runtime and a fixed list would show empty rows for the fields that do
  * not apply — and silently omit any field a later ratline adds.
  */
+/**
+ * Whatever ratline returned, as label/value rows.
+ *
+ * Every value goes through `Value`, including the objects. This used to stringify
+ * them — which is how `site show`'s twenty-field certificate arrived as one line of
+ * JSON that could not wrap, and took the width of the card with it.
+ */
 export function factsFrom(obj: Record<string, unknown>): [string, React.ReactNode][] {
   return Object.entries(obj)
     .filter(([, v]) => v !== null && v !== '' && v !== undefined && !(Array.isArray(v) && v.length === 0))
-    .map(([k, v]) => [
-      k.replace(/_/g, ' '),
-      typeof v === 'object' ? (
-        <code className="mono text-xs">{JSON.stringify(v)}</code>
-      ) : typeof v === 'boolean' ? (
-        <Badge tone={v ? 'ok' : 'neutral'}>{String(v)}</Badge>
-      ) : (
-        <span className="mono text-xs break-all">{String(v)}</span>
-      ),
-    ]);
+    .map(([k, v]) => [labelFor(k), <Value value={v} />]);
 }

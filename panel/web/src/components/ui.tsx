@@ -127,14 +127,23 @@ export function Field({
   );
 }
 
-/** A label/value block, the shape every detail page uses. */
+/**
+ * A label/value block, the shape every detail page uses.
+ *
+ * The value track is `minmax(0, 1fr)`, not `1fr`. A bare `1fr` is `minmax(auto,
+ * 1fr)`, whose floor is the content's max-content width — so one value with nothing
+ * to break at, a certificate fingerprint or a path, widened this track, the card and
+ * the page with it. `min-w-0` on the cell is the same rule one level down, and both
+ * are needed: the track has to be allowed to shrink and the cell has to be willing
+ * to.
+ */
 export function Facts({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1.5 text-sm">
+    <dl className="grid grid-cols-[minmax(7rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-xs font-semibold text-[var(--fg-muted)] pt-[0.15rem]">{k}</dt>
-          <dd className="break-words">{v}</dd>
+          <dd className="min-w-0 [overflow-wrap:anywhere]">{v}</dd>
         </div>
       ))}
     </dl>
