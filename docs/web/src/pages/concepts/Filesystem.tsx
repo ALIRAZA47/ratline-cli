@@ -38,9 +38,10 @@ export function ConceptFilesystem() {
             home stays <code>0750</code>.
           </li>
           <li>
-            <code>.env</code> is <code>0600</code>, owned by the site user, loaded by systemd’s{' '}
-            <code>EnvironmentFile=</code> (read as root before privileges are dropped), and never inside
-            a directory nginx can serve. nginx additionally denies dotfiles.
+            <code>.env</code> is <code>0600</code>, owned by the site user, loaded by{' '}
+            <code>ratline-shell exec</code> as that user — never by PID 1 through{' '}
+            <code>EnvironmentFile=</code> — and never inside a directory nginx can serve. nginx
+            additionally denies dotfiles.
           </li>
           <li>
             <code>umask 027</code> for all provisioning writes.
@@ -89,10 +90,22 @@ namei -l /home/acme/example.com/public/index.html
       <div className="prose">
         <H2 id="env">Why .env can be 0600 and still work</H2>
         <p>
-          Because systemd reads <code>EnvironmentFile=</code> <em>as root</em>, before it drops
-          privileges to <code>User=</code>. The application process never needs to open the file; it
-          receives the variables in its environment. So the file can be readable only by its owner and
-          the app still starts.
+          Because the process that opens it <em>is</em> the tenant. The unit’s <code>ExecStart</code>{' '}
+          line is <code>ratline-shell exec --env-file &lt;site&gt;/.env -- &lt;program&gt;</code>: by
+          the time it runs, systemd has already switched to <code>User=</code>, so the wrapper reads the{' '}
+          <code>0600</code> file with the owner’s own privileges, merges the values over the unit’s{' '}
+          <code>Environment=</code> lines, and execs the program in place. The application never opens
+          the file; it receives the variables in its environment.
+        </p>
+        <p>
+          The obvious alternative is systemd’s <code>EnvironmentFile=</code>, which reads the file{' '}
+          <em>as root</em>, before privileges are dropped — and that is exactly why ratline does not use
+          it. <code>.env</code> sits in a directory the tenant owns. A tenant who replaced it with a
+          symlink to another tenant’s <code>.env</code> and crash-looped their own service would have
+          PID 1 load somebody else’s <code>DATABASE_URL</code> into their environment. Read as the
+          tenant, the most a hostile <code>.env</code> can do is what the tenant could already do.{' '}
+          <code>doctor</code> reports a unit that still carries <code>EnvironmentFile=</code>, and{' '}
+          <code>reconcile --fix</code> re-renders it.
         </p>
         <p>Two consequences worth knowing:</p>
         <ul>
@@ -102,7 +115,9 @@ namei -l /home/acme/example.com/public/index.html
             maps to it.
           </li>
           <li>
-            systemd’s parser cannot represent a multi-line value, so ratline refuses one rather than
+            The file is <code>KEY=VALUE</code> lines in the format systemd’s{' '}
+            <code>EnvironmentFile=</code> defines, and <code>ratline-shell</code> parses it the same
+            way. That format cannot represent a multi-line value, so ratline refuses one rather than
             writing a file that silently truncates. For a PEM key or a JSON service account, put the
             payload in a file inside the site directory and point a variable at its path.
           </li>

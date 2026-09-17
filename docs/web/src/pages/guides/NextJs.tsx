@@ -149,10 +149,9 @@ ratline site add app.example.com \\
         code={`User=acme
 Group=acme
 WorkingDirectory=/home/acme/app.example.com/app
-EnvironmentFile=/home/acme/app.example.com/.env
 RuntimeDirectory=ratline/acme-app_example_com
 
-ExecStart=/opt/ratline/runtimes/node/22/bin/node .next/standalone/server.js`}
+ExecStart=/usr/local/lib/ratline/ratline-shell exec --env-file /home/acme/app.example.com/.env -- /opt/ratline/runtimes/node/22/bin/node .next/standalone/server.js`}
       />
 
       <div className="prose">
@@ -160,6 +159,13 @@ ExecStart=/opt/ratline/runtimes/node/22/bin/node .next/standalone/server.js`}
           Absolute path to the managed binary. nvm, <code>.nvmrc</code>, shell profiles and login shells
           are never involved — so a tenant editing their <code>.bashrc</code> cannot break their own
           service, and two sites can sit on Node 20 and Node 22 without arguing.
+        </p>
+        <p>
+          The <code>ratline-shell exec</code> prefix is how <code>.env</code> gets loaded. There is no{' '}
+          <code>EnvironmentFile=</code>, because that has PID 1 read the file as root from a directory
+          the tenant owns; the wrapper runs after systemd has switched to <code>User=acme</code>, opens
+          the <code>0600</code> file as acme, and execs node in place — nothing of it remains in the
+          running process. See <Link to="/concepts/filesystem#env">why .env can be 0600</Link>.
         </p>
 
         <H3 id="socket">Socket or port</H3>

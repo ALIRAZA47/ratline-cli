@@ -145,7 +145,7 @@ export const rules: Rule[] = [
     source: 'internal/validate/misc.go',
     points: [
       'Names are at most 128 characters.',
-      'A value containing a newline is refused, because systemd’s EnvironmentFile cannot represent multi-line values. The hint says to store the payload in a file inside the site directory and point a variable at it — which is the right answer for a PEM key or a JSON service account.',
+      'A value containing a newline is refused. .env is KEY=VALUE lines in the format systemd’s EnvironmentFile= defines — ratline-shell exec parses it the same way when it loads the file as the site user — and that format cannot represent a multi-line value. The hint says to store the payload in a file inside the site directory and point a variable at it — which is the right answer for a PEM key or a JSON service account.',
       'A NUL byte is refused, and values are capped at 32768 bytes.',
       'LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT and DYLD_INSERT_LIBRARIES are refused: they change how the runtime itself loads code, which is a foot-gun rather than a feature.',
     ],

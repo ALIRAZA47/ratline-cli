@@ -251,14 +251,27 @@ jobs:
           reverted, and the command exits non-zero with the reason. The build goes red and
           the site stays up.
         </p>
+        <p>
+          There is nothing to roll back by hand, because the release that failed was never
+          published. What is left is to find out why. The step that failed printed its
+          reason into the job log; the application's own account is in its log, and the
+          unit's in the journal; <code>site troubleshoot</code> walks the unit, the socket
+          and the vhost and names the one that is unhappy. The attempt is recorded either
+          way, so <code>site show</code> reflects the last attempt rather than the last
+          success. Fix the cause and run the same deploy again — by re-running the job, or
+          from a shell. See <Link to="/topics/deploys">deploys</Link> for the order the
+          steps run in and what each one unwinds.
+        </p>
       </div>
 
       <CodeBlock
         lang="shell"
         prompt
-        code={`ratline site deploy app.example.com --rollback   # by hand, to the previous release
-ratline site logs app.example.com
-ratline site troubleshoot app.example.com`}
+        code={`ratline site show app.example.com                 # the last attempt, not just the last success
+ratline site logs app.example.com --journal       # the unit: a failed start, an OOM kill
+ratline site logs app.example.com --app           # the application's own log
+ratline site troubleshoot app.example.com         # which part of the chain is unhappy
+ratline site deploy app.example.com               # once the cause is fixed`}
       />
     </article>
   );

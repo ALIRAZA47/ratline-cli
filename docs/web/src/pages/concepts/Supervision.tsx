@@ -7,7 +7,10 @@ import { Callout, H2, H3, TableScroll } from '../../components/ui';
 const directives = [
   { d: 'User / Group', why: 'The site owner. This is the boundary that actually matters.' },
   { d: 'WorkingDirectory', why: 'The application directory, so relative paths in the app resolve.' },
-  { d: 'EnvironmentFile', why: 'Reads .env as root, before privileges are dropped — which is why the file can be 0600.' },
+  {
+    d: 'ExecStart',
+    why: 'Wrapped in ratline-shell exec --env-file <site>/.env -- <program>. There is deliberately no EnvironmentFile=: that has PID 1 read .env as root from a directory the tenant owns, and a symlink there is a root read of whatever it points at. The wrapper runs after User= has taken effect, loads .env as the tenant, and execs the program in place — which is why the file can be 0600.',
+  },
   { d: 'RuntimeDirectory', why: 'Creates /run/ratline/<slug>/ with the right owner and mode, and removes it on stop. /run is a tmpfs, so a hand-made directory would not survive a reboot.' },
   {
     d: 'UMask',
@@ -187,6 +190,8 @@ Documentation=man:ratline(8)
 After=network-online.target
 Wants=network-online.target
 PartOf=ratline.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=forking
@@ -194,7 +199,6 @@ PIDFile=/home/acme/app.example.com/.pm2/pm2.pid
 User=acme
 Group=acme
 WorkingDirectory=/home/acme/app.example.com/app
-EnvironmentFile=-/home/acme/app.example.com/.env
 Environment=PM2_HOME=/home/acme/app.example.com/.pm2
 Environment=NODE_ENV=production
 Environment=PM2_DISCRETE_MODE=true
@@ -202,14 +206,12 @@ Environment=TMPDIR=/home/acme/app.example.com/tmp
 RuntimeDirectory=ratline/acme-app_example_com
 RuntimeDirectoryMode=0750
 UMask=0007
-ExecStart=/opt/ratline/runtimes/node/22/bin/pm2 start /home/acme/app.example.com/.ratline/ecosystem.config.json
+ExecStart=/usr/local/lib/ratline/ratline-shell exec --env-file /home/acme/app.example.com/.env -- /opt/ratline/runtimes/node/22/bin/pm2 start /home/acme/app.example.com/.ratline/ecosystem.config.json
 ExecStartPost=+/bin/sh -c 'for i in $(seq 1 100); do if [ -S /run/ratline/acme-app_example_com/app.sock ]; then chmod 0660 /run/ratline/acme-app_example_com/app.sock; exit 0; fi; sleep 0.1; done; exit 0'
 ExecReload=/opt/ratline/runtimes/node/22/bin/pm2 reload /home/acme/app.example.com/.ratline/ecosystem.config.json --update-env
 ExecStop=/opt/ratline/runtimes/node/22/bin/pm2 kill
 Restart=always
 RestartSec=3s
-StartLimitBurst=5
-StartLimitIntervalSec=60
 KillSignal=SIGTERM
 KillMode=mixed
 TimeoutStopSec=30s
@@ -273,8 +275,16 @@ WantedBy=multi-user.target`}
           after binding, and it always exits 0 so it can never be the reason a start fails.
         </p>
         <p>
-          <code>EnvironmentFile=-</code> with the dash: a site with no <code>.env</code> yet must still
-          start. Without it, a missing file is a start failure.
+          <code>ExecStart</code> does not run pm2 directly: it runs{' '}
+          <code>ratline-shell exec --env-file … -- pm2 …</code>. There is deliberately no{' '}
+          <code>EnvironmentFile=</code>, which would have PID 1 open a path inside the tenant’s
+          directory as root — and a <code>.env</code> swapped for a symlink would then be a root read of
+          whatever it pointed at. The wrapper runs after <code>User=acme</code> has taken effect, reads
+          the <code>0600</code> file as the tenant, merges it over the <code>Environment=</code> lines
+          above in the order systemd would have applied, and execs pm2 in place. A missing{' '}
+          <code>.env</code> is not an error, so a site with no secrets yet still starts.{' '}
+          <code>doctor</code> reports a unit that still carries <code>EnvironmentFile=</code>, and{' '}
+          <code>reconcile --fix</code> re-renders it.
         </p>
       </div>
 

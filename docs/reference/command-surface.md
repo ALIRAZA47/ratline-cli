@@ -515,9 +515,12 @@ Rules the implementation enforces:
   escapes it after cleaning *and symlink resolution* is refused.
 - nginx needs read access to `public/` only, granted by adding `www-data` to the
   site user's group — never by loosening world permissions. The home stays `0750`.
-- `.env` is `0600`, owned by the site user, loaded by systemd's
-  `EnvironmentFile=` (read as root before privileges are dropped), and never
-  inside a directory nginx can serve. nginx additionally denies dotfiles.
+- `.env` is `0600`, owned by the site user, and never inside a directory nginx
+  can serve; nginx additionally denies dotfiles. No unit carries
+  `EnvironmentFile=` — that has PID 1 read a tenant-owned path as root, and a
+  symlink put there is a root read of whatever it points at. The file is
+  loaded by `ratline-shell exec` in the `ExecStart` line, after `User=` has
+  taken effect, so it is opened as the tenant.
 - `umask 027` for all provisioning writes.
 
 ## Process supervision
@@ -527,13 +530,21 @@ directive breaks the application, ratline reports **which** directive to relax
 and offers `--relax <directive>` rather than silently dropping hardening.
 
 Key directives: `User`/`Group` (the site owner), `WorkingDirectory`,
-`EnvironmentFile`, `RuntimeDirectory`, `UMask=0027`, `Restart=always`,
+`RuntimeDirectory`, `UMask=0027`, `Restart=always`,
 `MemoryMax`/`MemoryHigh`/`CPUQuota`/`TasksMax`/`LimitNOFILE`,
 `NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=strict`,
 `ProtectHome=tmpfs` with `BindPaths` for the site directory,
 `ProtectKernelTunables`, `ProtectKernelModules`, `ProtectControlGroups`,
 `RestrictNamespaces`, `RestrictSUIDSGID`, `LockPersonality`,
 `SystemCallFilter=@system-service`.
+
+`ExecStart` is `ratline-shell exec --env-file <site>/.env -- <program>`: the
+wrapper runs after `User=` has taken effect, loads `.env` as the service user,
+merges it over the unit's `Environment=` lines and execs the program in place.
+A job or worker also passes `--log-file`, so its log is opened the same way.
+There is deliberately no `EnvironmentFile=` and no `StandardOutput=append:`,
+both of which have PID 1 open a path under the tenant's home as root; `doctor`
+reports a unit that still does either and `reconcile --fix` re-renders it.
 
 A `ratline.target` lets an operator `systemctl stop ratline.target` to stop every
 managed site at once.

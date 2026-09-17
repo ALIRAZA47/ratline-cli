@@ -33,9 +33,27 @@ sudo ratline site env list app.example.com --reveal
 `<site>/.env`, mode `0600`, owned by the tenant, outside every document root — so
 nginx has no path by which it could serve it.
 
-systemd reads it as `EnvironmentFile=` **as root, before privileges are dropped**,
-which is how a `0600` file owned by the tenant can hold secrets the application still
-receives.
+The unit carries **no** `EnvironmentFile=`. That directive has systemd read the file
+**as root, before privileges are dropped** — and `.env` sits in a directory the tenant
+owns, so a tenant who swapped it for a symlink and crash-looped their own service would
+have PID 1 load whatever the link pointed at into their environment. A `0600`,
+tenant-owned file must never be opened by PID 1.
+
+Instead the unit's `ExecStart` runs
+
+```
+ratline-shell exec --env-file <site>/.env -- <program> [args]
+```
+
+By then `User=` has taken effect, so the file is opened by a process that is already the
+tenant. The wrapper merges its values over the unit's `Environment=` lines — the same
+order systemd applies — and execs the program in place, so nothing of it remains in the
+running service. A `0600` file owned by the tenant is read by the tenant, and the
+application still receives every value.
+
+A missing `.env` is not an error: a site with no secrets yet must still start. `doctor`
+reports a unit that still carries `EnvironmentFile=`, and `ratline reconcile --fix`
+re-renders it.
 
 ## Picking up a change
 
