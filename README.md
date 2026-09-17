@@ -70,7 +70,9 @@ less install.sh && sudo sh install.sh
 ```
 
 `RATLINE_VERSION=v0.4.0` pins a release, `ASSUME_YES=1` suits Ansible and cloud-init, and
-`NO_INIT=1` installs the binaries and stops. From source, or from a tarball or `.deb`:
+`NO_INIT=1` installs the binaries and stops. `WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com`
+puts the web panel on in the same run — you are asked about it interactively when neither
+is set, and an unattended run that does not ask for it gets ratline alone. From source, or from a tarball or `.deb`:
 [installation.md](docs/getting-started/installation.md).
 
 Upgrading later is one command too — `ratline update` checksums the new release, proves

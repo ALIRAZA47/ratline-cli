@@ -3,6 +3,14 @@
 #
 #   curl -fsSL https://ratline.alirazakhan.me/install.sh | sudo sh
 #
+# The web panel can come with it, in the same run:
+#
+#   curl -fsSL … | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh
+#
+# Asked for interactively when neither is set. An unattended run without WITH_PANEL
+# installs ratline alone — a server that did not ask for a web service should not
+# find one listening.
+#
 # One command, and the server is ready for `ratline user add`. It resolves the latest
 # release, downloads the binaries for this architecture, verifies them against the
 # release's own SHA256SUMS, installs them, and runs `ratline init` to write the
@@ -28,6 +36,11 @@ LIB_DIR="$PREFIX/lib/ratline"
 ASSUME_YES="${ASSUME_YES:-0}"
 # Set to 1 to install the binaries and stop, leaving `ratline init` to the operator.
 NO_INIT="${NO_INIT:-0}"
+# The web panel, which is a separate binary and a separate service. Unset means ask
+# when there is somebody to ask, and skip otherwise: an unattended install should not
+# quietly start a web service on a server that did not request one.
+WITH_PANEL="${WITH_PANEL:-}"
+PANEL_ADMIN_EMAIL="${PANEL_ADMIN_EMAIL:-}"
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '→ %s\n' "$*"; }
@@ -111,6 +124,32 @@ if [ -n "$MISSING" ]; then
     fi
 fi
 
+# --- the web panel: asked about before anything is downloaded ---------------
+# Up front on purpose. The question decides which assets are fetched, and being asked
+# halfway through an install is how somebody ends up answering it without reading it.
+case "$WITH_PANEL" in
+    1|y|Y|yes|YES) INSTALL_PANEL=1 ;;
+    0|n|N|no|NO)   INSTALL_PANEL=0 ;;
+    *)
+        if [ "$ASSUME_YES" = "1" ]; then
+            INSTALL_PANEL=0
+        elif confirm "Also install the web panel (a browser interface for this server)?"; then
+            INSTALL_PANEL=1
+        else
+            INSTALL_PANEL=0
+        fi
+        ;;
+esac
+
+if [ "$INSTALL_PANEL" = "1" ] && [ -z "$PANEL_ADMIN_EMAIL" ] && ! ( : </dev/tty ) 2>/dev/null; then
+    # The panel's installer creates the first super admin, so that there is never a
+    # window in which it is answering and unclaimed. With no terminal to ask on and no
+    # address given, it cannot — and an unclaimed panel on a public address is worse
+    # than no panel, so this refuses now rather than half-installing.
+    die "WITH_PANEL=1 needs PANEL_ADMIN_EMAIL when there is no terminal to ask on:
+    curl -fsSL <url> | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh"
+fi
+
 # --- find the binaries -----------------------------------------------------
 # Two ways in. Beside the script means a release tarball or a checkout, and is used
 # as-is. Otherwise the release is downloaded, which is the piped-from-curl case.
@@ -124,6 +163,16 @@ fi
 if [ -n "$LOCAL_MAIN" ]; then
     step "Using the binaries beside this script"
     SRC_MAIN="$LOCAL_MAIN"; SRC_SHELL="$LOCAL_SHELL"
+    SRC_PANEL=""
+    if [ "$INSTALL_PANEL" = "1" ]; then
+        if [ -f "./ratline-panel-linux-$ARCH" ]; then
+            SRC_PANEL="./ratline-panel-linux-$ARCH"
+        elif [ -f ./bin/ratline-panel ]; then
+            SRC_PANEL=./bin/ratline-panel
+        else
+            die "asked for the web panel, but no ratline-panel binary sits beside this script"
+        fi
+    fi
     [ -f "$SRC_SHELL" ] || die "found $SRC_MAIN but not $SRC_SHELL; the pair is installed together"
     # A local SHA256SUMS is checked when present; a checkout will not have one.
     if [ -f ./SHA256SUMS ] && command -v sha256sum >/dev/null 2>&1; then
@@ -149,7 +198,10 @@ else
     trap 'rm -rf "$WORK"' EXIT INT TERM
     chmod 700 "$WORK"
 
-    for asset in "ratline-linux-$ARCH" "ratline-shell-linux-$ARCH"; do
+    ASSETS="ratline-linux-$ARCH ratline-shell-linux-$ARCH"
+    [ "$INSTALL_PANEL" = "1" ] && ASSETS="$ASSETS ratline-panel-linux-$ARCH"
+
+    for asset in $ASSETS; do
         step "Downloading $asset"
         fetch "$BASE/$asset" "$WORK/$asset" \
             || die "could not download $asset from $TAG. Does that release exist for $ARCH?"
@@ -166,6 +218,8 @@ else
         || die "a downloaded file does not match the published checksum. Refusing to install."
 
     SRC_MAIN="$WORK/ratline-linux-$ARCH"; SRC_SHELL="$WORK/ratline-shell-linux-$ARCH"
+    SRC_PANEL=""
+    [ "$INSTALL_PANEL" = "1" ] && SRC_PANEL="$WORK/ratline-panel-linux-$ARCH"
 fi
 
 # --- install ---------------------------------------------------------------
@@ -206,6 +260,31 @@ else
     "$RATLINE" init --write-config-only
 fi
 
+# --- the web panel ---------------------------------------------------------
+# After `init`, because the panel is a caller: it runs this ratline for everything it
+# does, and installing it against a ratline with no configuration would give it a first
+# screen full of errors.
+if [ "$INSTALL_PANEL" = "1" ]; then
+    step "Installing the web panel"
+    install -o root -g root -m 0755 "$SRC_PANEL" "$PREFIX/bin/ratline-panel"
+    PANEL="$PREFIX/bin/ratline-panel"
+    "$PANEL" version >/dev/null 2>&1 \
+        || die "the installed panel does not run. Wrong architecture, or a corrupt download."
+
+    # `install` owns the rest — configuration, its own database, the systemd unit, and
+    # the first super admin whose generated password it prints once. Same code path
+    # whether the panel arrived this way or on its own.
+    if [ -n "$PANEL_ADMIN_EMAIL" ]; then
+        "$PANEL" install --admin-email "$PANEL_ADMIN_EMAIL" \
+            || warn "'ratline-panel install' did not finish; run it again when ready"
+    else
+        # Interactive: it asks for the address itself. Guaranteed to have a terminal —
+        # the non-interactive case without an address was refused before any download.
+        "$PANEL" install </dev/tty \
+            || warn "'ratline-panel install' did not finish; run it again when ready"
+    fi
+fi
+
 # --- completions and man ---------------------------------------------------
 if [ -d /usr/share/bash-completion/completions ]; then
     "$RATLINE" completion bash > /usr/share/bash-completion/completions/ratline 2>/dev/null || true
@@ -236,3 +315,13 @@ say "    ratline runtime install node 22    if you will host Node sites"
 say "    ratline user add acme             create your first tenant"
 say "    ratline site add example.com --user acme --runtime static"
 say "    ratline doctor                    confirm the server is healthy"
+
+# Nothing about reaching the panel is repeated here: `ratline-panel install` has just
+# printed its address, the generated password and the tunnel command, and it knows the
+# configured port. A second, slightly different copy directly under the first is how
+# somebody ends up reading the wrong one.
+if [ "$INSTALL_PANEL" != "1" ]; then
+    say ""
+    say "The web panel is not installed. To add it later:"
+    say "    curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh"
+fi

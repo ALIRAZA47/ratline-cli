@@ -33,6 +33,34 @@ Useful variables:
 | `RATLINE_VERSION=v0.4.0` | Install a specific release rather than the latest |
 | `ASSUME_YES=1` | Answer every prompt yes — for Ansible, cloud-init or a Dockerfile |
 | `NO_INIT=1` | Install the binaries and stop, leaving `ratline init` to you |
+| `WITH_PANEL=1` | Install the web panel in the same run |
+| `PANEL_ADMIN_EMAIL=you@example.com` | Who the panel's first account belongs to |
+
+## Taking the web panel with it
+
+The panel is a separate binary and a separate service, and the installer can put it on
+at the same time:
+
+```sh
+curl -fsSL https://ratline.alirazakhan.me/install.sh \
+  | sudo WITH_PANEL=1 PANEL_ADMIN_EMAIL=you@example.com sh
+```
+
+You are asked about it interactively when neither variable is set. An unattended run
+that does not ask for it gets ratline alone — a server that did not request a web
+service should not find one listening on it.
+
+`PANEL_ADMIN_EMAIL` is what the panel's own installer needs to create the first super
+admin, whose generated password it prints once. Without a terminal to ask on and
+without that address it refuses before anything is downloaded, rather than leaving a
+panel answering and unclaimed.
+
+Adding it later is the panel's own one-liner:
+
+```sh
+curl -fsSL https://ratline.alirazakhan.me/panel.sh | sudo sh
+```
+
 | `PREFIX=/opt/ratline` | Install somewhere other than `/usr/local` |
 
 ## From a release, by hand
