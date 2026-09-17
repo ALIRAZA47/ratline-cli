@@ -155,6 +155,28 @@ func leafAdvertisesOCSP(certPath string) bool {
 	}
 }
 
+// proxyReadTimeout resolves how long nginx waits on the application between reads.
+//
+// The site's own value wins, then defaults.proxy_read_timeout. Rendered from the
+// parsed duration rather than from the operator's string, so what reaches the vhost
+// is a value time.Duration produced — there is no path by which a `;` or a newline in
+// a stored row becomes a second directive in a root-owned file. nginx parses Go's
+// spelling ("1h0m0s") as a sequence of value-unit pairs, which is how the default has
+// always been rendered.
+//
+// A row that does not parse falls back to the default instead of failing the render.
+// validateSiteRow is what stops one being stored, so reaching this is a corrupt
+// database rather than user input, and a working vhost beats a site that cannot be
+// reconciled back into shape.
+func proxyReadTimeout(site *state.Site, cfg *config.Config) string {
+	if site.ProxyReadTimeout != "" {
+		if d, err := validate.Duration(site.ProxyReadTimeout); err == nil {
+			return d.String()
+		}
+	}
+	return cfg.Defaults.ProxyReadTimeout.D().String()
+}
+
 // BuildVhostData assembles the template input for a site.
 func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*VhostData, error) {
 	siteDir := m.Cfg.SiteDir(site.Owner, site.Domain)
@@ -176,9 +198,11 @@ func (m *Manager) BuildVhostData(site *state.Site, cert *state.Certificate) (*Vh
 		ErrorLog:         filepath.Join(m.Cfg.SiteLogDir(site.Slug), "error.log"),
 		SnippetDir:       m.Cfg.Paths.NginxSnippets,
 		CustomInclude:    filepath.Join(m.Cfg.Paths.NginxCustom, site.Domain+".conf"),
-		ProxyReadTimeout: m.Cfg.Defaults.ProxyReadTimeout.D().String(),
-		ProxyBuffering:   true,
-		HSTSMaxAge:       m.Cfg.Defaults.HSTSMaxAge,
+		ProxyReadTimeout: proxyReadTimeout(site, m.Cfg),
+		// Buffering is on unless the site asked for it off. Empty and "on" are the
+		// same answer, so a row that predates the column renders exactly as before.
+		ProxyBuffering: site.ProxyBuffering != "off",
+		HSTSMaxAge:     m.Cfg.Defaults.HSTSMaxAge,
 	}
 
 	names := site.ServerNames()

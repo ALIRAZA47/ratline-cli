@@ -269,6 +269,11 @@ type ScaleOptions struct {
 	// and "delete the site and recreate it" is not an acceptable way to raise an
 	// upload limit.
 	ClientMaxBodySize string
+
+	// The nginx proxy settings, here for the same reason: a site that turns out to
+	// stream should not have to be recreated to stop nginx buffering it.
+	ProxyBuffering   string
+	ProxyReadTimeout string
 }
 
 // Scale changes a site's resource envelope and applies it without downtime where
@@ -320,27 +325,50 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 		}
 		site.ClientMaxBodySize, changed = opts.ClientMaxBodySize, true
 	}
+	if opts.ProxyBuffering != "" || opts.ProxyReadTimeout != "" {
+		if err := validateProxyOptions(opts.ProxyBuffering, opts.ProxyReadTimeout, site.Runtime); err != nil {
+			return nil, err
+		}
+		if opts.ProxyBuffering != "" {
+			site.ProxyBuffering, changed = opts.ProxyBuffering, true
+		}
+		if opts.ProxyReadTimeout != "" {
+			site.ProxyReadTimeout, changed = opts.ProxyReadTimeout, true
+		}
+	}
 	if !changed {
 		return nil, rlerr.Usagef("nothing to change").
 			WithHint("pass at least one of --workers, --instances, --memory-max, " +
-				"--cpu-quota or --client-max-body-size")
+				"--cpu-quota, --client-max-body-size, --proxy-buffering or " +
+				"--proxy-read-timeout")
 	}
 
 	if err := m.putSite(ctx, site, "record the new limits"); err != nil {
 		return nil, err
 	}
+	// Which layer the change actually lands in. client_max_body_size,
+	// proxy_buffering and proxy_read_timeout appear in the vhost and nowhere in the
+	// unit, so a change to those alone wants a new vhost and an nginx reload — not a
+	// re-rendered unit and a restart. That distinction matters most for the sites
+	// these flags exist for: restarting a streaming application in order to widen its
+	// read timeout drops every connection the wider timeout was meant to keep.
+	nginxOnly := opts.Workers == 0 && opts.Instances == 0 &&
+		opts.MemoryMax == "" && opts.CPUQuota == ""
+
 	rb := system.NewRollback(m.Log)
-	rt, err := runtime.For(site.Runtime)
-	if err != nil {
-		return nil, err
-	}
 	id, err := m.identity(site.Owner)
 	if err != nil {
 		return nil, err
 	}
-	rc := runtime.NewContext(m.Cfg, m.Log, m.Runner, site, id, m.DryRun)
-	if err := m.applyUnit(ctx, site, rt, rc, rb); err != nil {
-		return nil, err
+	if !nginxOnly {
+		rt, err := runtime.For(site.Runtime)
+		if err != nil {
+			return nil, err
+		}
+		rc := runtime.NewContext(m.Cfg, m.Log, m.Runner, site, id, m.DryRun)
+		if err := m.applyUnit(ctx, site, rt, rc, rb); err != nil {
+			return nil, err
+		}
 	}
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	if err := m.Nginx.Apply(ctx, site, cert, rb); err != nil {
@@ -354,15 +382,20 @@ func (m *Manager) Scale(ctx context.Context, name string, opts ScaleOptions) (*s
 	// honest beats a reload that may quietly not have scaled. Anything touching the
 	// cgroup restarts too.
 	workersOnly := opts.Instances == 0 && opts.MemoryMax == "" && opts.CPUQuota == "" &&
-		opts.ClientMaxBodySize == ""
-	if workersOnly && site.Runtime == "python" && site.AppServer == "gunicorn" {
+		opts.ClientMaxBodySize == "" && opts.ProxyBuffering == "" && opts.ProxyReadTimeout == ""
+	switch {
+	case nginxOnly:
+		// Nginx.Apply has already reloaded nginx with the new vhost, and the
+		// application is running the same unit it was running before. Touching it
+		// would be a restart nobody asked for.
+	case workersOnly && site.Runtime == "python" && site.AppServer == "gunicorn":
 		if err := m.Unit.Control(ctx, site, "reload"); err != nil {
 			return nil, err
 		}
 		if _, err := m.Unit.WaitHealthy(ctx, site, m.Cfg.Defaults.HealthTimeout.D()); err != nil {
 			return nil, err
 		}
-	} else {
+	default:
 		if _, err := m.startAndWait(ctx, site); err != nil {
 			return nil, err
 		}

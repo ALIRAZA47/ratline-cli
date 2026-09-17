@@ -16,6 +16,7 @@ const siteColumns = `domain, owner, runtime, slug, enabled,
 	start_command, install_command, build_command, build_output, public_dir, repo, branch,
 	pre_deploy_command, post_deploy_command,
 	memory_max, cpu_quota, client_max_body_size, www_redirect, hsts, relaxed,
+	proxy_buffering, proxy_read_timeout,
 	created_at, updated_at, created_by, last_deploy_at`
 
 func scanSite(row interface{ Scan(...any) error }) (*Site, error) {
@@ -33,6 +34,7 @@ func scanSite(row interface{ Scan(...any) error }) (*Site, error) {
 		&s.StartCommand, &s.InstallCommand, &s.BuildCommand, &s.BuildOutput, &s.PublicDir, &s.Repo, &s.Branch,
 		&s.PreDeployCommand, &s.PostDeployCommand,
 		&s.MemoryMax, &s.CPUQuota, &s.ClientMaxBodySize, &s.WWWRedirect, &hsts, &relaxed,
+		&s.ProxyBuffering, &s.ProxyReadTimeout,
 		&created, &updated, &s.CreatedBy, &deployed)
 	if err != nil {
 		return nil, err
@@ -53,7 +55,7 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 	return s.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO sites (`+siteColumns+`)
-			VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?, ?,?,?,?)
+			VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?,?,?,?,?,?, ?,?, ?,?,?,?)
 			ON CONFLICT(domain) DO UPDATE SET
 				owner=excluded.owner, runtime=excluded.runtime, slug=excluded.slug, enabled=excluded.enabled,
 				doc_root=excluded.doc_root, spa=excluded.spa, index_file=excluded.index_file,
@@ -74,6 +76,8 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 				memory_max=excluded.memory_max, cpu_quota=excluded.cpu_quota,
 				client_max_body_size=excluded.client_max_body_size,
 				www_redirect=excluded.www_redirect, hsts=excluded.hsts, relaxed=excluded.relaxed,
+				proxy_buffering=excluded.proxy_buffering,
+				proxy_read_timeout=excluded.proxy_read_timeout,
 				updated_at=excluded.updated_at, last_deploy_at=excluded.last_deploy_at`,
 			site.Domain, site.Owner, site.Runtime, site.Slug, boolToInt(site.Enabled),
 			site.DocRoot, boolToInt(site.SPA), site.IndexFile,
@@ -86,6 +90,7 @@ func (s *Store) PutSite(ctx context.Context, site *Site) error {
 			site.PreDeployCommand, site.PostDeployCommand,
 			site.MemoryMax, site.CPUQuota, site.ClientMaxBodySize, site.WWWRedirect,
 			boolToInt(site.HSTS), joinList(site.Relaxed),
+			site.ProxyBuffering, site.ProxyReadTimeout,
 			orNow(formatTime(site.CreatedAt)), now(), site.CreatedBy, formatTime(site.LastDeployAt))
 		if err != nil {
 			return rlerr.Wrap(err, rlerr.CodeGeneric, "recording the site %s", site.Domain)

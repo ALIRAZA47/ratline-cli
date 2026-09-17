@@ -1654,6 +1654,8 @@ Flags:
       --no-enable                     Write the configuration without enabling or starting it
       --node string                   node: managed Node version, e.g. 22
       --package-manager string        node, bun: npm, pnpm, yarn or bun (detected from the lockfile)
+      --proxy-buffering string        on (default) or off — off streams the response as the application writes it
+      --proxy-read-timeout string     How long nginx waits between reads from the application, e.g. 1h (default 60s)
       --public string                 Directory nginx serves directly, bypassing the application
       --python string                 python: managed Python version, e.g. 3.12
       --relax strings                 Turn off a named systemd hardening directive for this site
@@ -1909,6 +1911,8 @@ Flags:
   -h, --help                          help for scale
       --instances int                 node: PM2 cluster workers
       --memory-max string             Memory ceiling, e.g. 512M
+      --proxy-buffering string        on or off — off is what a Server-Sent Events or streaming endpoint needs
+      --proxy-read-timeout string     How long nginx waits between reads from the application, e.g. 1h
       --workers int                   Worker processes
 
 Global Flags:

@@ -30,32 +30,34 @@ func validateSiteRow(s *state.Site) error {
 	// legitimate value for any of these has ever contained one. Named fields rather than
 	// reflection, so a field added later is a deliberate decision to include or omit.
 	for name, v := range map[string]string{
-		"index":           s.IndexFile,
-		"root":            s.DocRoot,
-		"public":          s.PublicDir,
-		"static-url":      s.StaticURL,
-		"static-dir":      s.StaticDir,
-		"build-output":    s.BuildOutput,
-		"entry":           s.Entry,
-		"app-module":      s.AppModule,
-		"start-command":   s.StartCommand,
-		"install-command": s.InstallCommand,
-		"build-command":   s.BuildCommand,
-		"requirements":    s.Requirements,
-		"manage-py":       s.ManagePy,
-		"memory-max":      s.MemoryMax,
-		"cpu-quota":       s.CPUQuota,
-		"body-size":       s.ClientMaxBodySize,
-		"repo":            s.Repo,
-		"branch":          s.Branch,
-		"www-redirect":    s.WWWRedirect,
-		"node-version":    s.NodeVersion,
-		"bun-version":     s.BunVersion,
-		"python-version":  s.PythonVersion,
-		"package-manager": s.PackageManager,
-		"app-server":      s.AppServer,
-		"listen":          s.Listen,
-		"process-manager": s.ProcessManager,
+		"index":              s.IndexFile,
+		"root":               s.DocRoot,
+		"public":             s.PublicDir,
+		"static-url":         s.StaticURL,
+		"static-dir":         s.StaticDir,
+		"build-output":       s.BuildOutput,
+		"entry":              s.Entry,
+		"app-module":         s.AppModule,
+		"start-command":      s.StartCommand,
+		"install-command":    s.InstallCommand,
+		"build-command":      s.BuildCommand,
+		"requirements":       s.Requirements,
+		"manage-py":          s.ManagePy,
+		"memory-max":         s.MemoryMax,
+		"cpu-quota":          s.CPUQuota,
+		"body-size":          s.ClientMaxBodySize,
+		"repo":               s.Repo,
+		"branch":             s.Branch,
+		"www-redirect":       s.WWWRedirect,
+		"node-version":       s.NodeVersion,
+		"bun-version":        s.BunVersion,
+		"python-version":     s.PythonVersion,
+		"package-manager":    s.PackageManager,
+		"app-server":         s.AppServer,
+		"listen":             s.Listen,
+		"process-manager":    s.ProcessManager,
+		"proxy-buffering":    s.ProxyBuffering,
+		"proxy-read-timeout": s.ProxyReadTimeout,
 	} {
 		for _, r := range v {
 			if r != '\t' && unicode.IsControl(r) {
@@ -147,6 +149,12 @@ func validateSiteRow(s *state.Site) error {
 		return err
 	}
 	if err := oneOf("www-redirect", s.WWWRedirect, "", "none", "apex", "www"); err != nil {
+		return err
+	}
+	// The same gate `site add` applies, so a manifest cannot describe a proxy
+	// setting the flags would have refused — including one on a static site, where
+	// the directives have no proxy_pass to attach to.
+	if err := validateProxyOptions(s.ProxyBuffering, s.ProxyReadTimeout, s.Runtime); err != nil {
 		return err
 	}
 	if s.PackageManager != "" {

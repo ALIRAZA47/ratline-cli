@@ -237,6 +237,10 @@ func newSiteAddCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.MemoryMax, "memory-max", "", "Memory ceiling, e.g. 512M")
 	f.StringVar(&opts.CPUQuota, "cpu-quota", "", "CPU ceiling, e.g. 100%")
 	f.StringVar(&opts.ClientMaxBodySize, "client-max-body-size", "", "Upload limit, e.g. 20M")
+	f.StringVar(&opts.ProxyBuffering, "proxy-buffering", "",
+		"on (default) or off — off streams the response as the application writes it")
+	f.StringVar(&opts.ProxyReadTimeout, "proxy-read-timeout", "",
+		"How long nginx waits between reads from the application, e.g. 1h (default 60s)")
 	f.BoolVar(&opts.HSTS, "hsts", false, "Send Strict-Transport-Security (only with a trusted certificate)")
 	f.StringSliceVar(&relax, "relax", nil, "Turn off a named systemd hardening directive for this site")
 	Required(cmd, "user", "runtime")
@@ -330,6 +334,15 @@ func newSiteShowCommand(g *Globals) *cobra.Command {
 					pairs = append(pairs, [2]string{"restarts", info.Unit.NRestarts})
 				}
 				pairs = append(pairs, [2]string{"socket", info.Socket + socketNote(info.SocketOK)})
+			}
+			// Shown only when the site has overridden one of them. This is the answer
+			// to "why is my stream arriving in batches, or dying after a minute", and
+			// it would be a line of noise on every site that never asked.
+			if info.Site.ProxyBuffering != "" || info.Site.ProxyReadTimeout != "" {
+				pairs = append(pairs, [2]string{"proxy", fmt.Sprintf("buffering %s, read timeout %s",
+					orDefaultDash(info.Site.ProxyBuffering, "on"),
+					orDefaultDash(info.Site.ProxyReadTimeout,
+						g.Cfg.Defaults.ProxyReadTimeout.D().String()))})
 			}
 			if info.Cert != nil {
 				pairs = append(pairs, [2]string{"certificate",
@@ -554,6 +567,8 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 				[2]string{"memory max", orDash(s.MemoryMax)},
 				[2]string{"cpu quota", orDash(s.CPUQuota)},
 				[2]string{"max body size", orDash(s.ClientMaxBodySize)},
+				[2]string{"proxy buffering", orDefaultDash(s.ProxyBuffering, "on")},
+				[2]string{"proxy read timeout", orDash(s.ProxyReadTimeout)},
 			)
 		},
 	}
@@ -564,6 +579,10 @@ func newSiteScaleCommand(g *Globals) *cobra.Command {
 	f.StringVar(&opts.CPUQuota, "cpu-quota", "", "CPU ceiling, e.g. 100%")
 	f.StringVar(&opts.ClientMaxBodySize, "client-max-body-size", "",
 		"Upload ceiling, e.g. 100M — the commonest cause of a mystery 413")
+	f.StringVar(&opts.ProxyBuffering, "proxy-buffering", "",
+		"on or off — off is what a Server-Sent Events or streaming endpoint needs")
+	f.StringVar(&opts.ProxyReadTimeout, "proxy-read-timeout", "",
+		"How long nginx waits between reads from the application, e.g. 1h")
 	return Mutating(cmd)
 }
 
@@ -687,6 +706,19 @@ func processManagerLabel(s *state.Site, pm2 bool) string {
 func orDash(s string) string {
 	if s == "" {
 		return "-"
+	}
+	return s
+}
+
+// orDefaultDash prints what a site actually gets when it has set nothing.
+//
+// A bare "-" is the right answer for a ceiling, where unset means no ceiling. It is
+// the wrong one for proxy buffering, where unset means on — and an operator reading
+// this table is asking whether nginx is buffering their stream, not whether they
+// typed a flag.
+func orDefaultDash(s, inherited string) string {
+	if s == "" {
+		return inherited + " (default)"
 	}
 	return s
 }

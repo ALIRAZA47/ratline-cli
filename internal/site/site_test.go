@@ -501,3 +501,44 @@ func TestUsesPM2AsksTheConfigurationRatherThanTheDaemon(t *testing.T) {
 		})
 	}
 }
+
+// The two proxy settings are refused where they would do nothing, and capped where
+// they would do harm.
+func TestProxyOptionsAreRefusedWhereTheyWouldBeIgnored(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		buffering, readTimout string
+		runtime               string
+		wantErr               bool
+	}{
+		// nginx serves a static site from disk; the generated vhost has no
+		// proxy_pass in it, so neither directive has anything to attach to.
+		{"buffering on a static site", "off", "", "static", true},
+		{"a read timeout on a static site", "", "1h", "static", true},
+		{"nothing at all on a static site", "", "", "static", false},
+
+		{"off on a bun site", "off", "", "bun", false},
+		{"on spelled out", "on", "", "node", false},
+		{"a value that is neither", "maybe", "", "bun", true},
+		{"a value carrying a directive", "off; add_header X 1", "", "bun", true},
+
+		{"an hour", "", "1h", "python", false},
+		{"a day, the ceiling exactly", "", "24h", "bun", false},
+		{"more than a day", "", "25h", "bun", true},
+		{"a week", "", "7d", "bun", true},
+		{"not a duration", "", "forever", "bun", true},
+		{"zero", "", "0s", "bun", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateProxyOptions(tc.buffering, tc.readTimout, tc.runtime)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateProxyOptions(%q, %q, %q) = nil, want an error",
+					tc.buffering, tc.readTimout, tc.runtime)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("validateProxyOptions(%q, %q, %q) = %v, want nil",
+					tc.buffering, tc.readTimout, tc.runtime, err)
+			}
+		})
+	}
+}

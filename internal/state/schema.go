@@ -424,4 +424,12 @@ var migrations = [][]string{
 			PRIMARY KEY (engine, address)
 		)`,
 	},
+
+	// Per-site nginx proxy behaviour, for an application that streams rather than
+	// answering and closing. Empty means "inherit", so every existing row keeps the
+	// buffered, 60-second behaviour it was rendered with.
+	{
+		`ALTER TABLE sites ADD COLUMN proxy_buffering TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sites ADD COLUMN proxy_read_timeout TEXT NOT NULL DEFAULT ''`,
+	},
 }

@@ -107,6 +107,10 @@ func ReadManifest(path string) (*state.Site, error) {
 			site.WWWRedirect = value
 		case "client_max_body_size":
 			site.ClientMaxBodySize = value
+		case "proxy_buffering":
+			site.ProxyBuffering = value
+		case "proxy_read_timeout":
+			site.ProxyReadTimeout = value
 		case "workers":
 			site.Workers = atoiOrZero(value)
 		case "instances":

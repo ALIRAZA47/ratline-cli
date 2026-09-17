@@ -85,6 +85,13 @@ type AddOptions struct {
 	ClientMaxBodySize string
 	HSTS              bool
 
+	// How nginx proxies to the application. Empty inherits the server defaults,
+	// which suit a request/response application; a site that holds a connection
+	// open — Server-Sent Events, a streamed response, an MCP session — needs
+	// buffering off and a read timeout longer than the stream's quiet periods.
+	ProxyBuffering   string
+	ProxyReadTimeout string
+
 	// Relaxed names systemd hardening directives to turn off for this site.
 	// Validated by the caller against unit.HardeningDirectives, so a typo is a
 	// usage error rather than a directive that silently stays on.
@@ -330,6 +337,8 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 		MemoryMax:         opts.MemoryMax,
 		CPUQuota:          opts.CPUQuota,
 		ClientMaxBodySize: opts.ClientMaxBodySize,
+		ProxyBuffering:    opts.ProxyBuffering,
+		ProxyReadTimeout:  opts.ProxyReadTimeout,
 		WWWRedirect:       orDefault(opts.WWWRedirect, "none"),
 		HSTS:              opts.HSTS,
 		Relaxed:           opts.Relaxed,
@@ -491,6 +500,9 @@ func (m *Manager) buildSite(ctx context.Context, opts *AddOptions) (*state.Site,
 			return nil, err
 		}
 	}
+	if err := validateProxyOptions(opts.ProxyBuffering, opts.ProxyReadTimeout, opts.Runtime); err != nil {
+		return nil, err
+	}
 	if opts.Repo != "" {
 		if err := validate.GitURL(opts.Repo); err != nil {
 			return nil, err
@@ -560,6 +572,50 @@ func validateInstances(site *state.Site, configuredManager string) error {
 		return rlerr.Usagef("a node site running without PM2 is a single process").
 			WithHint("PM2 cluster mode is what fans it out: ratline site runtime %s --daemon pm2",
 				site.Domain)
+	}
+	return nil
+}
+
+// proxyReadTimeoutMax is the longest read timeout a site may ask for.
+//
+// A ceiling rather than validate.Duration's hundred years, because proxy_read_timeout
+// is also what reaps a connection whose client has gone away without a FIN. A stream
+// that is genuinely quiet for more than a day is a keepalive problem in the
+// application, not a timeout to raise: nginx holding those connections open costs a
+// worker slot each, and the site stops answering long before anyone thinks to look at
+// a timeout they set once.
+const proxyReadTimeoutMax = 24 * time.Hour
+
+// validateProxyOptions gates the two nginx proxy settings a site may override.
+//
+// Refused on a static site rather than accepted and dropped: nginx serves a static
+// site from disk and the generated vhost has no proxy_pass in it at all, so there is
+// nothing for either directive to act on. Accepting them would leave an operator
+// reading their own `site show` output and believing a stream is unbuffered when no
+// proxy is involved in the first place.
+func validateProxyOptions(buffering, readTimeout, runtimeName string) error {
+	if buffering == "" && readTimeout == "" {
+		return nil
+	}
+	if runtimeName == "static" {
+		return rlerr.Usagef("a static site is served from disk, so there is no proxy to configure").
+			WithHint("--proxy-buffering and --proxy-read-timeout apply to node, bun and " +
+				"python sites, which nginx proxies to")
+	}
+	if err := oneOf("proxy-buffering", buffering, "", "on", "off"); err != nil {
+		return err
+	}
+	if readTimeout != "" {
+		d, err := validate.Duration(readTimeout)
+		if err != nil {
+			return err
+		}
+		if d > proxyReadTimeoutMax {
+			return rlerr.Usagef("a proxy read timeout of %s is longer than the %s ceiling",
+				d, proxyReadTimeoutMax).
+				WithHint("a stream quiet for longer than this needs a keepalive in the " +
+					"application, not a timeout nginx will never fire")
+		}
 	}
 	return nil
 }
@@ -729,17 +785,27 @@ func (m *Manager) writeManifest(site *state.Site, id *system.Identity) error {
 	if len(site.Aliases) > 0 {
 		fmt.Fprintf(&b, "aliases: [%s]\n", strings.Join(site.Aliases, ", "))
 	}
+	// Every key parseManifest understands, or a reconcile rebuilds the site without
+	// it. index_file, process_manager and client_max_body_size were parsed and never
+	// written, so a site rebuilt from its own manifest came back on the default
+	// supervisor, serving the wrong entry document, with the upload ceiling an
+	// operator had raised silently back at 20M.
 	for _, kv := range [][2]string{
-		{"doc_root", site.DocRoot}, {"entry", site.Entry}, {"app_module", site.AppModule},
+		{"doc_root", site.DocRoot}, {"index_file", site.IndexFile},
+		{"entry", site.Entry}, {"app_module", site.AppModule},
 		{"node_version", site.NodeVersion}, {"bun_version", site.BunVersion},
 		{"python_version", site.PythonVersion},
 		{"listen", site.Listen}, {"app_server", site.AppServer},
+		{"process_manager", site.ProcessManager},
 		{"start_command", site.StartCommand}, {"build_command", site.BuildCommand},
 		{"build_output", site.BuildOutput}, {"public_dir", site.PublicDir},
 		{"requirements", site.Requirements}, {"static_url", site.StaticURL},
 		{"static_dir", site.StaticDir}, {"repo", site.Repo}, {"branch", site.Branch},
 		{"memory_max", site.MemoryMax}, {"cpu_quota", site.CPUQuota},
+		{"client_max_body_size", site.ClientMaxBodySize},
 		{"www_redirect", site.WWWRedirect},
+		{"proxy_buffering", site.ProxyBuffering},
+		{"proxy_read_timeout", site.ProxyReadTimeout},
 	} {
 		if kv[1] != "" {
 			fmt.Fprintf(&b, "%s: %q\n", kv[0], kv[1])
