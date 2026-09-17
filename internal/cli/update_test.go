@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -12,8 +13,10 @@ import (
 	"time"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
+	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/selfupdate"
+	"github.com/ALIRAZA47/ratline-cli/internal/system"
 )
 
 // `update` replaces the binary on a server that is serving, so the tests are about
@@ -310,5 +313,134 @@ func TestAnExplicitVersionSkipsTheLookupEntirely(t *testing.T) {
 	}
 	if got != "1.4.0" {
 		t.Errorf("resolveVersion = %q, want 1.4.0 with the v stripped", got)
+	}
+}
+
+// scriptedPanel stands in for the ratline-panel binary: it records how it was
+// invoked and answers however the test needs it to.
+type scriptedPanel struct {
+	calls  []system.Cmd
+	stdout string
+	stderr string
+	err    error
+}
+
+func (s *scriptedPanel) Run(_ context.Context, c system.Cmd) (*system.Result, error) {
+	s.calls = append(s.calls, c)
+	res := &system.Result{Path: c.Path, Args: c.Args, Stdout: s.stdout, Stderr: s.stderr}
+	if s.err != nil {
+		res.ExitCode = 1
+		return res, s.err
+	}
+	return res, nil
+}
+
+// updaterWithPanel puts a fake ratline-panel on disk beside nothing in particular and
+// points an updater at it.
+func updaterWithPanel(t *testing.T, r system.Runner) (*updater, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ratline-panel")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	g := NewGlobals()
+	g.Log = log.Discard()
+	g.Runner = r
+	u := &updater{g: g, baseURL: updateBaseURL}
+	return u, path
+}
+
+// The change this makes to the product: one command takes the whole server to a
+// release, rather than leaving somebody to remember the second one.
+func TestUpdatingRatlineTakesThePanelWithIt(t *testing.T) {
+	runner := &scriptedPanel{stdout: "Updated ratline-panel 0.16.0 → 0.17.0"}
+	u, path := updaterWithPanel(t, runner)
+	u.panelBinaryOverride = path
+
+	got := u.updatePanel(t.Context(), "0.17.0")
+	if !got.Updated {
+		t.Fatalf("the panel was not updated: %+v", got)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("ran %d commands, want exactly one", len(runner.calls))
+	}
+	call := runner.calls[0]
+	if call.Path != path {
+		t.Errorf("ran %q, want the panel binary %q", call.Path, path)
+	}
+	// Delegated, not reimplemented: ratline asks the panel to update itself, and
+	// pins the version so the two cannot straddle a release.
+	if len(call.Args) < 2 || call.Args[0] != "update" {
+		t.Fatalf("argv = %v, want it to run the panel's own update", call.Args)
+	}
+	if call.Args[1] != "--version=0.17.0" {
+		t.Errorf("argv = %v, want the version pinned to ratline's", call.Args)
+	}
+}
+
+// A server with no panel is the common case and must not be told about one.
+func TestAServerWithoutThePanelIsLeftAlone(t *testing.T) {
+	runner := &scriptedPanel{}
+	u, _ := updaterWithPanel(t, runner)
+	u.panelBinaryOverride = filepath.Join(t.TempDir(), "definitely-not-here")
+
+	got := u.updatePanel(t.Context(), "0.17.0")
+	if got.Updated || got.Skipped != "not installed" {
+		t.Fatalf("got %+v, want it skipped as not installed", got)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("ran %v on a server with no panel", runner.calls)
+	}
+}
+
+// A panel from before the update command existed cannot update itself. Saying
+// "unknown command" to somebody who just ran `ratline update` is not an answer.
+func TestAPanelTooOldToUpdateItselfSaysSo(t *testing.T) {
+	runner := &scriptedPanel{
+		stderr: `error: unknown command "update" for "ratline-panel"`,
+		err:    rlerr.Genericf("exit status 1"),
+	}
+	u, path := updaterWithPanel(t, runner)
+	u.panelBinaryOverride = path
+
+	got := u.updatePanel(t.Context(), "0.17.0")
+	if got.Updated {
+		t.Fatal("an old panel was reported as updated")
+	}
+	if got.Skipped != "too old to update itself" {
+		t.Errorf("skipped = %q, want it to name the real reason", got.Skipped)
+	}
+}
+
+// ratline's own update has already succeeded by the time the panel is touched, so a
+// panel that fails is a warning, not a reason to unwind a good update.
+func TestAPanelThatFailsDoesNotFailRatlinesOwnUpdate(t *testing.T) {
+	runner := &scriptedPanel{
+		stderr: "error: a job is running: site deploy app.example.com",
+		err:    rlerr.Genericf("exit status 3"),
+	}
+	u, path := updaterWithPanel(t, runner)
+	u.panelBinaryOverride = path
+
+	got := u.updatePanel(t.Context(), "0.17.0")
+	if got.Updated {
+		t.Fatal("a failed panel update was reported as updated")
+	}
+	if got.Skipped != "failed" {
+		t.Errorf("skipped = %q, want %q", got.Skipped, "failed")
+	}
+}
+
+// --no-panel is the escape hatch, and it has to actually skip.
+func TestNoPanelSkipsIt(t *testing.T) {
+	runner := &scriptedPanel{}
+	u, path := updaterWithPanel(t, runner)
+	u.panelBinaryOverride = path
+	u.noPanel = true
+
+	got := u.panel(t.Context(), "0.17.0")
+	if got.Skipped != "not asked for" || len(runner.calls) != 0 {
+		t.Fatalf("got %+v after %d calls, want it skipped", got, len(runner.calls))
 	}
 }

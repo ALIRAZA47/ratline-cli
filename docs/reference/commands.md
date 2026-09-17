@@ -966,7 +966,10 @@ the previous binary is kept beside it for --rollback.
 No site is interrupted. Sites are systemd units running an interpreter; they do
 not exec this binary, so replacing it cannot drop a request.
 
-The web panel updates itself the same way, separately: 'ratline-panel update'.
+The web panel, if it is installed here, is taken to the same release in the
+same run — it updates itself, so it refuses while one of its jobs is running
+and restarts its own service afterwards. --no-panel leaves it alone, and
+'ratline-panel update' still works on its own.
 
 Usage:
   ratline update [flags]
@@ -976,6 +979,7 @@ Flags:
       --base-url string    Where releases live (default: the project's GitHub releases)
       --check              Report whether an update is available and change nothing
   -h, --help               help for update
+      --no-panel           Leave ratline-panel alone; update only ratline itself
       --rollback           Restore the binary this command last replaced
       --version string     Install this version rather than the latest
 
