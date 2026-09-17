@@ -39,6 +39,54 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.21.0',
+    date: '2026-09-18',
+    summary:
+      'A site can tell nginx that it streams, instead of that being a hand-written file ratline cannot see; PM2 may supervise a bun site in the one mode bun can actually run in; and six mutating commands that built a rollback stack and never ran it now unwind again.',
+    upgrade: 'ratline update',
+    assertions: 701,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'A site can say that it streams',
+        body:
+          'nginx buffers a proxied response until its buffer fills, and `defaults.proxy_read_timeout` closes an upstream after sixty seconds of quiet. Those are the right defaults for an application that answers and closes, and the wrong ones for anything holding a connection open — a Server-Sent Events endpoint, a log tail, an MCP session — where events arrive in batches or not at all and a stream with a slow producer dies on the minute. The only fix was a hand-written file under `paths.nginx_custom`, which works and which ratline cannot see: `reconcile` does not know about it, `restore` does not carry it to the new server, `site show` does not mention it and the panel cannot set it. A site that streams is a property of the site, so it is now a column on the site, carried through the manifest, the import argv and the generated reference like every other one. What reaches the vhost is rendered from the parsed duration rather than from the stored string, so there is no path by which a value in a row becomes a second directive in a root-owned file. Both flags are refused on a static site, where nginx serves from disk and the generated vhost has no `proxy_pass` for them to attach to.',
+        code: 'ratline site add mcp.example.com --user acme --runtime bun --entry src/server.ts \\\n  --proxy-buffering off --proxy-read-timeout 1h',
+      },
+      {
+        kind: 'fix',
+        title: 'Changing an nginx setting no longer restarts the application',
+        body:
+          '`site scale` re-rendered the unit and restarted the service for any change at all, including `--client-max-body-size`, which appears in the vhost and nowhere in the unit. That is a strange way to raise an upload limit and an actively destructive way to widen a stream’s read timeout: the restart drops every connection the wider timeout existed to keep. A scale that touches only nginx-level settings now writes the vhost and reloads nginx, and leaves the running service alone.',
+      },
+      {
+        kind: 'feature',
+        title: 'PM2 may supervise a bun site',
+        body:
+          '`--daemon` and `--instances` were refused outright on a bun site, on the reasoning that PM2 is a node supervisor and a bun site is one process. The first half is true and the second does not follow. What a bun site cannot have was never PM2 — it is cluster mode, whose graceful cutover works because the replacement worker inherits the listening handle from its parent, and that is node’s own cluster module doing it. So PM2 now runs a bun site in fork mode with bun named as the interpreter. It buys a restart policy, a process table in `site status` and more than one process; it does not buy a reload, and `site reload` still refuses, now saying which of the two reasons applies. A bun site that says nothing is still supervised directly: `runtimes.node_process_manager` answers a question about node sites, and setting it to pm2 was never a request for every bun site on the box to grow a dependency on a Node install.',
+        code: 'ratline site add mcp.example.com --user acme --runtime bun --entry server.ts \\\n  --daemon pm2 --listen port --instances 4',
+      },
+      {
+        kind: 'security',
+        title: 'Six commands that failed halfway stopped putting the server back',
+        body:
+          'Every mutation ratline performs is staged, verified and committed against a rollback stack, so a command that fails partway leaves the server as it was. Six had lost that. `site scale`, `site enable`, `site disable`, the two alias commands and the certificate-renewal reload each built a stack, pushed undo steps into it, and returned an error without ever running them — their unnamed returns made a deferred unwind impossible as written. The path that reaches it is ordinary: nginx puts the previous vhost back itself when `nginx -t` rejects a render, but not when the reload after a passing test fails, where it returns with the new configuration already written. So a failed scale left the unit changed and the vhost old, and a failed enable left nginx serving the enabled vhost in front of an application that never started — turning a deliberate 503 into a 502. All six unwind again. A check that walks the whole repository now fails the build on a rollback stack that is never unwound, because the defect is an omission and no test of the call sites that exist today would notice one added tomorrow.',
+      },
+      {
+        kind: 'fix',
+        title: 'A site rebuilt from its own manifest lost three settings',
+        body:
+          'The manifest is what `reconcile` reads to rebuild a site when the state database is gone, and its reader understood three keys its writer never wrote. A site rebuilt from its own manifest came back on the default process manager, serving the wrong index document, with an upload ceiling an operator had raised silently back at the 20M default. Writer and reader are now checked against each other, with the key list read out of the reader itself, so the next omission fails the build rather than waiting for a restore.',
+      },
+    ],
+    known: [
+      '`--instances` on a bun site requires `--listen port` and an application that calls `Bun.serve({ reusePort: true })`. Fork-mode instances are independent processes, so on a Unix socket only the first would bind and the rest would crash-loop behind a site that answers perfectly — that combination is refused. On a port ratline cannot see whether the application opted in, so it warns; `site status` reports how many instances are actually online, which is where a missing `reusePort` becomes visible.',
+      'A bun site under PM2 still needs a managed Node with PM2 installed, because `pm2` is a JavaScript file with a `#!/usr/bin/env node` shebang — the supervisor is a Node program whatever it supervises.',
+      '`reconcile --fix` still drops its rollback stack when it logs a failure and moves to the next site. Unwinding there would put the drifted vhost back, which is arguably the opposite of what the command is for, so it is a named exception rather than an oversight.',
+      'The integration suite was not changed by this release, so the assertion count is carried over from v0.20.0.',
+    ],
+  },
+  {
     version: 'v0.20.0',
     date: '2026-09-17',
     summary:
