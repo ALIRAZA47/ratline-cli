@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError, api } from '../lib/api';
 import type { Action, ActionFlag, RunResult } from '../lib/types';
 import { Argv, Badge, ErrorBox, Field } from './ui';
+import { Value } from './Value';
 
 /**
  * A form for any ratline command.
@@ -413,7 +414,12 @@ function Result({ result }: { result: RunResult }) {
           <summary className="cursor-pointer text-xs text-[var(--fg-muted)]">
             What ratline returned
           </summary>
-          <pre className="terminal mt-1 max-h-72">{JSON.stringify(result.data, null, 2)}</pre>
+          {/* Read, not parsed by eye. This was the raw envelope pretty-printed,
+              which is the one place a panel can get away with showing JSON and
+              still the place somebody has to squint at braces to find one value. */}
+          <div className="mt-1.5 max-h-72 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--bg-sunken)] px-3 py-2 text-xs">
+            <Value value={result.data} />
+          </div>
         </details>
       )}
     </div>
