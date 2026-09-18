@@ -39,6 +39,46 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.21.1',
+    date: '2026-09-18',
+    summary:
+      'Three rehearsals that failed on something perfectly buildable, and one check that wrote a symlink, reported success and left the thing it had linked never loaded.',
+    upgrade: 'ratline update',
+    assertions: 701,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'A dry run of adding a user with a key no longer fails',
+        body:
+          '`--dry-run` is implemented in the Runner, which skips external commands — but `system.EnsureDir` sits below it, so a rehearsal still created directories. `user add --ssh-key … --dry-run` then tried to make `.ssh` inside a home that had only ever been printed, and failed with “cannot create /home/<user>/.ssh”. A rehearsal that reports a failure for something perfectly buildable is the same bug as one that writes: in both cases what it told you is not what the real command would do. The three key-syncing paths — the tenant’s `authorized_keys`, the global list under /etc and the revoked list — skip the directory now, which costs the preview nothing, because the renderer below reads a missing file as an empty managed block and reports what it would have written either way.',
+        code: 'ratline user add acme --ssh-key "$(cat ~/.ssh/id_ed25519.pub)" --dry-run',
+      },
+      {
+        kind: 'fix',
+        title: 'A dry run of installing PM2 no longer verifies an install it skipped',
+        body:
+          '`runtime install --with-pm2 --dry-run` printed the npm command it would run and then checked the result of it: that the binary exists, that its mode lets a tenant execute it, and what `--version` says. Under a rehearsal npm never ran, so the first check failed with “npm reported success but there is no …/bin/pm2” — a preview reporting a fault in its own restraint. The npm invocation is still printed, so you can still see the exact argv; only the verification of something deliberately not created is skipped.',
+        code: 'ratline runtime install node@22.11.0 --with-pm2 --dry-run',
+      },
+      {
+        kind: 'fix',
+        title: 'A dry run no longer told you to hand-edit nginx.conf',
+        body:
+          'Under every rehearsal, the check for the http-level snippet warned that it was missing from `nginx.conf` and told the operator to add an `include` there themselves — a file ratline does not own and must never ask anyone to edit, for a condition the real `site add` resolves on its own by symlinking into `conf.d`. A dry run that prescribes a forbidden fix is worse than one that stays silent, because the operator carries it out. It now says what it would link, and stays quiet when the link is already in place.',
+      },
+      {
+        kind: 'fix',
+        title: 'The WebSocket snippet could be linked and never loaded',
+        body:
+          'The same check decided whether its symlink would take effect by asking only whether `/etc/nginx/conf.d` exists as a directory. On a server whose `nginx.conf` does not glob that directory — not the Debian or Ubuntu default, but not rare either — the link was written, the function returned success, and the snippet was never read by nginx. The operator got no warning, and the `map` that makes a WebSocket upgrade work was quietly absent, which is the failure this check exists to prevent. It now tests the effective state: whether `nginx.conf` actually includes `conf.d/*.conf`, and whether the link is already there pointing at the right file.',
+      },
+    ],
+    known: [
+      'The dry-run bug class is now twelve instances deep and every one has been a write that sits below the Runner rather than inside it. `EnsureDir` is guarded at these three call sites specifically, not structurally — a new caller can still make the same mistake.',
+      'SHA256SUMS covers the .deb packages as well as the binaries, but only the binaries are reproducible from the tag: the packages are built after the checksum file and their hashes are appended.',
+    ],
+  },
+  {
     version: 'v0.21.0',
     date: '2026-09-18',
     summary:
