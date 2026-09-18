@@ -1075,7 +1075,12 @@ func httpDirectivesAlreadySet(confPath string) map[string]bool {
 // checkHTTPInclude warns when the http-level snippet is not included, because a
 // WebSocket upgrade silently misbehaves without the map it defines.
 func (m *Manager) checkHTTPInclude(httpPath string) error {
-	confPath := "/etc/nginx/nginx.conf"
+	return m.checkHTTPIncludeIn(httpPath, "/etc/nginx/nginx.conf", "/etc/nginx/conf.d")
+}
+
+// checkHTTPIncludeIn is checkHTTPInclude with its two system paths injected, so the
+// dry-run and already-linked cases can be exercised without an /etc to write to.
+func (m *Manager) checkHTTPIncludeIn(httpPath, confPath, confD string) error {
 	data, err := system.ReadFileLimit(confPath, 4<<20)
 	if err != nil {
 		// Deliberately not an error: this is a warning about a WebSocket edge case, and
@@ -1089,8 +1094,29 @@ func (m *Manager) checkHTTPInclude(httpPath string) error {
 	}
 	// conf.d is included by the default nginx.conf on Debian and Ubuntu, so a
 	// symlink there is the least invasive way to get the snippet loaded.
-	linkPath := "/etc/nginx/conf.d/ratline-http.conf"
-	if system.IsDir("/etc/nginx/conf.d") && !m.DryRun {
+	linkPath := filepath.Join(confD, "ratline-http.conf")
+
+	// Only a conf.d that nginx.conf actually globs counts. Testing `IsDir` alone
+	// meant that on a box whose nginx.conf does not include conf.d, the symlink was
+	// written, the function returned nil, and the snippet was never loaded — a
+	// silent false success in place of the warning the operator needed.
+	if system.IsDir(confD) && strings.Contains(body, confD+"/*.conf") {
+		// Already linked: nothing to do and, crucially, nothing to warn about. The
+		// previous version could not reach this conclusion, because it only ever
+		// grepped nginx.conf — which never names the snippet when the include is a
+		// glob over conf.d.
+		if target, lerr := os.Readlink(linkPath); lerr == nil && target == httpPath {
+			return nil
+		}
+		if m.DryRun {
+			// Deliberately not the warning below. `site add` places this link itself,
+			// so a rehearsal that warned would be reporting a problem the real run
+			// resolves — and its hint told the operator to hand-edit nginx.conf, a
+			// file ratline does not own and must never ask anyone to edit.
+			m.Log.Info("would link the http-level snippet into conf.d",
+				"link", linkPath, "snippet", httpPath)
+			return nil
+		}
 		if _, err := system.EnsureSymlink(httpPath, linkPath); err == nil {
 			m.Log.Debug("linked the http-level snippet", "link", linkPath)
 			return nil

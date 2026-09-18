@@ -333,8 +333,12 @@ func (m *Manager) syncGlobal(ctx context.Context) error {
 	// The canonical copy lives under /etc so that global access does not depend
 	// on any tenant's home directory surviving.
 	path := m.Cfg.SSH.GlobalKeysFile
-	if _, err := system.EnsureDir(filepath.Dir(path), 0o700, system.KeepUnchanged, system.KeepUnchanged); err != nil {
-		return err
+	// Guarded for the same reason as the two below: renderInto reports what it
+	// would write, so a rehearsal has no reason to create the directory first.
+	if !m.DryRun {
+		if _, err := system.EnsureDir(filepath.Dir(path), 0o700, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+			return err
+		}
 	}
 	if err := m.renderInto(path, keys, 0o600, system.KeepUnchanged, system.KeepUnchanged); err != nil {
 		return err
@@ -379,8 +383,16 @@ func (m *Manager) renderForUser(ctx context.Context, owner string, keys []*state
 	}
 
 	sshDir := filepath.Join(home, ".ssh")
-	if _, err := system.EnsureDir(sshDir, 0o700, uid, gid); err != nil {
-		return err
+	// Guarded, because EnsureDir sits below the Runner and --dry-run does not skip
+	// it. `user add --ssh-key … --dry-run` created the tenant only on paper, so this
+	// then tried to mkdir inside a home that does not exist and failed the rehearsal
+	// with "cannot create /home/<user>/.ssh". renderInto below reads the file, gets
+	// ENOENT, treats it as an empty managed block and reports what it would write —
+	// so skipping the directory costs the preview nothing.
+	if !m.DryRun {
+		if _, err := system.EnsureDir(sshDir, 0o700, uid, gid); err != nil {
+			return err
+		}
 	}
 	return m.renderInto(filepath.Join(sshDir, "authorized_keys"), keys, 0o600, uid, gid)
 }
@@ -410,12 +422,15 @@ func (m *Manager) syncRevoked(ctx context.Context) error {
 		return err
 	}
 	path := m.Cfg.SSH.RevokedKeys
-	if _, err := system.EnsureDir(filepath.Dir(path), 0o700, system.KeepUnchanged, system.KeepUnchanged); err != nil {
-		return err
-	}
+	// The dry-run check comes FIRST so the directory is not created by a rehearsal.
+	// This one happened to survive because /etc/ratline/ssh exists on any
+	// initialised server, but it is the same unguarded write as the .ssh case above.
 	if m.DryRun {
 		m.Log.Info("would write the revoked key list", "path", path)
 		return nil
+	}
+	if _, err := system.EnsureDir(filepath.Dir(path), 0o700, system.KeepUnchanged, system.KeepUnchanged); err != nil {
+		return err
 	}
 	return system.WriteFileAtomic(path, RenderRevoked(keys), 0o644, system.KeepUnchanged, system.KeepUnchanged)
 }

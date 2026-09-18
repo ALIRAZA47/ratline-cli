@@ -223,6 +223,16 @@ func (g *Globals) installPM2(ctx context.Context, nodeVersion, pm2Version string
 	}
 
 	pm2 := filepath.Join(prefix, "bin", "pm2")
+	// Everything below inspects what npm just produced: that the binary exists,
+	// that its mode lets a tenant exec it, and what --version reports. Under
+	// --dry-run npm did not run, so each check reports the absence of something
+	// this command deliberately did not create — which is how a rehearsal came to
+	// fail with "npm reported success but there is no .../bin/pm2". The npm Run
+	// above is left in place so the rehearsal still prints the exact argv.
+	if g.DryRun {
+		g.Log.Info("would verify PM2 and report its version", "path", pm2)
+		return nil
+	}
 	if !system.Exists(pm2) {
 		return rlerr.Preconditionf("npm reported success but there is no %s", pm2)
 	}

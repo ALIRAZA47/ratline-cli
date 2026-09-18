@@ -332,6 +332,24 @@ environment. No script is built from user input and the admin URI never appears 
   state under `--dry-run`, and `update --dry-run` performed the real update, unlocked —
   which the panel's Preview button invoked. Every `m.State.*` write needs the guard, and
   a command that cannot rehearse itself has to say so rather than run.
+- **The twelfth instance was not a state write but a `mkdir`, and it taught two new
+  shapes.** `system.EnsureDir` also sits below the Runner, so `renderForUser`,
+  `syncGlobal` and `syncRevoked` each created a directory under `--dry-run` even though
+  the write beneath was properly guarded — and `user add --ssh-key --dry-run` did not
+  merely write, it *failed*, because the home it was creating `.ssh` inside had only ever
+  been printed. **A rehearsal that reports a failure for something perfectly buildable is
+  the same bug as one that writes.** So when guarding, ask what the step does when the
+  thing it preconditions on was never made: `runtime install --with-pm2 --dry-run` failed
+  on "npm reported success but there is no …/bin/pm2", verifying an install it had itself
+  skipped. The second shape is worse: `checkHTTPInclude` warned, under every dry run, that
+  the http snippet was missing from `nginx.conf` and told the operator to add an `include`
+  there by hand — a file ratline does not own, for a condition the real `site add` fixes
+  itself by symlinking into `conf.d`. **A dry run that prescribes a forbidden fix is worse
+  than one that stays silent**, because the operator does it. That check's
+  `IsDir("/etc/nginx/conf.d")` test also hid a real bug: on a box whose `nginx.conf` does
+  not glob `conf.d`, the link was written, `nil` returned and the snippet never loaded.
+  Test the effective state — is the link already there, does anything actually include it
+  — not one grep of one file.
 - **An in-process SFTP client's Create sends the permissions flag with no attribute
   bytes.** `Request.Attributes()` is then nil; check it before reading `.Mode`.
 - **systemd puts a `LogsDirectory=` tree back to root:root, recursively, on every start
