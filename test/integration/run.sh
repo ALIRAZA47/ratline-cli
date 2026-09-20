@@ -2322,6 +2322,27 @@ refute "and ran nothing" test -f /home/bob/app.test/logs/exec-ran
 check "the real thing does run it" "$RATLINE" site exec app.test -- ./bin/touchfile
 check "and the file is there" test -f /home/bob/app.test/logs/exec-ran
 
+# --cwd, which is how a build output that carries its own project is reached. A Next.js
+# standalone directory has its own package.json beside its own server.js, and npm run in
+# app/ above it fails with "Could not read package.json" — which is what a live server
+# reported the day this command shipped.
+mkdir -p /home/bob/app.test/app/standalone
+cat > /home/bob/app.test/app/standalone/package.json <<'JSON'
+{ "name": "standalone", "private": true, "version": "1.0.0", "scripts": { "whereami": "pwd" } }
+JSON
+chown -R bob:bob /home/bob/app.test/app/standalone
+refute "npm in app/ cannot see the nested package.json" \
+    "$RATLINE" site exec app.test -- npm run whereami
+out=$("$RATLINE" site exec app.test --cwd standalone -- npm run whereami 2>&1)
+contains "--cwd runs it where the package.json is" "/home/bob/app.test/app/standalone" "$out"
+
+# The site is the boundary, and a symlink out of it is resolved before that is checked.
+ln -sfn /etc /home/bob/app.test/app/escape
+exits_with 3 "--cwd outside the site is refused" "$RATLINE" site exec app.test --cwd /etc -- /bin/true
+exits_with 3 "and so is a symlink that leaves it" "$RATLINE" site exec app.test --cwd escape -- /bin/true
+exits_with 3 "and a directory that does not exist" "$RATLINE" site exec app.test --cwd nope -- /bin/true
+rm -f /home/bob/app.test/app/escape
+
 # The program's exit code is reported, not adopted: 4 is "an external command failed",
 # and automation branching on ratline's codes must not see the program's 1 as ratline's.
 exits_with 4 "a failing program exits external, not its own code" \

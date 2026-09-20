@@ -425,20 +425,27 @@ func programSearchDirs(c *Context) []string {
 // resolveProgram turns a command's first word into an absolute path, the way a shell
 // would resolve it if a shell were involved — which it never is.
 func resolveProgram(program string, c *Context) string {
+	return resolveProgramIn(program, c.AppDir, programSearchDirs(c))
+}
+
+// resolveProgramIn is resolveProgram with the directories named explicitly, for
+// `site exec --cwd`, where a relative program and a project's own node_modules both
+// belong to the directory the command was asked to run in rather than to app/.
+func resolveProgramIn(program, dir string, searchDirs []string) string {
 	if filepath.IsAbs(program) {
 		return program
 	}
-	for _, dir := range programSearchDirs(c) {
-		candidate := filepath.Join(dir, program)
+	for _, d := range searchDirs {
+		candidate := filepath.Join(d, program)
 		if system.Exists(candidate) {
 			return candidate
 		}
 	}
 	if strings.HasPrefix(program, "./") || strings.Contains(program, "/") {
-		return filepath.Join(c.AppDir, program)
+		return filepath.Join(dir, program)
 	}
-	for _, dir := range strings.Split(system.DefaultPath, ":") {
-		candidate := filepath.Join(dir, program)
+	for _, d := range strings.Split(system.DefaultPath, ":") {
+		candidate := filepath.Join(d, program)
 		if system.Exists(candidate) {
 			return candidate
 		}

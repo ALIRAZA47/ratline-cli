@@ -104,6 +104,16 @@ they are per-site and because a login shell is not what systemd reads.
     ratline site exec api.example.com -- python manage.py migrate
     ratline site exec app.example.com --dry-run -- ./bin/seed
 
+It runs in the application directory unless `--cwd` names another:
+
+    ratline site exec app.example.com --cwd .next/standalone -- npm ci --omit=dev
+
+which is how a build output that carries its own project is reached. A Next.js standalone
+directory has its own `package.json`, its own `node_modules` and its own `server.js`, and
+`npm` run in `app/` above it fails with "Could not read package.json". The path is relative
+to the application directory, and it has to resolve inside the site — symlinks are followed
+before that is checked.
+
 Everything after `--` is an argv, not a command line: the first word is the program and
 the rest are its arguments. A pipe or an `&&` is refused rather than handed to the
 program as a word — put it in a script in the repository and run that. A single quoted

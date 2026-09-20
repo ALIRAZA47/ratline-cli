@@ -224,9 +224,13 @@ func execPath(c *Context) string {
 
 // tenantEnv is the environment for anything run as a site's tenant: the site's own
 // variables, whatever the caller adds, and ratline's PATH last.
-func tenantEnv(c *Context, extra ...string) []string {
+//
+// The PATH is a parameter because `site exec --cwd` runs somewhere other than app/ and
+// its PATH has to name that directory's node_modules — the same list the program was
+// resolved against, or the resolver and the PATH disagree again.
+func tenantEnv(c *Context, path string, extra ...string) []string {
 	env := append(c.SiteEnv(), extra...)
-	env = append(env, "PATH="+execPath(c))
+	env = append(env, "PATH="+path)
 	return system.UserEnv(c.Identity, env...)
 }
 
@@ -247,7 +251,7 @@ func RunHook(ctx context.Context, c *Context, which, command string) error {
 	_, err = runAsOwner(ctx, c, system.Cmd{
 		Path: resolveProgram(parsed.Argv[0], c),
 		Args: parsed.Argv[1:],
-		Env: tenantEnv(c,
+		Env: tenantEnv(c, execPath(c),
 			"RATLINE_HOOK="+which,
 			"RATLINE_DOMAIN="+c.Site.Domain),
 		Timeout: c.Cfg.Runtimes.BuildTimeout.D(),

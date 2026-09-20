@@ -10,6 +10,7 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/validate"
 )
 
 // One command, run as a site's tenant, under the conditions the site's own build runs
@@ -85,7 +86,10 @@ var execShellTokens = map[string]bool{
 //
 // This is where the values enter, so this is where they are checked — the CLI and the
 // panel both arrive here, and neither gets to skip it.
-func PlanExec(c *Context, argv []string) (*ExecPlan, error) {
+//
+// workdir is --cwd: empty for the application directory, otherwise a path relative to it
+// (or an absolute one). Wherever it points, it has to resolve inside the site.
+func PlanExec(c *Context, argv []string, workdir string) (*ExecPlan, error) {
 	if len(argv) == 0 {
 		return nil, rlerr.Usagef("nothing to run").
 			WithHint("ratline site exec %s -- npm run bootstrap", c.Site.Domain)
@@ -110,6 +114,11 @@ func PlanExec(c *Context, argv []string) (*ExecPlan, error) {
 				"the rest are its arguments, with no shell in between")
 	}
 
+	dir, searchDirs, err := execDir(c, workdir)
+	if err != nil {
+		return nil, err
+	}
+
 	// The same resolution the build command gets, which is the point: `npm` has to mean
 	// the npm belonging to the version this site is pinned to, on a server that has no
 	// system Node at all.
@@ -122,14 +131,14 @@ func PlanExec(c *Context, argv []string) (*ExecPlan, error) {
 	// the tenant, so the most a race wins them is running their own code as themselves,
 	// which they had already. Nothing root-owned is read through this path — the
 	// trusted-path helpers exist for the cases where something is.
-	path := filepath.Clean(resolveProgram(program, c))
+	path := filepath.Clean(resolveProgramIn(program, dir, searchDirs))
 	fi, err := os.Stat(path)
 	switch {
 	case err != nil:
 		// One hint, composed rather than overwritten: WithHint replaces, and where it
 		// looked is the detail that stops an operator from concluding the server needs
 		// a system-wide Node — which is the one thing managed runtimes exist to avoid.
-		hint := "looked in " + strings.Join(programSearchDirs(c), ", ") + ", then the system path"
+		hint := "looked in " + strings.Join(searchDirs, ", ") + ", then the system path"
 		if !HasApplicationCode(c.AppDir) {
 			// The likeliest reason a project's own tooling is missing is that the
 			// project is not there yet, and "no such program" does not say so.
@@ -152,10 +161,49 @@ func PlanExec(c *Context, argv []string) (*ExecPlan, error) {
 	return &ExecPlan{
 		Program: path,
 		Args:    argv[1:],
-		Dir:     c.AppDir,
+		Dir:     dir,
 		User:    user,
-		Path:    execPath(c),
+		Path:    strings.Join(append(searchDirs, system.DefaultPath), ":"),
 	}, nil
+}
+
+// execDir resolves --cwd to a directory inside the site, and the program search path
+// that goes with it.
+//
+// A relative path is relative to the application directory, because that is where the
+// command runs by default and what an operator is describing when they say
+// `--cwd .next/standalone`. An absolute one is taken as given. Either way it goes through
+// validate.ResolveWithin against the *site* directory, which cleans it, follows symlinks
+// first and refuses anything that lands outside — a tenant owns this tree and can put a
+// link in it, and `--cwd ../../etc` must not become a working directory even though the
+// command runs as that tenant anyway.
+//
+// The directory's own node_modules/.bin goes to the front of the search path. A Next.js
+// standalone build is the case this exists for: its package.json, its node_modules and
+// its server.js are all inside the build output, and a command run there means that
+// project's tooling, not app/'s.
+func execDir(c *Context, workdir string) (dir string, searchDirs []string, err error) {
+	if workdir == "" {
+		return c.AppDir, programSearchDirs(c), nil
+	}
+	candidate := workdir
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(c.AppDir, candidate)
+	}
+	resolved, err := validate.ResolveWithin(c.SiteDir, candidate)
+	if err != nil {
+		return "", nil, err
+	}
+	fi, serr := os.Stat(resolved)
+	switch {
+	case serr != nil:
+		return "", nil, rlerr.Preconditionf("%s: no such directory in %s", workdir, c.Site.Domain).
+			WithHint("--cwd is relative to the application directory, %s", c.AppDir)
+	case !fi.IsDir():
+		return "", nil, rlerr.Preconditionf("%s is not a directory", resolved)
+	}
+	dirs := append([]string{filepath.Join(resolved, "node_modules", ".bin")}, programSearchDirs(c)...)
+	return resolved, dirs, nil
 }
 
 // RunExec runs a resolved plan as the tenant.
@@ -165,7 +213,7 @@ func RunExec(ctx context.Context, c *Context, p *ExecPlan, opts ExecOptions) (*s
 		Path:    p.Program,
 		Args:    p.Args,
 		Dir:     p.Dir,
-		Env:     tenantEnv(c, "RATLINE_DOMAIN="+c.Site.Domain),
+		Env:     tenantEnv(c, p.Path, "RATLINE_DOMAIN="+c.Site.Domain),
 		Timeout: opts.Timeout,
 		Stdout:  opts.Stdout,
 		Stderr:  opts.Stderr,

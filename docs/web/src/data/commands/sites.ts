@@ -587,6 +587,14 @@ done`,
       ],
       flags: [
         {
+          name: '--cwd',
+          arg: '<dir>',
+          type: 'string',
+          default: 'the application directory',
+          description: 'Run in this directory instead of app/.',
+          note: 'Relative to the application directory, and it has to resolve inside the site — symlinks are followed before that is checked. This is how a build output that carries its own project is reached: a Next.js standalone directory has its own package.json, node_modules and server.js, and npm run in app/ above it fails with “Could not read package.json”. That directory’s own node_modules/.bin goes to the front of PATH.',
+        },
+        {
           name: '--timeout',
           arg: '<duration>',
           type: 'duration',
@@ -621,6 +629,11 @@ done`,
           title: 'Flags for the program go after --',
           lang: 'shell',
           code: 'ratline site exec app.example.com -- npm run build --if-present',
+        },
+        {
+          title: 'A build output that carries its own package.json',
+          lang: 'shell',
+          code: 'ratline site exec app.example.com --cwd .next/standalone -- npm ci --omit=dev',
         },
         {
           title: 'Rehearse it: the program, the user, the directory and the PATH, with nothing run',

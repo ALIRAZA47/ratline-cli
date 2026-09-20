@@ -2330,6 +2330,12 @@ is reported but not adopted: ratline's exit codes are a contract, and a program
 exiting 2 does not mean ratline was called wrongly. A failing command exits 4
 (external) and names the code it gave; under --json the envelope carries it.
 
+It runs in the application directory unless --cwd names another, which is how
+a build output with its own package.json is reached: a Next.js standalone
+directory carries its own package.json, node_modules and server.js, and npm
+run there means that project rather than the one above it. The path is
+relative to the application directory and has to resolve inside the site.
+
 Standard input is /dev/null unless --stdin is given, so a program that reads
 from it ends rather than waiting for somebody who is not there. Secrets do not
 belong in the argv — it is world-readable in /proc while the command runs — so
@@ -2339,6 +2345,7 @@ Usage:
   ratline site exec <domain> -- <command> [flags]
 
 Flags:
+      --cwd string         Run in this directory instead of app/ (relative to app/, and inside the site)
   -h, --help               help for exec
       --stdin              Pipe this command's standard input through to the program
       --timeout duration   Give up after this long (default: runtimes.build_timeout)
@@ -2358,6 +2365,9 @@ Examples:
   ratline site exec app.example.com -- npx prisma migrate deploy
   ratline site exec api.example.com -- python manage.py migrate
   ratline site exec app.example.com --dry-run -- ./bin/seed
+
+  # a build output that carries its own package.json
+  ratline site exec app.example.com --cwd .next/standalone -- npm ci --omit=dev
 
   # flags for the program go after --, or ratline reads them as its own
   ratline site exec app.example.com -- npm run build --if-present
