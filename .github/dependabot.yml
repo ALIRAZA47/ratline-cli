@@ -1,0 +1,49 @@
+# Dependabot, kept away from the agent eval fixtures.
+#
+# plugins/ratline/evals/fixtures/* are not dependencies of anything ratline builds, ships
+# or runs. They are frozen snapshots of realistic applications — a Vite dashboard, a
+# Next.js shop, a Django API, a Laravel app — copied into an agent's workspace by a case's
+# scaffold.sh so it can read a package.json and work out how to deploy it. Nothing
+# installs them, no job runs their code, and their versions are pinned exactly because
+# they are test inputs rather than dependencies.
+#
+# Left to scan them, Dependabot has only two outcomes, and both are wrong: a pull request
+# that edits test data for no functional reason, or — when the exact pin is itself what
+# blocks the fix — a job that fails and can never be made to pass. The second is what
+# happened. react-router-dom was pinned to 7.6.0, so the transitive react-router could not
+# reach the 7.18.x where the advisory is fixed, and every push to main reported
+# `security_update_not_possible` and a red Dependabot run.
+#
+# `open-pull-requests-limit: 0` turns off version updates for these paths and the
+# catch-all `ignore` turns off security updates, which together say "do not look here".
+# Every other manifest in the repository — go.mod, docs/web, panel/web — is deliberately
+# absent from this file, so it keeps exactly the behaviour it has today: security updates
+# on, version updates off.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/plugins/ratline/evals/fixtures/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: pip
+    directories:
+      - "/plugins/ratline/evals/fixtures/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: composer
+    directories:
+      - "/plugins/ratline/evals/fixtures/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
