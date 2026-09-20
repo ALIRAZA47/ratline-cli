@@ -139,6 +139,12 @@ var policies = map[string]Policy{
 	// Deleting a site takes a tenant's application off the internet, and --purge
 	// takes their files with it.
 	"site delete": {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupSites},
+	// Arbitrary code, as the tenant, from a browser. Not denied — a person who may
+	// deploy a site will need to run the migration that deploy depends on, and sending
+	// them to SSH for it means doing it unrecorded — but it is the one site verb whose
+	// form is a program and its arguments rather than a set of named fields, so it
+	// takes a super admin, the domain typed back, and a job with a transcript.
+	"site exec": {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupSites},
 
 	// The composite provisioners, which are the fastest way to a working site and
 	// also the slowest to run: they clone, install, build and issue.

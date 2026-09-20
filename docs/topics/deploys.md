@@ -87,4 +87,35 @@ Nothing is passed to a shell, so a hook is an argv and not a command line: a pip
 redirection is refused rather than handed to the program as arguments. Anything needing one
 belongs in a script, the same as a multi-step build.
 
-See also: `ratline explain node`, `ratline explain diagnose`.
+## One-off commands
+
+    ratline site exec app.example.com -- npm run bootstrap
+
+The same conditions as a hook or a build — the tenant, the application directory, the
+site's `.env` — but run once, now, because you asked. It is how a seed, a migration or a
+management command gets run against a site without anybody inventing a
+`sudo -u acme env PATH=…` line of their own.
+
+`npm` here is the npm belonging to the Node version this site is pinned to, and `python`
+is the one in its venv. That is the whole difficulty it removes: the managed runtimes
+live under `/opt/ratline/runtimes` and are deliberately not on anybody's `PATH`, because
+they are per-site and because a login shell is not what systemd reads.
+
+    ratline site exec api.example.com -- python manage.py migrate
+    ratline site exec app.example.com --dry-run -- ./bin/seed
+
+Everything after `--` is an argv, not a command line: the first word is the program and
+the rest are its arguments. A pipe or an `&&` is refused rather than handed to the
+program as a word — put it in a script in the repository and run that. A single quoted
+argument (`'npm run bootstrap'`) is split the same way a build command is.
+
+The command's output is this command's output, so it pipes. Its exit code is reported
+but not adopted: ratline's exit codes are a contract, so a failing command exits 4
+(external) and names the code the program gave. `--dry-run` prints the resolved program,
+the user, the directory and the PATH, and runs nothing.
+
+It holds the server lock while it runs and is bounded by `--timeout`, which defaults to
+`runtimes.build_timeout`. Something that needs to run on a schedule is a job
+(`ratline explain jobs`), and something that needs to run on every deploy is a hook.
+
+See also: `ratline explain node`, `ratline explain jobs`, `ratline explain diagnose`.

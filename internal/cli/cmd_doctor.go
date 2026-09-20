@@ -17,6 +17,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/mysqld"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/redisd"
+	"github.com/ALIRAZA47/ratline-cli/internal/sitepath"
 	"github.com/ALIRAZA47/ratline-cli/internal/sshkey"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
@@ -219,6 +220,26 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 				if unit.JournalNamespacesSupported() && !unitHasDirective(string(body), "LogNamespace=") {
 					add("warning", "drift", s.Domain,
 						"the "+u.Kind+" "+u.Name+" logs into the shared system journal rather than the site's own",
+						"ratline reconcile --fix")
+				}
+				// The PATH the unit carries has to be the one this site would be given
+				// now. Two ways it is not: a unit written before jobs had a PATH at all,
+				// under which `npm run …` fails with "not found" at whatever hour the
+				// timer fires; and a unit whose site has since changed interpreter
+				// version, leaving it naming a runtime directory that may no longer
+				// exist. Both are repaired the same way, and both are warnings — a
+				// command that names an absolute path is unaffected by either.
+				unitPath, set := unitDirectiveValue(string(body), "Environment=PATH=")
+				switch {
+				case !set:
+					add("warning", "drift", s.Domain,
+						"the "+u.Kind+" "+u.Name+" runs without the site's own runtime on PATH, "+
+							"so a command naming a program rather than a path fails",
+						"ratline reconcile --fix")
+				case unitPath != sitepath.PATH(g.Cfg, s, siteDir):
+					add("warning", "drift", s.Domain,
+						"the "+u.Kind+" "+u.Name+" has a PATH from before the site's runtime "+
+							"changed, so it names an interpreter the site no longer uses",
 						"ratline reconcile --fix")
 				}
 			}
@@ -662,9 +683,66 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 	return findings, nil
 }
 
+// reapplySiteUnits re-renders a site's jobs and workers from state.
+//
+// Their content depends on the site, not only on the job: a unit carries the site's PATH,
+// which names the interpreter version the site is pinned to. So anything that changes the
+// site has to put its units back through the renderer, or a job keeps naming a runtime
+// directory that may since have been uninstalled — and finds out at 3am.
+//
+// Two callers, deliberately the same code: `reconcile --fix`, which repairs drift, and
+// `site runtime`, which is the command that causes this particular drift. A failure on one
+// unit is logged and the rest continue, because the alternative is a half-repaired server
+// and a command that stopped partway; `doctor` reports whatever is left.
+func (g *Globals) reapplySiteUnits(ctx context.Context, um *unit.Manager, st *state.Store, site *state.Site) error {
+	units, err := st.ListSiteUnits(ctx, site.Domain, "")
+	if err != nil {
+		return err
+	}
+	for _, u := range units {
+		service, timer, err := um.RenderSiteUnit(site, u)
+		if err != nil {
+			g.Log.Error("could not render a "+u.Kind, "domain", site.Domain, "name", u.Name, "err", err)
+			continue
+		}
+		// rollback-exception: a failed unit is logged and the rest are still repaired.
+		// Unwinding here would undo the one unit that failed and then return, leaving
+		// the pass stopped partway through a site's jobs; doctor reports whatever is
+		// left rather than this deciding for the operator.
+		urb := system.NewRollback(g.Log)
+		if err := um.InstallSiteUnit(ctx, site, u, service, timer, urb); err != nil {
+			g.Log.Error("could not re-install a "+u.Kind, "domain", site.Domain, "name", u.Name, "err", err)
+			continue
+		}
+		urb.Commit()
+	}
+	return nil
+}
+
 // unitHasDirective reports whether a unit file sets a directive, ignoring comments —
 // which is how systemd reads it, and what keeps a comment that mentions the
 // directive from counting.
+// unitDirectiveValue returns what a unit sets a directive to, and whether it sets it.
+//
+// The last occurrence, which is the one systemd uses, and comments are skipped for the
+// same reason they are in unitHasDirective. Exact rather than by prefix, because the
+// caller is comparing a value: "Environment=PATH=<x>" is a prefix of
+// "Environment=PATH=<x>:/somewhere/else", and a unit carrying the second is not carrying
+// the first.
+func unitDirectiveValue(body, prefix string) (string, bool) {
+	value, found := "", false
+	for _, line := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "#") {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(t, prefix); ok {
+			value, found = rest, true
+		}
+	}
+	return value, found
+}
+
 func unitHasDirective(body, prefix string) bool {
 	for _, line := range strings.Split(body, "\n") {
 		if t := strings.TrimSpace(line); strings.HasPrefix(t, prefix) {
@@ -744,6 +822,10 @@ func newReconcileCommand(g *Globals) *cobra.Command {
 					continue
 				}
 				cert, _ := st.CertificateForSite(cmd.Context(), s.Domain)
+				// rollback-exception: reconcile --fix skips a failed site and carries on.
+				// Unwinding would put the drifted vhost back, which is arguably the
+				// opposite of what reconcile is for — a judgement worth making
+				// deliberately rather than by inheriting the rule.
 				rb := system.NewRollback(g.Log)
 				if err := mgr.Nginx.Apply(cmd.Context(), s, cert, rb); err != nil {
 					g.Log.Error("could not re-render a site", "domain", s.Domain, "err", err)
@@ -764,22 +846,8 @@ func newReconcileCommand(g *Globals) *cobra.Command {
 						restart++
 					}
 				}
-				units, err := st.ListSiteUnits(cmd.Context(), s.Domain, "")
-				if err != nil {
+				if err := g.reapplySiteUnits(cmd.Context(), mgr.Unit, st, s); err != nil {
 					return err
-				}
-				for _, u := range units {
-					service, timer, err := mgr.Unit.RenderSiteUnit(s, u)
-					if err != nil {
-						g.Log.Error("could not render a "+u.Kind, "domain", s.Domain, "name", u.Name, "err", err)
-						continue
-					}
-					urb := system.NewRollback(g.Log)
-					if err := mgr.Unit.InstallSiteUnit(cmd.Context(), s, u, service, timer, urb); err != nil {
-						g.Log.Error("could not re-install a "+u.Kind, "domain", s.Domain, "name", u.Name, "err", err)
-						continue
-					}
-					urb.Commit()
 				}
 				repaired++
 			}

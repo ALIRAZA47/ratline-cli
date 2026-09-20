@@ -296,6 +296,14 @@ ratline site reload <domain>     Zero-downtime where the runtime supports it
 ratline site deploy <domain> [--pull] [--install] [--build] [--migrate]
                               [--collectstatic] [--restart]
                                  Runs the chain, health-checks, rolls back on failure
+ratline site exec <domain> -- <command> [--timeout 20m] [--stdin]
+                                 One command as the tenant, in the application
+                                 directory, with the site's .env and the runtime
+                                 it is pinned to first on PATH. Everything after
+                                 -- is an argv, never a shell line; a single
+                                 quoted string is split like a build command.
+                                 The program's exit code is reported, not
+                                 adopted: a failure exits 4.
 ratline site logs <domain> [--app|--access|--error] [--follow] [--lines 100]
 ratline site scale <domain> [--workers 4] [--instances 2] [--memory-max 512M]
                             [--cpu-quota 50%]

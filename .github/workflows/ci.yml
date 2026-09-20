@@ -79,6 +79,24 @@ jobs:
         if: matrix.arch == 'amd64'
         run: python3 scripts/check-skills.py ./bin/ratline plugins/ratline
 
+      # The eval cases hand the agent a snapshot of `ratline schema` and tell it to check
+      # every command it proposes against that file. Captured by hand, it went stale — a
+      # v0.18.0 snapshot against skills that CI checks on the current binary, so an agent
+      # that followed a skill was told the command it had just been taught did not exist.
+      # It is generated now, with a fixed label in place of the version — which comes
+      # from `git describe` and would otherwise differ between this shallow checkout and
+      # a developer's, failing here on commits that touched no command at all.
+      - name: The eval fixture matches the binary
+        if: matrix.arch == 'amd64'
+        run: |
+          set -euo pipefail
+          make eval-fixture
+          if ! git diff --quiet plugins/ratline/evals/fixtures/ratline-schema.json; then
+            echo "the eval schema fixture is out of date. Run: make eval-fixture"
+            git diff --stat plugins/ratline/evals/fixtures/ratline-schema.json
+            exit 1
+          fi
+
       - name: Smoke test
         run: |
           set -euo pipefail

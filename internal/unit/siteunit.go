@@ -15,6 +15,7 @@ import (
 
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/sitepath"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/validate"
@@ -189,7 +190,26 @@ func (m *Manager) RenderSiteUnit(site *state.Site, u *state.SiteUnit) (service, 
 		"BindPaths="+siteDir,
 		"ReadWritePaths="+filepath.Join(siteDir, "logs")+" "+filepath.Join(siteDir, "tmp"),
 	)
-	d.Environment = append(d.Environment, "TMPDIR="+filepath.Join(siteDir, "tmp"))
+	// The site's own PATH, the same one a hook or `site exec` gets, so that
+	// `--command 'npm run nightly'` means the npm belonging to this site's pinned Node.
+	// systemd hands a unit only its own minimal default, under which that command failed
+	// at 3am with "npm was not found on PATH" while the identical line run by hand
+	// worked — and the operator's fix was to hardcode /opt/ratline/runtimes/node/22/bin
+	// into the command, which then went stale the next time the site changed version.
+	//
+	// It is written into the unit rather than worked out by the wrapper at start-up so
+	// that it is visible in the file, verified by systemd-analyze, and greppable: doctor
+	// reports a unit that predates this and reconcile --fix re-renders it.
+	//
+	// ratline-shell's exec mode drops a PATH out of the site's .env, so this is the one
+	// that survives.
+	unitPath := sitepath.PATH(m.Cfg, site, siteDir)
+	if err := validate.NoControlChars("PATH", unitPath); err != nil {
+		return nil, nil, err
+	}
+	d.Environment = append(d.Environment,
+		"TMPDIR="+filepath.Join(siteDir, "tmp"),
+		"PATH="+unitPath)
 
 	if service, err = renderTemplate("site-unit.service.tmpl", d); err != nil {
 		return nil, nil, err

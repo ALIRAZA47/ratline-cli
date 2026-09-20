@@ -97,6 +97,22 @@ func runExec(args []string) int {
 			for _, w := range warnings {
 				fmt.Fprintf(os.Stderr, "ratline-shell exec: %s: %s\n", opts.envFile, w)
 			}
+			// PATH is ratline's to decide, and the unit has already decided it: it names
+			// the site's venv, its node_modules and the managed interpreter it is pinned
+			// to. A PATH in the site's .env is merged over the unit's environment, so
+			// without this it would win — and the program this wrapper then resolves,
+			// along with every interpreter the child goes on to spawn, would be one
+			// nothing in ratline chose. internal/runtime drops it from .env for exactly
+			// the same reason, so a build, a hook and a job cannot disagree.
+			//
+			// Said out loud rather than dropped quietly: somebody who put it there meant
+			// something by it, and silence would leave them debugging a line that has no
+			// effect.
+			pairs, dropped := withoutPath(pairs)
+			if dropped {
+				fmt.Fprintf(os.Stderr, "ratline-shell exec: %s: PATH is set by the unit and "+
+					"was ignored\n", opts.envFile)
+			}
 			env = mergeEnv(env, pairs)
 		case os.IsNotExist(err):
 			// EnvironmentFile=-PATH semantics: nothing to load is not a failure.
@@ -250,6 +266,24 @@ func validEnvName(name string) bool {
 		}
 	}
 	return true
+}
+
+// withoutPath removes a PATH assignment read from an environment file.
+//
+// Separate from parseEnvFile, which is a faithful reader of systemd's EnvironmentFile
+// format and should stay that way: what may be set is a policy of ratline's, not a
+// property of the format.
+func withoutPath(pairs [][2]string) ([][2]string, bool) {
+	out := make([][2]string, 0, len(pairs))
+	dropped := false
+	for _, p := range pairs {
+		if p[0] == "PATH" {
+			dropped = true
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, dropped
 }
 
 // mergeEnv applies pairs over base, later values replacing earlier ones by name.

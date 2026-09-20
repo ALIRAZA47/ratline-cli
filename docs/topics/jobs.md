@@ -90,16 +90,45 @@ not. The timer is untouched, so it does not change when the job next runs on its
 Output goes to `<site>/logs/job-<name>.log`, which the tenant can read and logrotate ages
 out with everything else.
 
-## The command is not a shell line
+## The command
+
+    --command 'npm run nightly'                              # on the site's own PATH
+    --command /home/acme/app.example.com/app/bin/nightly     # or an absolute path
+
+The unit carries the site's PATH — its venv, its `node_modules/.bin` and the managed
+interpreter it is pinned to — so a program named by word is the site's own. `npm` is the
+npm belonging to this site's Node version, on a server that has no system Node at all.
+That PATH is written into the unit, which is what lets `doctor` notice a job that predates
+it — or one left naming a version the site has since moved off — and `reconcile --fix` put
+the current one back. `site runtime` re-renders a site's jobs as it changes the version, so
+that particular drift does not arise in the first place.
+
+A PATH in the site's `.env` does not override it. `.env` is for the application's own
+variables; which interpreter its job runs is ratline's to decide, and a value there would
+quietly send a job to a different one.
+
+A **relative** path is refused when the job is created, because a unit cannot resolve one:
+`--command './bin/nightly'` would have failed when the timer fired, in a log nobody reads.
 
 systemd parses `ExecStart` itself: it is an argv, not a shell command. A pipe, a
 redirection or a `&&` is refused rather than passed through as arguments, because
 `--command 'a | b'` would otherwise run `a` with `|` and `b` as its arguments and look like
-it worked.
+it worked. Anything needing a shell belongs in a script, the same as a multi-step build.
 
-Anything needing a shell belongs in a script, the same as a multi-step build:
+## Running one now, without a schedule
 
-    --command /home/acme/app.example.com/app/bin/nightly
+`site cron run <domain> <name>` starts a job's service without touching its timer, which
+is how you find out whether it works rather than waiting until 3am.
+
+A command that has no schedule at all — a seed, a one-off migration, `npm run bootstrap`
+— is not a job. It is `ratline site exec <domain> -- <command>`, which runs once, as the
+tenant, with the same environment and the site's own runtime on PATH:
+
+    ratline site exec app.example.com -- npm run bootstrap
+
+Both run with the same PATH, so `--command 'npm run nightly'` and
+`site exec … -- npm run nightly` mean the same npm. The difference is only what triggers
+them.
 
 ## When the site goes
 

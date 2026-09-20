@@ -65,14 +65,24 @@ ratline site worker add app.example.com queue \
 ```
 
 `PartOf` the site's service, so stopping the site stops its workers, and `Restart=always`,
-so one crash does not end it silently. Node: point `--command` at the managed Node binary
-and the script, or at a script that does. Python: the site's `venv/bin/python` and the
-module. The worker reads the same `.env` the application does.
+so one crash does not end it silently. The worker reads the same `.env` the application
+does, and runs with the same PATH.
 
-## The paths a `--command` needs
+## What a `--command` may name
 
-systemd is given an absolute path and no `PATH`, so the command has to name the
-interpreter and the script in full. A site's tree is fixed, so these are not guesses:
+The unit carries the site's own PATH — its `venv/bin`, its `app/node_modules/.bin` and the
+managed interpreter it is pinned to — so a program named by word is the site's:
+
+```bash
+--command 'npm run nightly'        # this site's npm, not a system one
+--command 'python -m app.rollup'   # the site's venv python
+```
+
+An absolute path works too and is worth preferring when the script is the unit of work
+rather than a package script. A **relative** path (`./bin/nightly`) is refused when the job
+is created, because a unit cannot resolve one.
+
+A site's tree is fixed, so an absolute path is never a guess:
 
     /home/<tenant>/<domain>/
       app/                the application, or the repository clone
@@ -80,19 +90,22 @@ interpreter and the script in full. A site's tree is fixed, so these are not gue
       logs/               app.log, and job-<name>.log for each job
       .env                the environment every job and worker inherits
 
-So a Python job is `/home/acme/api.example.com/venv/bin/python
-/home/acme/api.example.com/app/bin/rollup.py`, and a Node one names the managed
-interpreter under `/opt/ratline/runtimes` with the script under `app/`. `ratline site show
-<domain>` confirms the tree for a site that already exists, and a script with a shebang and
-the execute bit can be named on its own. `ratline explain layout` has the whole tree.
+`ratline site show <domain>` confirms the tree for a site that already exists, and a script
+with a shebang and the execute bit can be named on its own. `ratline explain layout` has the
+whole tree.
+
+Do not set `PATH` in the site's `.env` to work around anything here: ratline ignores it, on
+purpose, so that which interpreter a job runs stays the one the site is pinned to.
 
 ## The command is an argv, not a shell line
 
 systemd parses `ExecStart` itself. `--command 'a | b'` would run `a` with `|` and `b` as
 arguments and look like it worked, so a pipe, a redirection or `&&` is **refused**. Anything
 with more than one step is a script committed to the repository, `chmod +x`, and the
-`--command` is its absolute path plus arguments. Paths are absolute because there is no
-`PATH` from a shell profile here.
+`--command` is its absolute path plus arguments.
+
+A one-off — the same command but now, not on a schedule — is `ratline site exec <domain> --
+<command>`, which runs under exactly these conditions without creating a unit.
 
 ## Run it now, then read the log
 

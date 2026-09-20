@@ -168,15 +168,24 @@ def check_tokens(tokens: list[str], surface: Surface, where: str, problems: list
         # Everything up to the next terminator is arguments and flags of `path`.
         flags = surface.flags_for(path)
         rest = pending_flags[:]
+        # …except after a bare `--`, where nothing is ratline's any more. `site exec
+        # app.example.com -- npm run build --if-present` hands --if-present to npm, and
+        # reading it as ratline's invented a failure for a line that is exactly right —
+        # from the one check whose value is that it is never wrong about a flag.
+        positional_only = False
         while j < len(tokens):
             t = strip_quotes(tokens[j])
             if t in TERMINATORS:
                 break
+            if t == "--":
+                positional_only = True
+                j += 1
+                continue
             if embedded(t):
                 check_tokens(split_line(t), surface, where, problems)
                 j += 1
                 continue
-            if t.startswith("-") and len(t) > 1 and not PLACEHOLDER.search(t):
+            if not positional_only and t.startswith("-") and len(t) > 1 and not PLACEHOLDER.search(t):
                 rest.append(t)
                 name = t.lstrip("-").split("=", 1)[0]
                 ftype = flags.get(name)

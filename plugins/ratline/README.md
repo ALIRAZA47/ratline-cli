@@ -91,6 +91,17 @@ claude plugin eval ./plugins/ratline --scaffold --allow-tools Write --trust-plug
 claude plugin eval ./plugins/ratline --case 'deploy-*' --runs 1 --ablation none --scaffold --allow-tools Write --trust-plugin --no-publish
 ```
 
+The schema snapshot is generated, not captured: `make eval-fixture` writes
+`evals/fixtures/ratline-schema.json` from the built binary, and CI regenerates it and fails
+on a diff, exactly as it does for `docs/reference/commands.md`. It was a hand-made v0.18.0
+capture while the skills are checked against the current binary, so an agent that read a
+skill and then checked it against this file — which every prompt tells it to do — was told
+the command it had just been taught does not exist. The `version` field is a fixed label
+rather than the binary's version, which comes from `git describe` and would differ between
+CI's shallow checkout and yours — so the check fires when the command surface moves and not
+on every commit. No prompt names a version any more: nine copies of a fact that goes stale
+is the same problem one directory down.
+
 `--scaffold` is required because the fixtures are copied in by each case's `scaffold.sh`;
 `--allow-tools Write` is for the CI case, which writes a workflow. Results land under
 `evals/results/`, which is ignored by git. A run costs roughly a dollar per case per arm,

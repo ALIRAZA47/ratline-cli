@@ -206,6 +206,27 @@ from a router with no `/` route included; only no answer within the timeout fail
 API that serves nothing at `/` does not need a health route added for ratline's sake. A
 failed step leaves the previous version serving.
 
+**A step the chain does not have** — a seed, a data migration, a `package.json` script
+like `npm run bootstrap` — is `site exec`. It runs one command as the tenant, in the
+application directory, with the site's `.env` and the site's own runtime on PATH, which
+is why `npm` and `python` resolve there and nowhere else on the box:
+
+```bash
+ssh -T "$RATLINE_HOST" sudo ratline site exec app.example.com --dry-run -- npm run bootstrap
+ssh -T "$RATLINE_HOST" sudo ratline site exec app.example.com -- npm run bootstrap
+```
+
+Everything after `--` is an argv, so a flag there belongs to the program and not to
+ratline:
+
+```bash
+ssh -T "$RATLINE_HOST" sudo ratline site exec app.example.com -- npm run build --if-present
+```
+
+A pipe or an `&&` is refused rather than passed to the program — put that in a script in
+the repository and exec the script. If the command belongs to *every* deploy it is a hook,
+not an exec; if it belongs to a schedule it is a job (`ratline-jobs`).
+
 ### 7. TLS
 
 Only once `dig` shows the server's own address for every name on the certificate:

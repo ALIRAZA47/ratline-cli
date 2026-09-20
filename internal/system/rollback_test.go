@@ -187,23 +187,29 @@ func TestNilRollbackIsUsable(t *testing.T) {
 //     rather than a returned one. internal/selfupdate swaps a list of files and acts
 //     on swapErr, so a deferred unwind keyed to the return value would be the wrong
 //     shape.
+//
+// A stack that is deliberately not unwound declares itself, in the comment directly
+// above it:
+//
+//	// rollback-exception: reconcile --fix logs and moves to the next site
+//	rb := system.NewRollback(g.Log)
+//
+// The declaration is the point — an exception is a decision somebody defends in review,
+// not something that quietly accumulates — and it lives beside the code it excuses so
+// that the next reader of *that* function can see why the stack has no unwind. This was
+// a map in here keyed by file:line, which had the same intent and a worse key: any edit
+// higher up the file shifted the numbers, failing this test in another package with a
+// message about a line the author never touched. Three times in one change.
+//
+// `go test -v ./internal/system -run TestEveryRollbackStackIsUnwound` lists every
+// exception being honoured, which is the roll-call the map used to provide. A marker on
+// a stack that *is* unwound fails too: an exception nobody needs is a rule that has
+// quietly loosened.
 func TestEveryRollbackStackIsUnwound(t *testing.T) {
 	root := repoRoot(t)
 	create := regexp.MustCompile(`(\w+)\s*:=\s*(?:system\.)?NewRollback\(`)
 
-	// Deliberate exceptions, each with the reason it is one. A new entry here is a
-	// decision someone has to defend in review, which is the point of listing them
-	// rather than loosening the rule.
-	allowed := map[string]string{
-		// reconcile's --fix loop logs and moves to the next site rather than
-		// returning. Unwinding would put the drifted vhost back, which is arguably
-		// the opposite of what reconcile is for — a judgement worth making
-		// deliberately rather than by inheriting this rule.
-		"internal/cli/cmd_doctor.go:747": "reconcile --fix continues past a failed site",
-		"internal/cli/cmd_doctor.go:777": "reconcile --fix continues past a failed unit",
-	}
-
-	found, seen := 0, map[string]bool{}
+	found, excused := 0, 0
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -228,6 +234,16 @@ func TestEveryRollbackStackIsUnwound(t *testing.T) {
 			return err
 		}
 		lines := strings.Split(string(body), "\n")
+		// Every marker in the file, struck off as a stack claims it. What is left over
+		// is a marker excusing nothing — the stack it was written for has been deleted
+		// or moved away, and the comment now tells the next reader something untrue.
+		// This is what the old file:line map's staleness check was for.
+		dangling := map[int]string{}
+		for i, line := range lines {
+			if reason, ok := markerReason(line); ok {
+				dangling[i] = reason
+			}
+		}
 		for i, line := range lines {
 			// Not a comment: Rollback's own doc comment shows the intended usage,
 			// and matching the example would be matching the documentation.
@@ -241,29 +257,44 @@ func TestEveryRollbackStackIsUnwound(t *testing.T) {
 			found++
 			name := m[1]
 			where := rel + ":" + strconv.Itoa(i+1)
-			if reason, ok := allowed[where]; ok {
-				seen[where] = true
-				t.Logf("%s: allowed, %s", where, reason)
-				continue
-			}
+
 			next := ""
 			if i+1 < len(lines) {
 				next = strings.TrimSpace(lines[i+1])
 			}
-			if next == "defer "+name+".UnwindOn(ctx, &err)" {
-				continue
+			// The explicit shape may be anywhere in the enclosing function, bounded
+			// by the next top-level declaration so it cannot borrow another's.
+			unwound := next == "defer "+name+".UnwindOn(ctx, &err)" ||
+				hasExplicitUnwind(lines[i+1:], name)
+
+			reason, at, marked := rollbackException(lines, i)
+			delete(dangling, at)
+			switch {
+			case marked && unwound:
+				t.Errorf("%s is marked rollback-exception but the stack is unwound.\n"+
+					"  remove the marker: an exception nobody needs is a rule that has quietly loosened",
+					where)
+			case marked && reason == "":
+				t.Errorf("%s is marked rollback-exception with no reason.\n"+
+					"  write why after the colon; the marker exists to be defended, not to silence the check",
+					where)
+			case marked:
+				excused++
+				t.Logf("%s: excused, %s", where, reason)
+			case !unwound:
+				t.Errorf("%s builds a rollback stack that is never unwound.\n"+
+					"  expected the next line to be: defer %s.UnwindOn(ctx, &err)\n"+
+					"  got:                         %s\n"+
+					"  or an explicit %s.Unwind(ctx) in the same function.\n"+
+					"  a stack that is never unwound leaves a failed command half applied.\n"+
+					"  if not unwinding is deliberate, say so above it: // rollback-exception: <why>",
+					where, name, next, name)
 			}
-			// The explicit shape, anywhere in the enclosing function. Bounded by
-			// the next top-level declaration so it cannot match a different one.
-			if hasExplicitUnwind(lines[i+1:], name) {
-				continue
-			}
-			t.Errorf("%s builds a rollback stack that is never unwound.\n"+
-				"  expected the next line to be: defer %s.UnwindOn(ctx, &err)\n"+
-				"  got:                         %s\n"+
-				"  or an explicit %s.Unwind(ctx) in the same function.\n"+
-				"  a stack that is never unwound leaves a failed command half applied",
-				where, name, next, name)
+		}
+		for i, reason := range dangling {
+			t.Errorf("%s:%d carries a rollback-exception marker (%s) with no rollback stack "+
+				"under it.\n  remove it: it excuses nothing and tells the next reader "+
+				"something untrue", rel, i+1, reason)
 		}
 		return nil
 	})
@@ -276,13 +307,40 @@ func TestEveryRollbackStackIsUnwound(t *testing.T) {
 	if found < 25 {
 		t.Fatalf("only found %d rollback stacks in the repository, so the scan is broken, not the code", found)
 	}
-	// A stale exception is a rule that has quietly loosened.
-	for where, reason := range allowed {
-		if !seen[where] {
-			t.Errorf("the exception for %s (%s) no longer matches a rollback stack; "+
-				"remove it or correct the line number", where, reason)
+	t.Logf("%d rollback stacks, %d excused", found, excused)
+}
+
+// rollbackException reads the comment block directly above line i and returns the reason
+// given by a `rollback-exception:` marker there, and the line the marker itself is on.
+//
+// Directly above, and contiguous: the same adjacency the deferred unwind is held to, so
+// that a marker cannot drift away from the stack it excuses and end up excusing the next
+// one somebody writes underneath it. The reason may wrap onto the following comment
+// lines, but only the marker line's own text is returned and logged — so write a
+// complete clause on that line and elaborate underneath, or the roll-call reads as a
+// sentence cut in half.
+func rollbackException(lines []string, i int) (reason string, at int, marked bool) {
+	for j := i - 1; j >= 0; j-- {
+		t := strings.TrimSpace(lines[j])
+		if !strings.HasPrefix(t, "//") {
+			return "", -1, false
+		}
+		if rest, ok := markerReason(t); ok {
+			return rest, j, true
 		}
 	}
+	return "", -1, false
+}
+
+// markerReason returns the text after `rollback-exception:` on a comment line.
+func markerReason(line string) (string, bool) {
+	t := strings.TrimSpace(line)
+	if !strings.HasPrefix(t, "//") {
+		return "", false
+	}
+	t = strings.TrimSpace(strings.TrimPrefix(t, "//"))
+	rest, ok := strings.CutPrefix(t, "rollback-exception:")
+	return strings.TrimSpace(rest), ok
 }
 
 // hasExplicitUnwind reports whether the rest of the enclosing function calls
@@ -320,4 +378,84 @@ func repoRoot(t *testing.T) string {
 	}
 	t.Fatal("could not find the module root from the test's working directory")
 	return ""
+}
+
+// The marker's own rules, pinned here because the guard above cannot check them on the
+// repository's own two exceptions: those are both well-formed, so a parser that quietly
+// stopped honouring adjacency — or started honouring an empty reason — would go on
+// passing while the rule it enforces had changed underneath it.
+func TestRollbackExceptionMarker(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		lines  []string
+		marked bool
+		reason string
+	}{
+		{
+			name:   "directly above",
+			lines:  []string{"\t// rollback-exception: the loop continues", "\trb := system.NewRollback(log)"},
+			marked: true, reason: "the loop continues",
+		},
+		{
+			name: "further up a comment block that reaches the stack",
+			lines: []string{
+				"\t// rollback-exception: the loop continues",
+				"\t// past a site that could not be written, so there is nothing to undo.",
+				"\trb := system.NewRollback(log)",
+			},
+			marked: true, reason: "the loop continues",
+		},
+		{
+			// The same adjacency the deferred unwind is held to. A marker that may float
+			// upwards ends up excusing whatever stack is written under it next.
+			name: "separated by a blank line",
+			lines: []string{
+				"\t// rollback-exception: the loop continues", "",
+				"\trb := system.NewRollback(log)",
+			},
+			marked: false,
+		},
+		{
+			name: "separated by code",
+			lines: []string{
+				"\t// rollback-exception: the loop continues",
+				"\tcert, _ := st.CertificateForSite(ctx, domain)",
+				"\trb := system.NewRollback(log)",
+			},
+			marked: false,
+		},
+		{
+			name:   "no reason given",
+			lines:  []string{"\t// rollback-exception:", "\trb := system.NewRollback(log)"},
+			marked: true, reason: "",
+		},
+		{
+			name:   "an ordinary comment is not a marker",
+			lines:  []string{"\t// the stack for this site's vhost", "\trb := system.NewRollback(log)"},
+			marked: false,
+		},
+		{
+			name:   "nothing above it at all",
+			lines:  []string{"\trb := system.NewRollback(log)"},
+			marked: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reason, at, marked := rollbackException(tc.lines, len(tc.lines)-1)
+			if marked != tc.marked {
+				t.Fatalf("marked = %v, want %v", marked, tc.marked)
+			}
+			if reason != tc.reason {
+				t.Errorf("reason = %q, want %q", reason, tc.reason)
+			}
+			// The line the marker is on, so the walk can strike it off and report
+			// whatever is left as excusing nothing.
+			if marked && (at < 0 || !strings.Contains(tc.lines[at], "rollback-exception:")) {
+				t.Errorf("at = %d, which is not the marker's line", at)
+			}
+			if !marked && at != -1 {
+				t.Errorf("at = %d with no marker, want -1", at)
+			}
+		})
+	}
 }

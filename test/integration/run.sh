@@ -2282,6 +2282,140 @@ esac
 exits_with 2 "clearing without saying which is refused" "$RATLINE" site hook clear app.test
 exits_with 2 "a hook with a shell pipeline is refused" "$RATLINE" site hook set app.test --after '/bin/echo a | /bin/cat'
 
+info "site exec"
+
+# The claim worth proving on a real box: the command runs as the tenant, in the
+# application directory, with the site's environment, and `npm` means the npm belonging
+# to the managed Node this site is pinned to — on an image with no system Node at all.
+cat > /home/bob/app.test/app/bin/report <<'SH'
+#!/bin/sh
+echo "user=$(id -un) dir=$(pwd) domain=$RATLINE_DOMAIN env=$EXEC_PROBE npm=$(command -v npm)"
+SH
+chmod +x /home/bob/app.test/app/bin/report
+chown bob:bob /home/bob/app.test/app/bin/report
+printf 'EXEC_PROBE=from-dotenv\n' >> /home/bob/app.test/.env
+
+out=$("$RATLINE" site exec app.test -- ./bin/report 2>&1)
+contains "it runs as the tenant"            "user=bob" "$out"
+contains "in the application directory"     "dir=/home/bob/app.test/app" "$out"
+contains "with the domain in the environment" "domain=app.test" "$out"
+contains "and the site's own .env loaded"   "env=from-dotenv" "$out"
+contains "with the managed npm on PATH"     "npm=/opt/ratline/runtimes/node/22/bin/npm" "$out"
+
+# The case the command exists for. There is no system Node on this image, so this
+# passing is the whole proof that a package.json script is runnable at all.
+check "a package.json script runs" "$RATLINE" site exec app.test -- npm --version
+contains "a quoted command line is split like a build command" "user=bob" \
+    "$("$RATLINE" site exec app.test './bin/report --verbose' 2>&1)"
+
+# --dry-run resolves and prints; it must not run. The probe file is the evidence.
+rm -f /home/bob/app.test/logs/exec-ran
+cat > /home/bob/app.test/app/bin/touchfile <<'SH'
+#!/bin/sh
+touch /home/bob/app.test/logs/exec-ran
+SH
+chmod +x /home/bob/app.test/app/bin/touchfile
+chown bob:bob /home/bob/app.test/app/bin/touchfile
+out=$("$RATLINE" site exec app.test --dry-run -- ./bin/touchfile 2>&1)
+contains "a rehearsal prints the resolved plan" "would run as bob" "$out"
+refute "and ran nothing" test -f /home/bob/app.test/logs/exec-ran
+check "the real thing does run it" "$RATLINE" site exec app.test -- ./bin/touchfile
+check "and the file is there" test -f /home/bob/app.test/logs/exec-ran
+
+# The program's exit code is reported, not adopted: 4 is "an external command failed",
+# and automation branching on ratline's codes must not see the program's 1 as ratline's.
+exits_with 4 "a failing program exits external, not its own code" \
+    "$RATLINE" site exec app.test -- ./bin/fails
+exits_with 2 "a shell pipeline is refused" "$RATLINE" site exec app.test -- /bin/echo a '|' /bin/cat
+exits_with 3 "a program that does not exist is refused" "$RATLINE" site exec app.test -- nmp run build
+exits_with 3 "a file without an execute bit is refused" "$RATLINE" site exec app.test -- ./server.js
+
+# --json writes exactly one object, with the program's own exit code inside it.
+out=$("$RATLINE" site exec app.test --json -- ./bin/report 2>/dev/null)
+contains "--json carries the exit code"  '"exit_code": 0' "$out"
+contains "and the program's output"      "user=bob" "$out"
+[ "$(printf '%s' "$out" | jq -s 'length')" = "1" ] \
+    && ok "stdout holds exactly one object" \
+    || bad "stdout holds exactly one object" "$(printf '%s' "$out" | jq -s 'length') found"
+
+info "a job runs with the site's own PATH"
+
+# The unit carries the site's PATH, so a job may name a program rather than hardcode
+# /opt/ratline/runtimes/node/22/bin/npm — which is what an operator had to do, and what
+# went stale the next time the site changed Node version. app.test is pinned to the
+# managed Node 22 and this image has no system Node, so `npm` resolving at all is the
+# whole proof.
+check "a job whose command names a program, not a path" "$RATLINE" site cron add app.test probe \
+    --schedule daily --disabled --command 'npm --version'
+unit_file=/etc/systemd/system/ratline-bob-app_test-job-probe.service
+contains "the unit carries the site's own PATH" \
+    "Environment=PATH=/home/bob/app.test/venv/bin:/home/bob/app.test/app/node_modules/.bin:/opt/ratline/runtimes/node/22/bin:" \
+    "$(cat "$unit_file")"
+check "systemd accepts it" systemd-analyze verify "$unit_file"
+check "cron run triggers it" "$RATLINE" site cron run app.test probe
+sleep 2
+probe_log=$("$RATLINE" site cron logs app.test probe 2>&1)
+case "$probe_log" in
+    *"not found"*) bad "the job found the site's npm" "$probe_log" ;;
+    *[0-9].[0-9]*)  ok "the job found the site's npm" ;;
+    *)             bad "the job found the site's npm" "$probe_log" ;;
+esac
+
+# PATH is ratline's to decide. A value in the site's .env is merged over the unit's
+# environment by the wrapper, so without a rule it would win and the job would resolve
+# its program somewhere nothing in ratline chose.
+printf 'PATH=/tmp/attacker\n' >> /home/bob/app.test/.env
+check "run it again, with a PATH in the site's .env" "$RATLINE" site cron run app.test probe
+sleep 2
+probe_log=$("$RATLINE" site cron logs app.test probe 2>&1 | tail -5)
+case "$probe_log" in
+    *"not found"*) bad "a PATH in .env redirected the job" "$probe_log" ;;
+    *[0-9].[0-9]*)  ok "a PATH in .env did not redirect the job" ;;
+    *)             bad "a PATH in .env did not redirect the job" "$probe_log" ;;
+esac
+sed -i '/^PATH=\/tmp\/attacker$/d' /home/bob/app.test/.env
+
+# A relative path cannot be resolved by a unit at all. Saying so when the job is created
+# beats saying it in a log at 3am.
+exits_with 2 "a relative command is refused when the job is created" \
+    "$RATLINE" site cron add app.test relative --schedule daily --command './bin/nightly'
+
+# A rehearsal writes neither the unit nor the row.
+"$RATLINE" site cron add app.test rehearsal --schedule daily --command 'npm --version' \
+    --dry-run >/dev/null 2>&1
+refute "a rehearsed job writes no unit" test -f /etc/systemd/system/ratline-bob-app_test-job-rehearsal.service
+case "$("$RATLINE" site cron list app.test 2>&1)" in
+    *rehearsal*) bad "a rehearsed job left a state row" "" ;;
+    *)           ok "and leaves no state row" ;;
+esac
+
+# A unit written before jobs carried a PATH: doctor names it, reconcile --fix re-renders
+# it. A self-updater cannot fix units it did not write, so this is how an upgraded server
+# converges.
+sed -i '/^Environment=PATH=/d' "$unit_file"
+systemctl daemon-reload
+contains "doctor reports a job without the site's PATH" "without the site's own runtime on PATH" \
+    "$("$RATLINE" doctor 2>&1)"
+check "reconcile --fix re-renders it" "$RATLINE" reconcile --fix
+contains "and the PATH is back" "Environment=PATH=" "$(cat "$unit_file")"
+case "$("$RATLINE" doctor 2>&1)" in
+    *"without the site's own runtime on PATH"*) bad "doctor still reports the repaired job" "" ;;
+    *) ok "and doctor stops reporting it" ;;
+esac
+
+# The other way a unit's PATH goes wrong: the site changed interpreter version and the
+# unit kept naming the old one, which the operator is then free to uninstall. `site
+# runtime` re-renders a site's units as it goes; this is the net under anything that
+# does not.
+sed -i 's|^Environment=PATH=.*|Environment=PATH=/opt/ratline/runtimes/node/18/bin:/usr/bin:/bin|' "$unit_file"
+systemctl daemon-reload
+contains "doctor reports a PATH the site has outgrown" "names an interpreter the site no longer uses" \
+    "$("$RATLINE" doctor 2>&1)"
+check "reconcile --fix re-renders that too" "$RATLINE" reconcile --fix
+contains "and the PATH is the site's again" "/opt/ratline/runtimes/node/22/bin" "$(cat "$unit_file")"
+
+check "clean up the probe" "$RATLINE" site cron remove app.test probe
+
 info "site clone"
 
 check "give the source a job to copy" "$RATLINE" site cron add app.test nightly \

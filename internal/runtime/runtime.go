@@ -15,6 +15,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/config"
 	"github.com/ALIRAZA47/ratline-cli/internal/log"
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/sitepath"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/unit"
@@ -108,7 +109,13 @@ func runAsOwner(ctx context.Context, c *Context, cmd system.Cmd) (*system.Result
 	if cmd.Dir == "" {
 		cmd.Dir = c.AppDir
 	}
-	cmd.Stream = true
+	// Streaming exists so that a slow install does not look like a hang: it relays the
+	// child's output through the logger, framed and labelled. A caller already taking
+	// the output raw — `site exec`, whose output *is* the product — wants it once, not
+	// once plainly and once again with a log prefix in front of every line.
+	if cmd.Stdout == nil && cmd.Stderr == nil {
+		cmd.Stream = true
+	}
 	cmd.Mutates = true
 	return c.Runner.Run(ctx, cmd)
 }
@@ -132,7 +139,7 @@ func HasApplicationCode(appDir string) bool {
 	return false
 }
 
-// RuntimeBinDirs are the bin directories of the managed runtime this site is pinned to.
+// RuntimeBinDirs is the bin directory of the managed runtime this site is pinned to.
 //
 // A site created with --node 24 gets its node from /opt/ratline/runtimes/node/24/bin, and
 // so must its npm. resolveProgram did not know that: it searched the venv, node_modules,
@@ -143,35 +150,11 @@ func HasApplicationCode(appDir string) bool {
 //
 // which reads as a missing package rather than as ratline looking in the wrong place. The
 // managed runtimes exist precisely so a server does not need a system Node.
+//
+// The answer itself lives in internal/sitepath, because a site's job unit needs the same
+// one and internal/unit cannot import this package.
 func (c *Context) RuntimeBinDirs() []string {
-	var out []string
-	switch c.Site.Runtime {
-	case "node":
-		version := c.Site.NodeVersion
-		if version == "" {
-			version = c.Cfg.Runtimes.NodeDefault
-		}
-		if version != "" {
-			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", version, "bin"))
-		}
-	case "bun":
-		version := c.Site.BunVersion
-		if version == "" {
-			version = c.Cfg.Runtimes.BunDefault
-		}
-		if version != "" {
-			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "bun", version, "bin"))
-		}
-	case "python":
-		version := c.Site.PythonVersion
-		if version == "" {
-			version = c.Cfg.Runtimes.PythonDefault
-		}
-		if version != "" {
-			out = append(out, filepath.Join(c.Cfg.Paths.RuntimesDir, "python", version, "bin"))
-		}
-	}
-	return out
+	return sitepath.RuntimeBinDirs(c.Cfg, c.Site)
 }
 
 // SiteEnv reads the site's .env, the same file systemd hands the service.
@@ -225,6 +208,28 @@ func (c *Context) SiteEnv() []string {
 	return out
 }
 
+// execPath is the PATH anything ratline runs as a tenant gets.
+//
+// It is programSearchDirs in the same order, with the system path behind them, so that
+// the program ratline resolves is the program a child process of it would find. Those
+// two disagreeing is a whole class of bug: a python site's hook resolved to the venv's
+// `python` while any subprocess it spawned got /usr/bin/python and a different set of
+// packages, which fails a long way from the cause.
+//
+// The composition is sitepath's, not a second one that happens to agree today: the same
+// string is written into every job and worker unit by internal/unit.
+func execPath(c *Context) string {
+	return sitepath.PATH(c.Cfg, c.Site, c.SiteDir)
+}
+
+// tenantEnv is the environment for anything run as a site's tenant: the site's own
+// variables, whatever the caller adds, and ratline's PATH last.
+func tenantEnv(c *Context, extra ...string) []string {
+	env := append(c.SiteEnv(), extra...)
+	env = append(env, "PATH="+execPath(c))
+	return system.UserEnv(c.Identity, env...)
+}
+
 // RunHook runs a site's deploy hook as the tenant.
 //
 // The same conditions as the build command: the tenant's identity, the application
@@ -238,15 +243,13 @@ func RunHook(ctx context.Context, c *Context, which, command string) error {
 	if err != nil {
 		return err
 	}
-	env := system.UserEnv(c.Identity, append(c.SiteEnv(),
-		"RATLINE_HOOK="+which,
-		"RATLINE_DOMAIN="+c.Site.Domain,
-		"PATH="+strings.Join(c.RuntimeBinDirs(), ":")+":"+system.DefaultPath)...)
 	c.Log.Info("running the "+which+" hook", "command", command)
 	_, err = runAsOwner(ctx, c, system.Cmd{
-		Path:    resolveProgram(parsed.Argv[0], c),
-		Args:    parsed.Argv[1:],
-		Env:     env,
+		Path: resolveProgram(parsed.Argv[0], c),
+		Args: parsed.Argv[1:],
+		Env: tenantEnv(c,
+			"RATLINE_HOOK="+which,
+			"RATLINE_DOMAIN="+c.Site.Domain),
 		Timeout: c.Cfg.Runtimes.BuildTimeout.D(),
 		Label:   which + " hook",
 	})

@@ -50,6 +50,7 @@ func newSiteCommand(g *Globals) *cobra.Command {
 		newSiteLogsCommand(g),
 		newSiteEnvCommand(g),
 		newSiteDeployCommand(g),
+		newSiteExecCommand(g),
 		newSiteRuntimeCommand(g),
 		newSiteDeployKeyCommand(g),
 		newSiteTroubleshootCommand(g),
