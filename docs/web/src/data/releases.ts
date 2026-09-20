@@ -39,6 +39,50 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.22.0',
+    date: '2026-09-20',
+    summary:
+      'One command as the tenant, on demand — and the same PATH for a job as for everything else, so `npm run nightly` stops meaning something different at 3am than it does by hand.',
+    upgrade: 'ratline update',
+    assertions: 737,
+    changes: [
+      {
+        kind: 'feature',
+        title: 'ratline site exec',
+        body:
+          'A seed, a data migration, a `package.json` script — there was nowhere to run one. `site deploy` runs a fixed chain, a hook runs on every deploy, and a job needs a schedule and a unit, so what was left was a hand-built `sudo -u acme env PATH=…` line that nothing validated and nothing recorded. This runs one command under exactly the conditions the site’s own build runs under: as the tenant, in the application directory, with the site’s .env loaded and the runtime the site is pinned to first on PATH. So `npm` is the npm belonging to this site’s Node version and `python` is the one in its venv, on a server that has neither installed system-wide.',
+        code: 'ratline site exec app.example.com -- npm run bootstrap',
+      },
+      {
+        kind: 'feature',
+        title: 'It is an argv, and the program’s exit code is reported rather than adopted',
+        body:
+          'Everything after `--` is handed to execve untouched; a single quoted argument is split by the same parser that splits a build command. Either way a pipe or an `&&` is refused rather than passed to the program as a word — put that in a script in the repository and exec the script. The program’s own exit code is reported but not taken as ratline’s: exit codes 0–10 are a contract automation branches on, and a program exiting 2 does not mean ratline was called wrongly, so a failing command exits 4 (external) and names the code it gave. Under `--json` the envelope carries the exit code and the output, and `--dry-run` prints the resolved program, user, directory and PATH without running anything.',
+        code: 'ratline site exec app.example.com --dry-run -- ./bin/seed',
+      },
+      {
+        kind: 'fix',
+        title: 'A job runs with the site’s own PATH',
+        body:
+          'systemd hands a unit only its own minimal default environment, so `--command \'npm run nightly\'` failed at 3am with “npm was not found on PATH” while the identical line run by hand worked. The fix was to hardcode /opt/ratline/runtimes/node/22/bin into the command, which then went stale the next time the site changed version. A job and a worker now carry the site’s PATH — its venv, its node_modules/.bin and the interpreter it is pinned to — so the same words mean the same program however the command is triggered. A PATH in the site’s .env does not override it, and a relative `--command` is refused when the job is created rather than when the timer fires.',
+        code: "ratline site cron add app.example.com nightly --schedule '0 3 * * *' --command 'npm run nightly'",
+      },
+      {
+        kind: 'fix',
+        title: 'doctor reports a unit whose PATH is missing or outgrown',
+        body:
+          'Writing the PATH into the unit makes it something that can go stale, so the paths that change a site put its units back through the renderer: `site runtime` re-renders them as it changes the interpreter version, and `reconcile --fix` repairs any left behind. `doctor` reports both shapes — a unit written before jobs had a PATH at all, and one naming an interpreter the site no longer uses. Upgrading does not rewrite existing units on its own; `ratline reconcile --fix` does, and `doctor` tells you when it is needed.',
+        code: 'ratline doctor && ratline reconcile --fix',
+      },
+    ],
+    known: [
+      'Existing jobs and workers keep the unit they were written with until something re-renders them. `doctor` reports them as drift and `reconcile --fix` repairs them; nothing is rewritten by the upgrade itself.',
+      '`site exec` holds the server lock for the duration of the command and is bounded by `--timeout` (default `runtimes.build_timeout`, 20m). A long exec blocks other ratline operations on that box, including certificate renewal.',
+      'A job’s program is resolved the way systemd resolves one, so a bare name comes off the PATH and an absolute path is taken as given — but a relative path with a slash cannot be resolved at all. `site exec` is more forgiving: it resolves `./bin/seed` against the application directory.',
+      'SHA256SUMS covers the .deb packages as well as the binaries, but only the binaries are reproducible from the tag: the packages are built after the checksum file and their hashes are appended.',
+    ],
+  },
+  {
     version: 'v0.21.1',
     date: '2026-09-18',
     summary:
