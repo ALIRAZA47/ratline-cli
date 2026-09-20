@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,6 +35,29 @@ type siteUnitOpts struct {
 	disabled    bool
 }
 
+// checkUnitProgram refuses a command whose first word the unit could not resolve.
+//
+// A unit's program is resolved the way systemd resolves one: a bare name comes off the
+// PATH the unit carries — which is now the site's own, so `npm` is the npm of the Node
+// this site is pinned to — an absolute path is taken as given, and a relative path with a
+// slash is refused. `--command './bin/nightly'` therefore cannot work, and the place that
+// used to say so was the job's log at 3am, which is the worst possible time and the least
+// likely place anybody was looking.
+func checkUnitProgram(command, siteDir string) error {
+	parsed, err := system.ParseCommand(command)
+	if err != nil {
+		return err
+	}
+	program := parsed.Argv[0]
+	if strings.Contains(program, "/") && !filepath.IsAbs(program) {
+		return rlerr.Usagef("%q is a relative path, which a unit cannot resolve", program).
+			WithHint("name it on the site's own PATH (--command 'npm run nightly'), or give "+
+				"the full path (--command '%s')",
+				filepath.Join(siteDir, "app", filepath.Clean(program)))
+	}
+	return nil
+}
+
 func (g *Globals) siteUnitManager(ctx context.Context) (*unit.Manager, *state.Store, error) {
 	st, err := g.Store(ctx)
 	if err != nil {
@@ -50,9 +74,9 @@ func (g *Globals) addSiteUnit(cmd *cobra.Command, kind, domain, name string, o s
 	}
 	if o.command == "" {
 		return rlerr.Usagef("--command is required").
-			WithHint("what to run, as an absolute path and its arguments. systemd parses " +
-				"this itself, so it is not a shell line: anything needing a pipe belongs " +
-				"in a script")
+			WithHint("what to run: a program on the site's own PATH ('npm run nightly') or " +
+				"an absolute path, with its arguments. systemd parses this itself, so it " +
+				"is not a shell line: anything needing a pipe belongs in a script")
 	}
 	// A newline in the command would not be part of the command at all: it would end the
 	// ExecStart line and start a new systemd directive in a root-installed unit. Rejected
@@ -83,6 +107,9 @@ func (g *Globals) addSiteUnit(cmd *cobra.Command, kind, domain, name string, o s
 	}
 	site, err := st.GetSite(ctx, domain)
 	if err != nil {
+		return err
+	}
+	if err := checkUnitProgram(o.command, g.Cfg.SiteDir(site.Owner, site.Domain)); err != nil {
 		return err
 	}
 
@@ -272,7 +299,9 @@ func newSiteCronCommand(g *Globals) *cobra.Command {
 		Use:   "cron",
 		Short: "Scheduled jobs for a site",
 		Long: "A job runs on a schedule as the site's tenant, in the site's directory, with the\n" +
-			"site's .env and the site's sandbox and memory ceiling.\n\n" +
+			"site's .env, sandbox, memory ceiling and PATH — so 'npm' is the npm belonging to\n" +
+			"the Node version this site is pinned to, exactly as it is for a deploy or for\n" +
+			"'site exec'.\n\n" +
 			"These are systemd timers rather than crontab lines. A crontab line runs outside\n" +
 			"every limit the site is held to — no memory ceiling, no filesystem protection, no\n" +
 			"cgroup — and nothing in status, doctor or reconcile knows it is there.\n\n" +
@@ -296,8 +325,8 @@ func newSiteWorkerCommand(g *Globals) *cobra.Command {
 		Use:   "worker",
 		Short: "Long-running background processes for a site",
 		Long: "A worker runs alongside the site's own service, as the same tenant, with the same\n" +
-			"directory, .env, sandbox and ceiling — a queue consumer, a websocket process, a\n" +
-			"scheduler daemon.\n\n" +
+			"directory, .env, sandbox, ceiling and PATH — a queue consumer, a websocket\n" +
+			"process, a scheduler daemon.\n\n" +
 			"It is bound to the site: stopping the site stops its workers, and deleting the\n" +
 			"site removes them. A worker left running against a half-removed site is how a\n" +
 			"queue gets consumed by a process nobody remembers starting.",
@@ -318,17 +347,18 @@ func newSiteCronAddCommand(g *Globals) *cobra.Command {
 		Short: "Add a scheduled job",
 		Args:  cobra.ExactArgs(2),
 		Example: "  ratline site cron add app.example.com nightly \\\n" +
-			"      --schedule '0 3 * * *' --command '/home/acme/app.example.com/app/bin/nightly'\n\n" +
-			"  # systemd's own syntax works too\n" +
+			"      --schedule '0 3 * * *' --command 'npm run nightly'\n\n" +
+			"  # an absolute path works too, and systemd's own schedule syntax\n" +
 			"  ratline site cron add app.example.com digest \\\n" +
-			"      --schedule 'Mon *-*-* 09:00' --command '…/bin/digest' --persistent",
+			"      --schedule 'Mon *-*-* 09:00' \\\n" +
+			"      --command '/home/acme/app.example.com/app/bin/digest' --persistent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return g.addSiteUnit(cmd, state.UnitJob, args[0], args[1], o)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVar(&o.schedule, "schedule", "", "When to run: cron ('0 3 * * *') or systemd ('daily') (required)")
-	f.StringVar(&o.command, "command", "", "What to run, as a path and arguments (required)")
+	f.StringVar(&o.command, "command", "", "What to run: a program on the site's PATH, or an absolute path, with arguments (required)")
 	f.StringVar(&o.description, "description", "", "What this job is for")
 	f.StringVar(&o.timeout, "timeout", "", "Give up after this long, e.g. 30m")
 	f.StringVar(&o.memoryMax, "memory-max", "", "Memory ceiling for this job (default: the site's)")
@@ -346,13 +376,13 @@ func newSiteWorkerAddCommand(g *Globals) *cobra.Command {
 		Short: "Add a long-running worker",
 		Args:  cobra.ExactArgs(2),
 		Example: "  ratline site worker add app.example.com queue \\\n" +
-			"      --command '/home/acme/app.example.com/app/bin/worker'",
+			"      --command 'npm run worker'",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return g.addSiteUnit(cmd, state.UnitWorker, args[0], args[1], o)
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&o.command, "command", "", "What to run, as a path and arguments (required)")
+	f.StringVar(&o.command, "command", "", "What to run: a program on the site's PATH, or an absolute path, with arguments (required)")
 	f.StringVar(&o.description, "description", "", "What this worker is for")
 	f.StringVar(&o.memoryMax, "memory-max", "", "Memory ceiling for this worker (default: the site's)")
 	f.BoolVar(&o.disabled, "disabled", false, "Create it without starting it")

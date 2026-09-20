@@ -1,6 +1,6 @@
 {
   "tool": "ratline",
-  "version": "v0.18.0",
+  "version": "eval-fixture",
   "envelope": {
     "description": "Every command with --json writes exactly one object to stdout. Logs go to stderr, so stdout is always parseable.",
     "failure": {
@@ -1731,7 +1731,7 @@
         }
       ],
       "mutates": false,
-      "needs_root": true
+      "needs_root": false
     },
     {
       "path": "ratline mcp",
@@ -2381,7 +2381,7 @@
             {
               "name": "daemon",
               "type": "string",
-              "usage": "node: pm2 (default, reloads without dropping requests) or direct (node straight under systemd)",
+              "usage": "node, bun: pm2 or direct (default pm2 for node, direct for bun)",
               "required": false
             },
             {
@@ -2419,7 +2419,7 @@
               "name": "instances",
               "type": "int",
               "default": "1",
-              "usage": "node: PM2 cluster workers, all sharing the one socket inside the one unit",
+              "usage": "node: PM2 cluster workers sharing one socket; bun: separate processes, needs --daemon pm2 --listen port",
               "required": false
             },
             {
@@ -2457,6 +2457,18 @@
               "name": "package-manager",
               "type": "string",
               "usage": "node, bun: npm, pnpm, yarn or bun (detected from the lockfile)",
+              "required": false
+            },
+            {
+              "name": "proxy-buffering",
+              "type": "string",
+              "usage": "on (default) or off — off streams the response as the application writes it",
+              "required": false
+            },
+            {
+              "name": "proxy-read-timeout",
+              "type": "string",
+              "usage": "How long nginx waits between reads from the application, e.g. 1h (default 60s)",
               "required": false
             },
             {
@@ -2661,7 +2673,7 @@
           "path": "ratline site cron",
           "name": "cron",
           "summary": "Scheduled jobs for a site",
-          "description": "A job runs on a schedule as the site's tenant, in the site's directory, with the\nsite's .env and the site's sandbox and memory ceiling.",
+          "description": "A job runs on a schedule as the site's tenant, in the site's directory, with the\nsite's .env, sandbox, memory ceiling and PATH — so 'npm' is the npm belonging to\nthe Node version this site is pinned to, exactly as it is for a deploy or for\n'site exec'.",
           "mutates": false,
           "needs_root": true,
           "subcommands": [
@@ -2677,7 +2689,7 @@
                 {
                   "name": "command",
                   "type": "string",
-                  "usage": "What to run, as a path and arguments (required)",
+                  "usage": "What to run: a program on the site's PATH, or an absolute path, with arguments (required)",
                   "required": true
                 },
                 {
@@ -2721,9 +2733,10 @@
               "needs_root": true,
               "examples": [
                 "ratline site cron add app.example.com nightly \\",
-                "--schedule '0 3 * * *' --command '/home/acme/app.example.com/app/bin/nightly'",
+                "--schedule '0 3 * * *' --command 'npm run nightly'",
                 "ratline site cron add app.example.com digest \\",
-                "--schedule 'Mon *-*-* 09:00' --command '…/bin/digest' --persistent"
+                "--schedule 'Mon *-*-* 09:00' \\",
+                "--command '/home/acme/app.example.com/app/bin/digest' --persistent"
               ]
             },
             {
@@ -3047,6 +3060,40 @@
           ]
         },
         {
+          "path": "ratline site exec",
+          "name": "exec",
+          "summary": "Run a command as the site's tenant, with the site's environment",
+          "description": "One command, under exactly the conditions the site's own build runs under: as\nthe tenant, in the application directory, with the site's .env loaded and the\nruntime the site is pinned to first on PATH. So 'npm' is the npm belonging to\nthis site's Node version, and 'python' is the one in its venv, on a server that\nhas neither installed system-wide.",
+          "args": [
+            "<domain>",
+            "<command>"
+          ],
+          "flags": [
+            {
+              "name": "stdin",
+              "type": "bool",
+              "usage": "Pipe this command's standard input through to the program",
+              "required": false
+            },
+            {
+              "name": "timeout",
+              "type": "duration",
+              "default": "0s",
+              "usage": "Give up after this long (default: runtimes.build_timeout)",
+              "required": false
+            }
+          ],
+          "mutates": true,
+          "needs_root": true,
+          "examples": [
+            "ratline site exec app.example.com -- npm run bootstrap",
+            "ratline site exec app.example.com -- npx prisma migrate deploy",
+            "ratline site exec api.example.com -- python manage.py migrate",
+            "ratline site exec app.example.com --dry-run -- ./bin/seed",
+            "ratline site exec app.example.com -- npm run build --if-present"
+          ]
+        },
+        {
           "path": "ratline site health",
           "name": "health",
           "summary": "Ask each site whether it is actually answering",
@@ -3195,7 +3242,7 @@
             }
           ],
           "mutates": false,
-          "needs_root": true
+          "needs_root": false
         },
         {
           "path": "ratline site reload",
@@ -3288,13 +3335,25 @@
             {
               "name": "instances",
               "type": "int",
-              "usage": "node: PM2 cluster workers",
+              "usage": "node: PM2 cluster workers; bun: separate processes under PM2, on a port",
               "required": false
             },
             {
               "name": "memory-max",
               "type": "string",
               "usage": "Memory ceiling, e.g. 512M",
+              "required": false
+            },
+            {
+              "name": "proxy-buffering",
+              "type": "string",
+              "usage": "on or off — off is what a Server-Sent Events or streaming endpoint needs",
+              "required": false
+            },
+            {
+              "name": "proxy-read-timeout",
+              "type": "string",
+              "usage": "How long nginx waits between reads from the application, e.g. 1h",
               "required": false
             },
             {
@@ -3378,7 +3437,7 @@
           "path": "ratline site worker",
           "name": "worker",
           "summary": "Long-running background processes for a site",
-          "description": "A worker runs alongside the site's own service, as the same tenant, with the same\ndirectory, .env, sandbox and ceiling — a queue consumer, a websocket process, a\nscheduler daemon.",
+          "description": "A worker runs alongside the site's own service, as the same tenant, with the same\ndirectory, .env, sandbox, ceiling and PATH — a queue consumer, a websocket\nprocess, a scheduler daemon.",
           "mutates": false,
           "needs_root": true,
           "subcommands": [
@@ -3394,7 +3453,7 @@
                 {
                   "name": "command",
                   "type": "string",
-                  "usage": "What to run, as a path and arguments (required)",
+                  "usage": "What to run: a program on the site's PATH, or an absolute path, with arguments (required)",
                   "required": true
                 },
                 {
@@ -3420,7 +3479,7 @@
               "needs_root": true,
               "examples": [
                 "ratline site worker add app.example.com queue \\",
-                "--command '/home/acme/app.example.com/app/bin/worker'"
+                "--command 'npm run worker'"
               ]
             },
             {

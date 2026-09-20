@@ -165,6 +165,15 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 			if err := mgr.ReapplyUnit(cmd.Context(), site); err != nil {
 				return err
 			}
+			// And the site's jobs and workers, which carry the site's PATH and would
+			// otherwise go on naming the interpreter version this command just replaced
+			// — a directory the operator is now free to uninstall. Written before the
+			// restart below, so a worker, which is PartOf the site's service and comes
+			// down and up with it, comes back on the new unit; a job takes effect at its
+			// next firing.
+			if err := g.reapplySiteUnits(cmd.Context(), mgr.Unit, st, site); err != nil {
+				return err
+			}
 			health, err := mgr.Control(cmd.Context(), site.Domain, "restart")
 			if err != nil {
 				return err

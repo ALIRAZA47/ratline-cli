@@ -303,6 +303,7 @@ Available Commands:
   logs         Show a site's application, access or error log
   env          Manage a site's environment variables
   deploy       Pull, install, build, migrate and restart, rolling back if it fails
+  exec         Run a command as the site's tenant, with the site's environment
   runtime      Change a site's interpreter version, then rebuild and restart
   deploy-key   Manage the outbound key a site uses to clone a private repository
   troubleshoot Walk one site's request path and find where it breaks
@@ -2121,7 +2122,9 @@ Examples:
 
 ```
 A job runs on a schedule as the site's tenant, in the site's directory, with the
-site's .env and the site's sandbox and memory ceiling.
+site's .env, sandbox, memory ceiling and PATH — so 'npm' is the npm belonging to
+the Node version this site is pinned to, exactly as it is for a deploy or for
+'site exec'.
 
 These are systemd timers rather than crontab lines. A crontab line runs outside
 every limit the site is held to — no memory ceiling, no filesystem protection, no
@@ -2162,8 +2165,8 @@ Use "ratline site cron [command] --help" for more information about a command.
 
 ```
 A worker runs alongside the site's own service, as the same tenant, with the same
-directory, .env, sandbox and ceiling — a queue consumer, a websocket process, a
-scheduler daemon.
+directory, .env, sandbox, ceiling and PATH — a queue consumer, a websocket
+process, a scheduler daemon.
 
 It is bound to the site: stopping the site stops its workers, and deleting the
 site removes them. A worker left running against a half-removed site is how a
@@ -2304,6 +2307,60 @@ Global Flags:
 Examples:
   ratline site deploy api.example.com
   ratline site deploy api.example.com --pull --install --migrate --collectstatic --restart
+```
+
+#### `ratline site exec`
+
+```
+One command, under exactly the conditions the site's own build runs under: as
+the tenant, in the application directory, with the site's .env loaded and the
+runtime the site is pinned to first on PATH. So 'npm' is the npm belonging to
+this site's Node version, and 'python' is the one in its venv, on a server that
+has neither installed system-wide.
+
+Nothing is interpreted by a shell. Everything after -- is an argv: the first
+word is the program and the rest are its arguments, passed through untouched.
+A single quoted argument is split the same way a build command or a hook is —
+'npm run bootstrap' works — and either form refuses a pipe or an && rather than
+handing it to the program as a word. Anything that genuinely needs a shell
+belongs in a script in the repository, which this can then run.
+
+The command's own output is this command's output, so it pipes. Its exit code
+is reported but not adopted: ratline's exit codes are a contract, and a program
+exiting 2 does not mean ratline was called wrongly. A failing command exits 4
+(external) and names the code it gave; under --json the envelope carries it.
+
+Standard input is /dev/null unless --stdin is given, so a program that reads
+from it ends rather than waiting for somebody who is not there. Secrets do not
+belong in the argv — it is world-readable in /proc while the command runs — so
+put them in the site's environment with 'site env set' and read them there.
+
+Usage:
+  ratline site exec <domain> -- <command> [flags]
+
+Flags:
+  -h, --help               help for exec
+      --stdin              Pipe this command's standard input through to the program
+      --timeout duration   Give up after this long (default: runtimes.build_timeout)
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline site exec app.example.com -- npm run bootstrap
+  ratline site exec app.example.com -- npx prisma migrate deploy
+  ratline site exec api.example.com -- python manage.py migrate
+  ratline site exec app.example.com --dry-run -- ./bin/seed
+
+  # flags for the program go after --, or ratline reads them as its own
+  ratline site exec app.example.com -- npm run build --if-present
 ```
 
 #### `ratline site runtime`
@@ -3965,7 +4022,7 @@ Usage:
   ratline site cron add <domain> <name> [flags]
 
 Flags:
-      --command string       What to run, as a path and arguments (required)
+      --command string       What to run: a program on the site's PATH, or an absolute path, with arguments (required)
       --description string   What this job is for
       --disabled             Create it without arming the timer
   -h, --help                 help for add
@@ -3986,11 +4043,12 @@ Global Flags:
 
 Examples:
   ratline site cron add app.example.com nightly \
-      --schedule '0 3 * * *' --command '/home/acme/app.example.com/app/bin/nightly'
+      --schedule '0 3 * * *' --command 'npm run nightly'
 
-  # systemd's own syntax works too
+  # an absolute path works too, and systemd's own schedule syntax
   ratline site cron add app.example.com digest \
-      --schedule 'Mon *-*-* 09:00' --command '…/bin/digest' --persistent
+      --schedule 'Mon *-*-* 09:00' \
+      --command '/home/acme/app.example.com/app/bin/digest' --persistent
 ```
 
 ##### `ratline site cron list`
@@ -4098,7 +4156,7 @@ Usage:
   ratline site worker add <domain> <name> [flags]
 
 Flags:
-      --command string       What to run, as a path and arguments (required)
+      --command string       What to run: a program on the site's PATH, or an absolute path, with arguments (required)
       --description string   What this worker is for
       --disabled             Create it without starting it
   -h, --help                 help for add
@@ -4116,7 +4174,7 @@ Global Flags:
 
 Examples:
   ratline site worker add app.example.com queue \
-      --command '/home/acme/app.example.com/app/bin/worker'
+      --command 'npm run worker'
 ```
 
 ##### `ratline site worker list`

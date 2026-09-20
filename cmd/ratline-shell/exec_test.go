@@ -176,3 +176,81 @@ func TestRunExecLoadsTheEnvironmentAndRedirectsOutput(t *testing.T) {
 		t.Errorf("a missing env file should not fail the start: %v %v", state, err)
 	}
 }
+
+func TestWithoutPathDropsOnlyPath(t *testing.T) {
+	pairs := [][2]string{{"DATABASE_URL", "x"}, {"PATH", "/tmp/attacker"}, {"NODE_ENV", "production"}}
+	out, dropped := withoutPath(pairs)
+	if !dropped {
+		t.Error("a PATH in the file was not reported as dropped, so nothing tells the operator")
+	}
+	if len(out) != 2 || out[0][0] != "DATABASE_URL" || out[1][0] != "NODE_ENV" {
+		t.Errorf("withoutPath = %v, want everything but PATH, in order", out)
+	}
+	if _, dropped := withoutPath(pairs[:1]); dropped {
+		t.Error("a file with no PATH reported one")
+	}
+}
+
+// The unit decides PATH — it names the site's venv, its node_modules and the managed
+// interpreter the site is pinned to. The site's .env is merged over the unit's
+// environment, so without a rule a PATH there would win, and the program this wrapper
+// resolves (and every interpreter the child goes on to spawn) would be one nothing in
+// ratline chose. internal/runtime drops a PATH out of .env for the same reason.
+func TestAPathInTheEnvFileDoesNotOverrideTheUnits(t *testing.T) {
+	if os.Getenv("RATLINE_SHELL_EXEC_HELPER") == "1" {
+		os.Exit(runExec(strings.Split(os.Getenv("RATLINE_SHELL_EXEC_ARGS"), "\n")))
+	}
+	printenv := "/usr/bin/printenv"
+	if _, err := os.Stat(printenv); err != nil {
+		t.Skip("printenv is not at /usr/bin/printenv on this host")
+	}
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	if err := os.WriteFile(envFile,
+		[]byte("PATH=/tmp/attacker\nNODE_ENV=production\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logFile := filepath.Join(dir, "logs", "job-x.log")
+	if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const unitPath = "/opt/ratline/runtimes/node/22/bin:/usr/local/bin:/usr/bin:/bin"
+	args := []string{"--env-file", envFile, "--log-file", logFile, "--", printenv}
+	// The test process's own PATH is replaced rather than shadowed: two PATH entries in
+	// one environment and the first wins, which would have this assert against the
+	// wrong one.
+	env := []string{"PATH=" + unitPath} // what systemd hands the unit
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "PATH=") {
+			env = append(env, kv)
+		}
+	}
+	proc, err := os.StartProcess(os.Args[0], []string{os.Args[0], "-test.run=TestAPathInTheEnvFileDoesNotOverrideTheUnits"}, &os.ProcAttr{
+		Env: append(env,
+			"RATLINE_SHELL_EXEC_HELPER=1",
+			"RATLINE_SHELL_EXEC_ARGS="+strings.Join(args, "\n")),
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, err := proc.Wait(); err != nil || !state.Success() {
+		t.Fatalf("the helper exited %v (%v)", state, err)
+	}
+	out, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("the log was not written: %v", err)
+	}
+	if !strings.Contains(string(out), "PATH="+unitPath) {
+		t.Errorf("the child's PATH is not the unit's:\n%s", out)
+	}
+	if strings.Contains(string(out), "/tmp/attacker") {
+		t.Errorf("a PATH in the site's .env redirected the unit:\n%s", out)
+	}
+	// Everything else in the file still arrives: this is one rule, not a refusal to
+	// read the file.
+	if !strings.Contains(string(out), "NODE_ENV=production") {
+		t.Errorf("the rest of the environment file was lost:\n%s", out)
+	}
+}

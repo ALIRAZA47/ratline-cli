@@ -89,7 +89,11 @@ becomes a command line. `--dry-run` is implemented here, so it writes nothing at
 file, validate it with the real tool (`nginx -t`, `visudo -c`, `sshd -T`, `systemd-analyze
 verify`), rename atomically, and `rb.Push` an undo step. `rb.UnwindOn(ctx, &err)` runs the
 stack on failure; `rb.Commit()` discards it on success. A command that fails halfway leaves
-the server as it was, still serving.
+the server as it was, still serving. A repo-wide test reads every `NewRollback` and insists
+on an unwind; a stack that deliberately has none — `reconcile --fix` logs and moves to the
+next site rather than putting the drifted vhost back — declares it in the comment directly
+above, `// rollback-exception: <why>`, and the test fails a marker on a stack that *is*
+unwound.
 
 **`internal/state` is SQLite** (`modernc.org/sqlite`, pure Go so the binary stays static).
 Migrations are an **append-only** list — never edit an existing entry, add a new one, so a
@@ -244,7 +248,12 @@ environment. No script is built from user input and the admin URI never appears 
 
 - **A cached integration image runs old code.** The Dockerfile `COPY`s `run.sh` and the
   binary, so if `--build` fails (an unreachable Docker Hub, say) compose silently reuses the
-  previous image and you get a confident result about code that is not running.
+  previous image and you get a confident result about code that is not running. Worse, and
+  found while cutting a release: `make integration` prints `results/suite.txt` whatever
+  happened, so a build that failed to authorise against Docker Hub — the suite never ran at
+  all — ended with the *previous* run's "737 passed, 0 failed" and exit 1 from make. The
+  target truncates the transcript first now, and says so when the run did not complete, but
+  the habit that matters is reading compose's output rather than the transcript.
 - **Cross-compiling for the wrong container arch** gives "cannot execute binary file". Check
   with `docker image inspect --format '{{.Architecture}}'`.
 - **The integration image auto-runs the suite at boot** and calls `systemctl exit` when it

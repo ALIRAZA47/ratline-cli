@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
+	"github.com/ALIRAZA47/ratline-cli/internal/sitepath"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/unit"
 	"github.com/ALIRAZA47/ratline-cli/internal/validate"
@@ -412,20 +413,22 @@ func shellSafeJoin(bin string, args []string) string {
 	return strings.Join(parts, " ")
 }
 
-// resolveProgram turns a build command's first word into an absolute path.
+// programSearchDirs is where ratline looks for a program a site names by bare word.
+//
+// The list is internal/sitepath's, and so is the PATH built from it — a resolver and a
+// PATH that disagree find different programs for the same word, and a job unit written by
+// internal/unit has to arrive at the same answer as a hook run from here.
+func programSearchDirs(c *Context) []string {
+	return sitepath.Dirs(c.Cfg, c.Site, c.SiteDir)
+}
+
+// resolveProgram turns a command's first word into an absolute path, the way a shell
+// would resolve it if a shell were involved — which it never is.
 func resolveProgram(program string, c *Context) string {
 	if filepath.IsAbs(program) {
 		return program
 	}
-	// A venv or node_modules binary is what a project almost always means, then the
-	// managed runtime the site is pinned to — that is where its npm and its python live —
-	// and only then the system PATH.
-	dirs := []string{
-		filepath.Join(c.VenvDir, "bin"),
-		filepath.Join(c.AppDir, "node_modules", ".bin"),
-	}
-	dirs = append(dirs, c.RuntimeBinDirs()...)
-	for _, dir := range dirs {
+	for _, dir := range programSearchDirs(c) {
 		candidate := filepath.Join(dir, program)
 		if system.Exists(candidate) {
 			return candidate

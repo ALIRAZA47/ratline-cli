@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
+	"github.com/ALIRAZA47/ratline-cli/internal/system"
 	"github.com/ALIRAZA47/ratline-cli/internal/system/systest"
 )
 
@@ -405,5 +406,65 @@ func TestNoJobUnitHasPIDOneOpenATenantPath(t *testing.T) {
 	}
 	if !strings.Contains(service, "ExecStart=/usr/local/lib/ratline/ratline-shell exec --env-file /home/alice/api.example.com/.env --log-file /home/alice/api.example.com/logs/job-nightly.log -- ") {
 		t.Errorf("the job is not started through the wrapper:\n%s", service)
+	}
+}
+
+// nodeSite is a site pinned to a managed Node, which is the case that makes the PATH
+// matter: its npm exists only under /opt/ratline/runtimes.
+func nodeSite() *state.Site {
+	return &state.Site{
+		Domain: "app.example.com", Owner: "bob", Runtime: "node", Slug: "bob-app_example_com",
+		NodeVersion: "22", Enabled: true, Listen: "socket", Instances: 1,
+	}
+}
+
+// A job that names a program rather than a path has to find it. systemd gives a unit only
+// its own minimal default PATH, so `--command 'npm run nightly'` failed at 3am with
+// "npm was not found on PATH" while the identical line run by hand worked — because the
+// managed interpreter lives under /opt/ratline/runtimes and nothing put it there.
+//
+// Comments are stripped first: the template explains why PID 1 does not open the site's
+// .env, and an assertion about directives that matched the prose would prove nothing.
+func TestAJobRunsWithTheSitesOwnPath(t *testing.T) {
+	for _, kind := range []*state.SiteUnit{aJob(), aWorker()} {
+		u := *kind
+		u.Domain = "app.example.com"
+		u.Command = "npm run nightly"
+		service, _ := renderJob(t, nodeSite(), &u)
+		out := directivesOnly(service)
+
+		var path string
+		for _, line := range strings.Split(out, "\n") {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "Environment=PATH="); ok {
+				path = rest
+			}
+		}
+		if path == "" {
+			t.Fatalf("the %s unit sets no PATH:\n%s", u.Kind, out)
+		}
+
+		dirs := strings.Split(path, ":")
+		if dirs[0] != "/home/bob/app.example.com/venv/bin" {
+			t.Errorf("%s PATH starts with %q, want the site's own directories first", u.Kind, dirs[0])
+		}
+		if !strings.Contains(path, "/opt/ratline/runtimes/node/22/bin") {
+			t.Errorf("%s PATH = %q, want the runtime this site is pinned to", u.Kind, path)
+		}
+		if !strings.HasSuffix(path, system.DefaultPath) {
+			t.Errorf("%s PATH = %q, want the system path last", u.Kind, path)
+		}
+	}
+}
+
+// The unit's PATH is the site's, whatever the runtime — a static site has no interpreter
+// to add but still runs jobs, and a unit with no PATH at all would leave `curl` unfound.
+func TestEveryJobUnitHasAPath(t *testing.T) {
+	static := &state.Site{Domain: "www.example.com", Owner: "carol", Runtime: "static",
+		Slug: "carol-www_example_com", Enabled: true}
+	u := aJob()
+	u.Domain = "www.example.com"
+	service, _ := renderJob(t, static, u)
+	if !strings.Contains(directivesOnly(service), "Environment=PATH=") {
+		t.Errorf("a static site's job has no PATH:\n%s", service)
 	}
 }

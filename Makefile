@@ -82,6 +82,7 @@ integration: ## Run the integration suite against a real Ubuntu container
 	@command -v docker >/dev/null || { echo "docker is required for the integration suite"; exit 1; }
 	@set -e; \
 	  code=0; \
+	  : > test/integration/results/suite.txt; \
 	  docker compose -f test/integration/docker-compose.yml up --build \
 	      --abort-on-container-exit --exit-code-from harness || code=$$?; \
 	  if [ -s test/integration/results/suite.txt ]; then \
@@ -89,6 +90,7 @@ integration: ## Run the integration suite against a real Ubuntu container
 	    cat test/integration/results/suite.txt; \
 	  fi; \
 	  docker compose -f test/integration/docker-compose.yml down -v >/dev/null 2>&1 || true; \
+	  [ "$$code" = 0 ] || echo "the suite did not run to completion — read the compose output above, not the transcript"; \
 	  exit $$code
 
 # Pinned, and the same version CI installs. An unpinned `@latest` means a new
@@ -181,6 +183,10 @@ completions: build ## Generate shell completions into dist/completions
 .PHONY: docs-commands
 docs-commands: build ## Regenerate docs/reference/commands.md from the binary
 	bash scripts/gen-commands.sh ./bin/$(BINARY) docs/reference/commands.md
+
+.PHONY: eval-fixture
+eval-fixture: build ## Regenerate the schema snapshot the plugin's eval cases hand to the agent
+	bash scripts/gen-eval-fixture.sh ./bin/$(BINARY) plugins/ratline/evals/fixtures/ratline-schema.json
 
 .PHONY: check-skills
 check-skills: build ## Check the agent plugin names only commands and flags the binary has

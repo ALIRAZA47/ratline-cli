@@ -2,6 +2,7 @@ package rl
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 
@@ -614,25 +615,52 @@ func TestExtraPositionalsAreRefused(t *testing.T) {
 	}
 
 	// A usage line spelled with an ellipsis takes any number.
-	for verb, cmd := range cat.Leaves {
-		variadic := false
-		for _, a := range cmd.Args {
-			if strings.Contains(a, "...") {
-				variadic = true
-			}
-		}
-		if !variadic {
-			continue
-		}
-		policy, _ := PolicyFor(verb, cmd)
+	//
+	// Every one of them, in a fixed order. This stopped at the first it found in a map,
+	// so which command it actually checked depended on Go's map ordering — and the day
+	// a variadic command needing a typed confirmation was added, it began failing on
+	// some runs and passing on others for a reason that had nothing to do with counting
+	// positionals.
+	variadic := variadicVerbs(cat)
+	if len(variadic) == 0 {
+		t.Fatal("no command declares a variadic positional; this test is checking nothing")
+	}
+	for _, verb := range variadic {
+		policy, _ := PolicyFor(verb, cat.Leaves[verb])
 		if policy.Denied {
 			continue
 		}
-		if _, err := BuildArgv(cat, policy, Request{Verb: verb, Args: []string{"a.example.com", "b.example.com", "c.example.com"}}); err != nil {
+		req := Request{Verb: verb, Args: []string{"a.example.com", "b.example.com", "c.example.com"}}
+		// Orthogonal to the count, and refused before the argv is built.
+		req.Confirmed = policy.Destructive
+		if _, err := BuildArgv(cat, policy, req); err != nil {
 			t.Errorf("%s declares a variadic positional but refused three: %v", verb, err)
 		}
-		break
 	}
+}
+
+// variadicVerbs lists the commands that take any number of positionals, sorted.
+//
+// The effective list, not the usage line: a policy that names its own positionals wins,
+// which is how `site exec` asks for one command string rather than offering a box
+// labelled "args..." that arrives as a single argument.
+func variadicVerbs(cat *Catalogue) []string {
+	var out []string
+	for verb, cmd := range cat.Leaves {
+		policy, _ := PolicyFor(verb, cmd)
+		names := cmd.Args
+		if len(policy.Args) > 0 {
+			names = policy.Args
+		}
+		for _, a := range names {
+			if strings.Contains(a, "...") {
+				out = append(out, verb)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pflag stops reading flags at `--`, so a --config appended after the positionals is
@@ -651,5 +679,53 @@ func TestTheConfigFlagComesBeforeThePositionals(t *testing.T) {
 	}
 	if got := (&Client{}).globals("site", "list"); len(got) != 2 {
 		t.Errorf("no ConfigPath, no flag: %v", got)
+	}
+}
+
+// `site exec` is the one action whose positional argument is somebody else's command,
+// which makes it the one place where a panel request could most plausibly become an
+// argv ratline did not intend. Three things have to hold: the command arrives as a
+// single positional after a bare --, a fourth positional is refused, and the action is
+// not offered to an admin at all.
+func TestSiteExecIsOneCommandAfterADoubleDash(t *testing.T) {
+	cat := realCatalogue(t)
+	policy := policyFor(t, cat, "site exec")
+
+	argv, err := BuildArgv(cat, policy, Request{
+		Verb: "site exec", Args: []string{"app.example.com", "npm run bootstrap"},
+		Confirmed: true,
+	})
+	if err != nil {
+		t.Fatalf("BuildArgv = %v", err)
+	}
+	line := strings.Join(argv, " ")
+	if !strings.HasSuffix(line, "-- app.example.com npm run bootstrap") {
+		t.Errorf("argv = %q, want the positionals last, after a bare --", line)
+	}
+	if i := indexOf(argv, "--"); i < 0 || indexOf(argv, "app.example.com") != i+1 {
+		t.Errorf("argv = %q, want the domain immediately after the --", line)
+	}
+
+	// A request cannot smuggle in a third positional and split the command itself:
+	// the policy says two, so two is what ratline is handed.
+	if _, err := BuildArgv(cat, policy, Request{
+		Verb: "site exec", Args: []string{"app.example.com", "npm", "run"},
+		Confirmed: true,
+	}); err == nil {
+		t.Error("a third positional was accepted for site exec")
+	}
+
+	// Arbitrary code as the tenant is not an admin's button.
+	if _, _, found := Lookup(cat, "site exec", store.RoleAdmin); found {
+		t.Error("site exec is offered to an admin")
+	}
+	if _, _, found := Lookup(cat, "site exec", store.RoleSuperAdmin); !found {
+		t.Error("site exec is not reachable by a super admin")
+	}
+	if !policy.Destructive {
+		t.Error("site exec runs without the domain being typed back")
+	}
+	if !policy.Long {
+		t.Error("site exec is not a job, so a command outliving the tab loses its output")
 	}
 }

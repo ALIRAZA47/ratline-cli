@@ -37,6 +37,16 @@ func TestArgvRedaction(t *testing.T) {
 			want: []string{"ratline", "key", "add", "--key", "/home/ali/.ssh/id_ed25519.pub", "--label", "Ali MacBook"},
 		},
 		{
+			// `site exec` is the one command whose argv is somebody else's, so it is the
+			// one most likely to carry a credential an operator typed by hand. The audit
+			// entry records the whole invocation; the flag rules have to reach into it.
+			name: "a program's own argv is redacted like any other",
+			in: []string{"ratline", "site", "exec", "app.example.com", "--",
+				"./bin/seed", "--api-token", "abc123", "ADMIN_PASSWORD=hunter2", "--rows", "50"},
+			want: []string{"ratline", "site", "exec", "app.example.com", "--",
+				"./bin/seed", "--api-token", Redacted, "ADMIN_PASSWORD=" + Redacted, "--rows", "50"},
+		},
+		{
 			name: "ordinary arguments are untouched",
 			in:   []string{"ratline", "site", "add", "example.com", "--user", "alice", "--runtime", "python"},
 			want: []string{"ratline", "site", "add", "example.com", "--user", "alice", "--runtime", "python"},

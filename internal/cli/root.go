@@ -35,6 +35,11 @@ const (
 	// AnnoSkipLock marks a mutating command that must not take the lock,
 	// for the certbot deploy hook, which runs while an issue command holds it.
 	AnnoSkipLock = "ratline_skip_lock"
+
+	// AnnoProgramArgv marks a command that takes another program's argv as its
+	// positional arguments, so an unrecognised flag gets an answer that helps.
+	AnnoProgramArgv = "ratline_program_argv"
+
 	// AnnoRequiredFlag marks a flag the command refuses to run without.
 	//
 	// ratline enforces required flags by hand, in the command, because the messages are
@@ -61,6 +66,11 @@ func NonRoot(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoAllow
 
 // SkipLock marks a mutating command that must not take the global lock.
 func SkipLock(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoSkipLock) }
+
+// ProgramArgv marks a command whose positional arguments are another program's
+// argv, so that a flag cobra does not recognise is far more likely to be a missing --
+// than a typo. It changes nothing about parsing; it changes what the error says.
+func ProgramArgv(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoProgramArgv) }
 
 // OwnWizard marks a command that collects its own input under -i.
 func OwnWizard(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoOwnWizard) }
@@ -162,8 +172,16 @@ func NewRootCommand(g *Globals) *cobra.Command {
 	// Turn cobra's flag errors into ratline usage errors so they exit 2 with a
 	// hint instead of exit 1 with a bare message.
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
-		return rlerr.Wrap(err, rlerr.CodeUsage, "invalid flags for %q", c.CommandPath()).
-			WithHint("run '%s --help' for the accepted flags", c.CommandPath())
+		e := rlerr.Wrap(err, rlerr.CodeUsage, "invalid flags for %q", c.CommandPath())
+		if annotated(c, AnnoProgramArgv) {
+			// `site exec app.example.com -- npm run build --if-present` works and
+			// the same line without the -- does not, because cobra reads
+			// --if-present as ratline's. Saying which flag is unknown is true and
+			// useless; saying where the boundary goes is the fix.
+			return e.WithHint("a flag meant for the program goes after --, as in "+
+				"'%s <domain> -- npm run build --if-present'", c.CommandPath())
+		}
+		return e.WithHint("run '%s --help' for the accepted flags", c.CommandPath())
 	})
 
 	root.SetUsageTemplate(usageTemplate)

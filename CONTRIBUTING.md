@@ -87,6 +87,9 @@ as the site user. Root running a tenant's `postinstall` script is a full escalat
 **Every mutation is staged, verified and reversible.** Render to a temp file, validate
 it (`nginx -t`, `visudo -c`, `sshd -T`), then rename atomically — and push a rollback
 step. A command that fails halfway must leave the server as it was, still serving.
+`TestEveryRollbackStackIsUnwound` checks this by reading the source, so a stack you
+deliberately do not unwind needs a `// rollback-exception: <why>` comment directly above
+it — which is a decision to defend in review, not a way past the test.
 
 **Refuse rather than guess.** If two flags contradict each other, say so; do not pick a
 winner. If a file at one of ratline's paths lacks the `# managed-by: ratline` header, do
@@ -133,7 +136,9 @@ Two places, and they must agree:
 - `docs/web/` — the React documentation site (`npm --prefix docs/web run build`).
 
 `docs/reference/commands.md` is generated. Change the flag's help text in the Go source
-and run `make docs-commands`; do not hand-edit it.
+and run `make docs-commands`; do not hand-edit it. The same goes for
+`plugins/ratline/evals/fixtures/ratline-schema.json`, the schema snapshot the plugin's
+eval cases hand to the agent: `make eval-fixture`. CI regenerates both and fails on a diff.
 
 ## Licensing of contributions
 
