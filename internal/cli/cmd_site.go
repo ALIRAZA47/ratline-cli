@@ -699,8 +699,12 @@ func processManagerLabel(s *state.Site, pm2 bool) string {
 	case s.Runtime == "node":
 		return "direct"
 	default:
-		// A python site is gunicorn under systemd and a bun site is bun under
-		// systemd; neither has a choice to report.
+		// Reached when PM2 is not what is supervising this site. A python site is
+		// gunicorn under systemd, and a bun site left on its default is bun under
+		// systemd. Note that a bun site *can* be supervised by PM2 — `site add
+		// --runtime bun --daemon pm2 --listen port` — and is labelled "pm2" by the
+		// case above; assuming bun implied direct supervision is what once made
+		// every PM2 counter read zero for such a site.
 		return "systemd"
 	}
 }

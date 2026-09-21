@@ -212,6 +212,14 @@ func dynamicChecks(env *Env, s *state.Site, socket string) []Check {
 			Run: func(ctx context.Context) Result {
 				report, err := env.Site.ProcessReport(ctx, s)
 				if err != nil || report == nil {
+					// A site configured for PM2 that could not be asked is not a site
+					// without a supervisor. Saying so here claimed direct supervision
+					// for a crash-looping PM2 site and closed the page on the one
+					// counter systemd cannot supply.
+					if env.Site.UsesPM2(s) {
+						return Warn("PM2 supervises this site but its process list could not be read").
+							WithFix("ratline site logs %s", s.Domain).WithTopic("node")
+					}
 					switch s.Runtime {
 					case "node":
 						return Skip("this site runs node directly under systemd")
