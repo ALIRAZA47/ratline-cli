@@ -15,6 +15,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/site"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
 	"github.com/ALIRAZA47/ratline-cli/internal/system"
+	"github.com/ALIRAZA47/ratline-cli/internal/system/systest"
 	"github.com/ALIRAZA47/ratline-cli/internal/unit"
 )
 
@@ -421,5 +422,83 @@ func TestTheSweepCatchesAPrivateCAWithNoTrustStore(t *testing.T) {
 	}
 	if got := find(env); got.Needs == nil || got.Needs[0] != "certificates" {
 		t.Errorf("acme-trust should depend on the certificates check, got %v", got.Needs)
+	}
+}
+
+// bunPM2Site is the topology this file's `workers` check used to ignore: bun, PM2,
+// a port. `site add --daemon pm2 --listen port --runtime bun` produces exactly this.
+func bunPM2Site() *state.Site {
+	return &state.Site{
+		Domain: "mcp.example.com", Owner: "acme", Runtime: "bun",
+		Slug: "acme-mcp_example_com", Enabled: true, Entry: "src/index.ts",
+		Listen: "port", Port: 20000, Instances: 1,
+		ProcessManager: "pm2",
+	}
+}
+
+// The `workers` check must read PM2's restart counter for a bun site under PM2.
+//
+// It used to skip, saying "bun runs directly under systemd; there is no supervisor
+// to ask", because the report it asked for was gated on the runtime rather than on
+// the process manager. On a real server that produced the worst possible reading:
+// systemd said `active (running)` with NRestarts=0 while PM2 had restarted the
+// application nine times, and `troubleshoot` answered "12 checks passed — Nothing is
+// wrong". The one check that could see the crash loop was the one being skipped.
+func TestTheWorkersCheckReadsPM2ForABunSiteUnderPM2(t *testing.T) {
+	const crashLooping = `[
+  {"name":"acme-mcp_example_com","pm2_env":{"status":"online","restart_time":11,"exec_mode":"fork_mode"},
+   "monit":{"memory":40,"cpu":1}}
+]`
+	env := testEnv(t)
+	fake := systest.NewFakeRunner()
+	fake.Default = systest.Response{Stdout: crashLooping}
+	env.Site = &site.Manager{Cfg: env.Cfg, Log: env.Log, Runner: fake, DryRun: true}
+
+	var found bool
+	for _, c := range SiteChecks(env, bunPM2Site()) {
+		if c.ID != "workers" {
+			continue
+		}
+		found = true
+		res := c.Run(context.Background())
+		if res.Verdict == Skipped {
+			t.Fatalf("the workers check was skipped for a bun site under PM2 (%q) — "+
+				"this is the check that surfaces a PM2 crash loop, and systemd's own "+
+				"counter reads zero underneath it", res.Detail)
+		}
+		if res.Verdict != Warning {
+			t.Errorf("verdict = %q, want a warning: 11 restarts is a crash loop", res.Verdict)
+		}
+		if !strings.Contains(res.Detail, "11") {
+			t.Errorf("detail = %q, want PM2's restart count in it", res.Detail)
+		}
+		if res.Fix == "" {
+			t.Error("a warning has to say what to do next")
+		}
+	}
+	if !found {
+		t.Fatal("there is no 'workers' check for a bun site")
+	}
+}
+
+// The complement: bun's default really is direct supervision, so the skip — and its
+// wording — is still correct for a site that has not asked for PM2. Without this the
+// fix above could have been "always ask PM2", which is a different wrong answer.
+func TestTheWorkersCheckStillSkipsForABunSiteSupervisedDirectly(t *testing.T) {
+	env := testEnv(t)
+	s := bunPM2Site()
+	s.ProcessManager = "direct"
+
+	for _, c := range SiteChecks(env, s) {
+		if c.ID != "workers" {
+			continue
+		}
+		res := c.Run(context.Background())
+		if res.Verdict != Skipped {
+			t.Fatalf("verdict = %q, want a skip: there is genuinely no supervisor here", res.Verdict)
+		}
+		if !strings.Contains(res.Detail, "directly under systemd") {
+			t.Errorf("detail = %q, want it to say the site runs directly", res.Detail)
+		}
 	}
 }

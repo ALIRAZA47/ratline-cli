@@ -648,18 +648,17 @@ func (m *Manager) RemoveAlias(ctx context.Context, name, alias string) (_ *state
 // that reports on health has to read PM2's counter or it reports a lie.
 //
 // Returns (nil, nil) when there is nothing to ask — a static or python site, or a
-// node site running directly under systemd — so a caller can treat "not
+// node or bun site running directly under systemd — so a caller can treat "not
 // applicable" and "nothing running" the same way.
+//
+// Whether there is a supervisor to ask is a property of the *process manager*, never
+// of the runtime. Gating this on runtime == "node" meant a bun site created with
+// --daemon pm2 --listen port — a supported topology — answered "nothing to ask", so
+// every caller fell back to systemd's NRestarts, which is exactly the zero this
+// function exists to correct. A bun site crash-looping under PM2 read as healthy in
+// `doctor`, `status`, `site status` and `troubleshoot` at once.
 func (m *Manager) ProcessReport(ctx context.Context, site *state.Site) (*runtime.PM2Status, error) {
-	if site.Runtime != "node" {
-		return nil, nil
-	}
-	rt, err := runtime.For(site.Runtime)
-	if err != nil {
-		return nil, err
-	}
-	node, ok := rt.(*runtime.Node)
-	if !ok {
+	if site == nil || (site.Runtime != "node" && site.Runtime != "bun") {
 		return nil, nil
 	}
 	id, err := m.identity(site.Owner)
@@ -670,7 +669,10 @@ func (m *Manager) ProcessReport(ctx context.Context, site *state.Site) (*runtime
 	if runtime.ProcessManagerFor(rc) != runtime.ProcessManagerPM2 {
 		return nil, nil
 	}
-	return node.PM2Report(ctx, rc)
+	// PM2 is a Node program whichever runtime it supervises: a bun site's ecosystem
+	// names bun as the interpreter and runs in fork mode, but the daemon being asked
+	// is the same one. Bun delegates the rest of its PM2 handling here too.
+	return runtime.Node{}.PM2Report(ctx, rc)
 }
 
 // UsesPM2 reports whether a site is *configured* to run under PM2.
@@ -685,7 +687,11 @@ func (m *Manager) ProcessReport(ctx context.Context, site *state.Site) (*runtime
 // — a PM2 site that had crashed showed an empty screen, which is the one moment somebody
 // is certain to be looking.
 func (m *Manager) UsesPM2(site *state.Site) bool {
-	if site == nil || site.Runtime != "node" {
+	// node and bun both: see ProcessReport on why this is asked of the process
+	// manager rather than the runtime. A bun site under PM2 has its output in
+	// logs/app.log like any other PM2 site, and answering "not PM2" here sent a
+	// reader to the journal for it.
+	if site == nil || (site.Runtime != "node" && site.Runtime != "bun") {
 		return false
 	}
 	id, err := m.identity(site.Owner)

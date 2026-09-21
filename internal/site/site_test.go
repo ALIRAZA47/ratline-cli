@@ -10,6 +10,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/rlerr"
 	"github.com/ALIRAZA47/ratline-cli/internal/runtime"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
+	"github.com/ALIRAZA47/ratline-cli/internal/system/systest"
 	"path/filepath"
 )
 
@@ -548,7 +549,14 @@ func TestUsesPM2AsksTheConfigurationRatherThanTheDaemon(t *testing.T) {
 		{"node, direct by configuration", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node"}, "direct", false},
 		{"node, the site overrides the configuration", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "node", ProcessManager: "pm2"}, "direct", true},
 		{"python has no PM2", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "python"}, "", false},
-		{"bun has no PM2", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "bun"}, "", false},
+		// bun's *default* is direct supervision, which is why this reads false — not
+		// because bun cannot be supervised by PM2. The case below is the difference,
+		// and conflating the two sent `site logs --app` to the journal for a bun site
+		// whose output PM2 was writing to logs/app.log.
+		{"bun, nothing chosen, so direct", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "bun"}, "", false},
+		{"bun, pm2 on the site", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "bun", ProcessManager: "pm2"}, "", true},
+		// The node default must not leak into bun: bun stays direct unless asked.
+		{"bun, direct on the site", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "bun", ProcessManager: "direct"}, "", false},
 		{"static has no PM2", &state.Site{Domain: "a.example.com", Owner: "alice", Runtime: "static"}, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -600,4 +608,75 @@ func TestProxyOptionsAreRefusedWhereTheyWouldBeIgnored(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A bun site supervised by PM2 must have PM2's counters read, exactly as a node one does.
+//
+// The bug this pins: ProcessReport gated on `site.Runtime == "node"`, so a bun site
+// created with `--daemon pm2 --listen port` — a supported topology, documented on
+// `site scale --instances` — answered (nil, nil), meaning "there is no supervisor to
+// ask". Every caller then fell back to systemd's NRestarts, which PM2 holds at zero
+// because PM2 is the one doing the restarting. A bun application crash-looping under
+// PM2 therefore read as healthy in `doctor`, `status`, `site status` and
+// `troubleshoot` at once, and the skipped check printed "bun runs directly under
+// systemd" about a site that was not running directly under systemd.
+//
+// jlist reports one worker that has restarted 12 times, which is the crash loop the
+// whole mechanism exists to surface.
+func TestProcessReportReadsPM2CountersForABunSiteUnderPM2(t *testing.T) {
+	const jlist = `[
+  {"name":"alice-mcp_example_com","pm2_env":{"status":"online","restart_time":12,"exec_mode":"fork_mode"},
+   "monit":{"memory":40,"cpu":1}}
+]`
+	bun := func(pm string) *state.Site {
+		return &state.Site{
+			Domain: "mcp.example.com", Owner: "alice", Runtime: "bun",
+			Slug: "alice-mcp_example_com", Entry: "server.ts",
+			Listen: "port", Port: 20000, Instances: 1, ProcessManager: pm,
+		}
+	}
+
+	t.Run("pm2 is asked and its restart counter comes back", func(t *testing.T) {
+		m := testManager()
+		fake := systest.NewFakeRunner()
+		fake.Default = systest.Response{Stdout: jlist}
+		m.Runner = fake
+
+		report, err := m.ProcessReport(context.Background(), bun("pm2"))
+		if err != nil {
+			t.Fatalf("ProcessReport = %v", err)
+		}
+		if report == nil {
+			t.Fatal("report is nil: a bun site under PM2 has a supervisor to ask, " +
+				"and nil sends every caller back to systemd's NRestarts, which reads zero")
+		}
+		if report.Restarts != 12 {
+			t.Errorf("restarts = %d, want 12 — the counter systemd cannot supply", report.Restarts)
+		}
+		if report.Online != 1 {
+			t.Errorf("online = %d, want 1", report.Online)
+		}
+	})
+
+	// The negative case, so the fix is a change of *condition* and not a change of
+	// answer: bun's default really is direct supervision, and asking PM2 about a site
+	// that has no PM2 would be a different wrong answer.
+	t.Run("a bun site left on its default is still not asked", func(t *testing.T) {
+		m := testManager()
+		fake := systest.NewFakeRunner()
+		fake.Default = systest.Response{Stdout: jlist}
+		m.Runner = fake
+
+		report, err := m.ProcessReport(context.Background(), bun(""))
+		if err != nil {
+			t.Fatalf("ProcessReport = %v", err)
+		}
+		if report != nil {
+			t.Errorf("report = %+v, want nil: bun defaults to direct supervision", report)
+		}
+		if n := len(fake.Calls()); n != 0 {
+			t.Errorf("ran %d command(s), want none — nothing should be asked of a "+
+				"daemon that does not supervise this site", n)
+		}
+	})
 }
