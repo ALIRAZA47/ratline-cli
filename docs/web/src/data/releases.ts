@@ -39,6 +39,35 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.22.1',
+    date: '2026-09-21',
+    summary:
+      '`site exec` could only run in the application directory, which is the wrong place for any project that lives inside a build output — reported from a live server the day it shipped.',
+    upgrade: 'ratline update',
+    assertions: 743,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'site exec can run somewhere other than the application directory',
+        body:
+          'v0.22.0 ran every command in the site’s application directory and offered no way to change it. That is the wrong place for any layout whose project is not at the root of it, and a Next.js standalone build is exactly that: its package.json, its node_modules and its server.js are all inside the build output, so npm run above them reads a file that is not there — `Could not read package.json`, on a server, the day the command shipped. `--cwd` names the directory to run in. It is relative to the application directory, because that is where the command runs by default and what you are describing when you name a subdirectory; an absolute path works too. Either form has to resolve inside the site, with symlinks followed before that is checked, so `--cwd /etc`, `--cwd ../../..` and a link planted in the tree are all refused. That directory’s own node_modules/.bin goes to the front of PATH and a relative program resolves against it, so the tooling inside a build output is what runs there rather than the one above it.',
+        code: 'ratline site exec app.example.com --cwd .next/standalone -- npm ci --omit=dev',
+      },
+      {
+        kind: 'fix',
+        title: 'The integration suite stopped failing on its own timer',
+        body:
+          'Nothing an operator runs, but worth knowing if you read the CI badge. The check that proves the panel never writes to ratline’s state database hashed state.db, ran the whole panel install, and compared — while ratline’s own health check writes a row every five minutes. A run whose panel section straddled a five-minute boundary failed on a race rather than on anything being wrong, and one did, on main, immediately after v0.22.0. The timers are stopped for the comparison now and started again straight after; the invariant is still tested at full strength.',
+      },
+    ],
+    known: [
+      '`--cwd` resolves inside the site and nowhere else. If you need to run something against a path outside it, that is a shell over SSH rather than this command.',
+      '`site exec` still attaches no terminal, and standard input is /dev/null unless `--stdin` is passed. A program that expects to prompt will not get an answer.',
+      'Existing jobs and workers still keep the unit they were written with until something re-renders them — `ratline doctor` reports them and `ratline reconcile --fix` repairs them, as in v0.22.0.',
+      'SHA256SUMS covers the .deb packages as well as the binaries, but only the binaries are reproducible from the tag: the packages are built after the checksum file and their hashes are appended.',
+    ],
+  },
+  {
     version: 'v0.22.0',
     date: '2026-09-20',
     summary:
