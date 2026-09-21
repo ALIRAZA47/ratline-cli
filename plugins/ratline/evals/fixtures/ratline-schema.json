@@ -3070,6 +3070,12 @@
           ],
           "flags": [
             {
+              "name": "cwd",
+              "type": "string",
+              "usage": "Run in this directory instead of app/ (relative to app/, and inside the site)",
+              "required": false
+            },
+            {
               "name": "stdin",
               "type": "bool",
               "usage": "Pipe this command's standard input through to the program",
@@ -3090,6 +3096,7 @@
             "ratline site exec app.example.com -- npx prisma migrate deploy",
             "ratline site exec api.example.com -- python manage.py migrate",
             "ratline site exec app.example.com --dry-run -- ./bin/seed",
+            "ratline site exec app.example.com --cwd .next/standalone -- npm ci --omit=dev",
             "ratline site exec app.example.com -- npm run build --if-present"
           ]
         },

@@ -74,7 +74,7 @@ func TestPlanExecResolvesTheSitesOwnRuntime(t *testing.T) {
 	c := execFixture(t, nodeSite())
 	npm := writeExecutable(t, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", "24", "bin", "npm"), "#!/bin/sh\n")
 
-	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"})
+	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"}, "")
 	if err != nil {
 		t.Fatalf("PlanExec = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestPlanExecPrefersTheVenvForAPythonSite(t *testing.T) {
 		Runtime: "python", PythonVersion: "3.12"})
 	py := writeExecutable(t, filepath.Join(c.VenvDir, "bin", "python"), "#!/bin/sh\n")
 
-	plan, err := PlanExec(c, []string{"python", "manage.py", "migrate"})
+	plan, err := PlanExec(c, []string{"python", "manage.py", "migrate"}, "")
 	if err != nil {
 		t.Fatalf("PlanExec = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestPlanExecRefusesAShellLine(t *testing.T) {
 		{"npm", "run", "build", ">", "out.txt"},
 		{"npm run build && npm start"},
 	} {
-		if _, err := PlanExec(c, argv); err == nil {
+		if _, err := PlanExec(c, argv, ""); err == nil {
 			t.Errorf("PlanExec(%q) = nil, want a refusal", strings.Join(argv, " "))
 		}
 	}
@@ -137,7 +137,7 @@ func TestPlanExecRefusesAShellLine(t *testing.T) {
 	// And the negative case, so the check above is not refusing everything: a semicolon
 	// of its own is how `find -exec` ends, and it has to survive.
 	find := writeExecutable(t, filepath.Join(c.AppDir, "bin", "find"), "#!/bin/sh\n")
-	if _, err := PlanExec(c, []string{find, ".", "-name", "*.tmp", "-exec", "rm", "{}", ";"}); err != nil {
+	if _, err := PlanExec(c, []string{find, ".", "-name", "*.tmp", "-exec", "rm", "{}", ";"}, ""); err != nil {
 		t.Errorf("PlanExec with a find terminator = %v, want it accepted", err)
 	}
 }
@@ -149,7 +149,7 @@ func TestPlanExecRefusesControlCharacters(t *testing.T) {
 	writeExecutable(t, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", "24", "bin", "npm"), "#!/bin/sh\n")
 
 	for _, bad := range []string{"run\nbootstrap", "run\x00bootstrap"} {
-		if _, err := PlanExec(c, []string{"npm", bad}); err == nil {
+		if _, err := PlanExec(c, []string{"npm", bad}, ""); err == nil {
 			t.Errorf("PlanExec with %q = nil, want a refusal", bad)
 		}
 	}
@@ -159,7 +159,7 @@ func TestPlanExecRefusesControlCharacters(t *testing.T) {
 // install a system Node — which is the one thing managed runtimes exist to avoid.
 func TestPlanExecSaysWhereItLooked(t *testing.T) {
 	c := execFixture(t, nodeSite())
-	_, err := PlanExec(c, []string{"nmp", "run", "bootstrap"})
+	_, err := PlanExec(c, []string{"nmp", "run", "bootstrap"}, "")
 	if err == nil {
 		t.Fatal("PlanExec with a typo = nil, want a refusal")
 	}
@@ -176,7 +176,7 @@ func TestPlanExecSaysWhenTheSiteHasNoCodeYet(t *testing.T) {
 	if err := os.Remove(filepath.Join(c.AppDir, "package.json")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := PlanExec(c, []string{"./bin/seed"})
+	_, err := PlanExec(c, []string{"./bin/seed"}, "")
 	if err == nil {
 		t.Fatal("PlanExec on an empty application directory = nil, want a refusal")
 	}
@@ -196,7 +196,7 @@ func TestPlanExecNamesAFileThatIsNotExecutable(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := PlanExec(c, []string{"./bin/seed"})
+	_, err := PlanExec(c, []string{"./bin/seed"}, "")
 	if err == nil || !strings.Contains(err.Error(), "not executable") {
 		t.Fatalf("PlanExec on a file without +x = %v, want it named as not executable", err)
 	}
@@ -215,7 +215,7 @@ func TestPlanExecCarriesNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"})
+	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"}, "")
 	if err != nil {
 		t.Fatalf("PlanExec = %v", err)
 	}
@@ -244,7 +244,7 @@ func TestRunExecRunsAsTheTenantWithTheSiteEnvironment(t *testing.T) {
 	}
 	c.Runner = fake
 
-	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"})
+	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"}, "")
 	if err != nil {
 		t.Fatalf("PlanExec = %v", err)
 	}
@@ -302,7 +302,7 @@ func TestAHookAndAnExecGetTheSamePath(t *testing.T) {
 		t.Fatalf("RunHook = %v", err)
 	}
 
-	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"})
+	plan, err := PlanExec(c, []string{"npm", "run", "bootstrap"}, "")
 	if err != nil {
 		t.Fatalf("PlanExec = %v", err)
 	}
@@ -362,7 +362,7 @@ func TestAJobAndAnExecAgreeOnPath(t *testing.T) {
 		t.Fatal("the job's unit sets no PATH")
 	}
 
-	plan, err := PlanExec(c, []string{"npm", "run", "nightly"})
+	plan, err := PlanExec(c, []string{"npm", "run", "nightly"}, "")
 	if err != nil {
 		t.Fatalf("PlanExec = %v", err)
 	}
@@ -375,4 +375,110 @@ func TestAJobAndAnExecAgreeOnPath(t *testing.T) {
 	if !strings.Contains(unitPath, filepath.Dir(plan.Program)) {
 		t.Errorf("the job's PATH %q does not contain %q", unitPath, filepath.Dir(plan.Program))
 	}
+}
+
+// --cwd exists because a build output carries its own project. A Next.js standalone
+// directory has its own package.json, its own node_modules and its own server.js, and
+// `npm` run in app/ above it fails with "Could not read package.json" — which is exactly
+// what a live server reported the day site exec shipped.
+func TestExecRunsInTheDirectoryItIsGiven(t *testing.T) {
+	c := execFixture(t, nodeSite())
+	npm := writeExecutable(t, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", "24", "bin", "npm"), "#!/bin/sh\n")
+	standalone := filepath.Join(c.AppDir, ".next", "standalone")
+	if err := os.MkdirAll(standalone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// ResolveWithin resolves symlinks, and on macOS t.TempDir() sits under /var, which
+	// is one. The production path is not, but the expectation has to match what the
+	// resolver returns rather than what the test happened to build.
+	standalone = realPath(t, standalone)
+
+	plan, err := PlanExec(c, []string{"npm", "ci"}, ".next/standalone")
+	if err != nil {
+		t.Fatalf("PlanExec = %v", err)
+	}
+	if plan.Dir != standalone {
+		t.Errorf("dir = %q, want %q", plan.Dir, standalone)
+	}
+	if plan.Program != npm {
+		t.Errorf("program = %q, want the site's npm at %q", plan.Program, npm)
+	}
+	// The PATH has to name that directory's node_modules, or a tool the build output
+	// installed for itself is invisible to the command running inside it.
+	if first := strings.Split(plan.Path, ":")[0]; first != filepath.Join(standalone, "node_modules", ".bin") {
+		t.Errorf("PATH starts with %q, want the working directory's node_modules/.bin", first)
+	}
+
+	// And a program named relatively is that directory's, not app/'s.
+	script := writeExecutable(t, filepath.Join(standalone, "run.sh"), "#!/bin/sh\n")
+	plan, err = PlanExec(c, []string{"./run.sh"}, ".next/standalone")
+	if err != nil {
+		t.Fatalf("PlanExec(./run.sh) = %v", err)
+	}
+	if plan.Program != script {
+		t.Errorf("program = %q, want %q", plan.Program, script)
+	}
+}
+
+// An absolute path is taken as given, as long as it is inside the site: logs/ and tmp/
+// are legitimate places to run something.
+func TestExecAcceptsAnAbsoluteDirectoryInsideTheSite(t *testing.T) {
+	c := execFixture(t, nodeSite())
+	writeExecutable(t, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", "24", "bin", "npm"), "#!/bin/sh\n")
+	if err := os.MkdirAll(c.LogDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanExec(c, []string{"npm", "--version"}, c.LogDir)
+	if err != nil {
+		t.Fatalf("PlanExec = %v", err)
+	}
+	if want := realPath(t, c.LogDir); plan.Dir != want {
+		t.Errorf("dir = %q, want %q", plan.Dir, want)
+	}
+}
+
+// The site is the boundary. It holds even though the command runs as the tenant anyway:
+// a working directory outside the site is not something ratline offers, and a tenant owns
+// this tree and can put a link in it.
+func TestExecRefusesADirectoryOutsideTheSite(t *testing.T) {
+	c := execFixture(t, nodeSite())
+	writeExecutable(t, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", "24", "bin", "npm"), "#!/bin/sh\n")
+
+	outside := t.TempDir()
+	// A symlink inside the site pointing out of it: resolved before the check, refused.
+	if err := os.Symlink(outside, filepath.Join(c.AppDir, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"../../../..", outside, "escape", "/etc"} {
+		if _, err := PlanExec(c, []string{"npm", "--version"}, bad); err == nil {
+			t.Errorf("--cwd %q was accepted, want it refused as outside the site", bad)
+		}
+	}
+}
+
+func TestExecRefusesADirectoryThatIsNotOne(t *testing.T) {
+	c := execFixture(t, nodeSite())
+	writeExecutable(t, filepath.Join(c.Cfg.Paths.RuntimesDir, "node", "24", "bin", "npm"), "#!/bin/sh\n")
+
+	_, err := PlanExec(c, []string{"npm", "--version"}, "nope")
+	if err == nil || !strings.Contains(err.Error(), "no such directory") {
+		t.Errorf("a missing --cwd = %v, want it named as missing", err)
+	}
+	if hint := rlerr.Hint(err); !strings.Contains(hint, c.AppDir) {
+		t.Errorf("hint = %q, want it to say what the path is relative to", hint)
+	}
+	if _, err := PlanExec(c, []string{"npm", "--version"}, "package.json"); err == nil {
+		t.Error("a file was accepted as a working directory")
+	}
+}
+
+// realPath is the path with symlinks resolved, which is what validate.ResolveWithin
+// returns. On macOS every t.TempDir() is under /var, a symlink to /private/var.
+func realPath(t *testing.T, p string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s) = %v", p, err)
+	}
+	return resolved
 }
