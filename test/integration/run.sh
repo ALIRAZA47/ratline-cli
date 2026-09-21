@@ -2745,6 +2745,21 @@ site_shape() { "$RATLINE" site list --json 2>/dev/null | jq -Sc '[.data.sites[] 
 user_shape() { "$RATLINE" user list --json 2>/dev/null | jq -Sc '[.data.users[] | {name,home,shell,disabled}]' 2>/dev/null; }
 sites_before=$(site_shape)
 users_before=$(user_shape)
+# ratline's own timers write to state.db on a schedule, and this comparison spans the
+# whole panel install — long enough to straddle one. The health check records a row
+# every five minutes (OnCalendar=*:0/5), so a hash taken before the install and compared
+# after it is racing a writer that has every right to run. It lost on main: 736 passed,
+# 1 failed, with the site and user shapes above unchanged — a write that touched neither,
+# which is what a health row is.
+#
+# Stopped rather than worked around in the comparison, because what this block asks is
+# whether the *panel* wrote to ratline's database, and a timer firing mid-window answers
+# a different question. They are started again immediately after the check; `stop` is not
+# `disable`, so the later assertions about them still hold.
+ratline_timers="ratline-health-check.timer ratline-cert-renew.timer ratline-key-prune.timer"
+# shellcheck disable=SC2086
+systemctl stop $ratline_timers 2>/dev/null || true
+
 statedb_before=$(sha256sum /var/lib/ratline/state.db 2>/dev/null | cut -d' ' -f1)
 config_before=$(sha256sum /etc/ratline/config.yaml 2>/dev/null | cut -d' ' -f1)
 
@@ -2802,6 +2817,10 @@ esac
 [ "$(sha256sum /etc/ratline/config.yaml | cut -d' ' -f1)" = "$config_before" ] \
     && ok "ratline's configuration was not touched" \
     || bad "ratline's configuration was not touched"
+
+# shellcheck disable=SC2086
+systemctl start $ratline_timers 2>/dev/null || true
+check "ratline's timers are running again" systemctl is-active --quiet ratline-health-check.timer
 
 check "the panel's database is 0600" bash -c '[ "$(stat -c %a /var/lib/ratline/panel.db)" = "600" ]'
 
