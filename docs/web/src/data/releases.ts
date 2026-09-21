@@ -39,6 +39,35 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.22.2',
+    date: '2026-09-22',
+    summary:
+      'A bun site supervised by PM2 had PM2’s counters ignored, so a crash-looping application read as healthy in `doctor`, `status`, `site status` and `troubleshoot` at once — found on a live server that had restarted nine times while every view said nothing was wrong.',
+    upgrade: 'ratline update',
+    assertions: 743,
+    changes: [
+      {
+        kind: 'fix',
+        title: 'PM2’s counters are read for a bun site under PM2',
+        body:
+          'systemd’s restart counter stays at zero on a PM2-supervised site, because PM2 is the one doing the restarting — reading PM2 instead is the whole reason ratline asks it at all. That question was gated on the site’s runtime rather than on its process manager, so it was never asked about a bun site, and `--daemon pm2 --listen port` is a supported bun topology. The result was the worst reading available: systemd reported `active (running)` with no restarts while PM2 had restarted the application nine times, `troubleshoot` skipped the one check that could see it and answered “12 checks passed — Nothing is wrong”, and the skipped row explained that bun runs directly under systemd, about a site that did not. `doctor`, the `doctor` sweep, `status` and `site status` all read the same report and were all wrong in the same way. They ask about the process manager now, so a bun site under PM2 is watched exactly as a node one is.',
+        code: 'ratline troubleshoot mcp.example.com',
+      },
+      {
+        kind: 'fix',
+        title: 'A site configured for PM2 is no longer reported as unsupervised when PM2 cannot be reached',
+        body:
+          'The same page said “runs directly under systemd” whenever the process list could not be read — for node as well as bun — which is a statement about how the site is configured, made from a failure to reach a daemon. It says PM2 supervises the site but could not be asked, and points at the log. `site logs --app` was reading the same runtime assumption to decide whether a PM2 site’s output is in logs/app.log or the journal; that is asked of the configuration now, as it already was for node.',
+      },
+    ],
+    known: [
+      'Nothing about how a bun site runs has changed — only what ratline reports about one. A site that was healthy stays healthy; a crash loop that was invisible becomes visible, so a `doctor` that was clean may now have something in it.',
+      'bun under PM2 is still fork mode and still has no graceful reload: `site reload` restarts it. PM2’s cluster mode is node’s own cluster module.',
+      'A bun site that has not asked for PM2 still runs directly under systemd, and `runtimes.node_process_manager` is node’s setting — a bun site does not inherit it.',
+      'SHA256SUMS covers the .deb packages as well as the binaries, but only the binaries are reproducible from the tag: the packages are built after the checksum file and their hashes are appended.',
+    ],
+  },
+  {
     version: 'v0.22.1',
     date: '2026-09-21',
     summary:
