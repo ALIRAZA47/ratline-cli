@@ -59,11 +59,11 @@ func (r *execRunner) runAttached(ctx context.Context, path string, c Cmd, label 
 		cmd.Stderr = os.Stderr
 	}
 	if c.As != nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{
-			Uid:    uint32(c.As.UID),
-			Gid:    uint32(c.As.GID),
-			Groups: toUint32(c.As.Groups),
-		}}
+		cred, err := credentialFor(c.As)
+		if err != nil {
+			return nil, err
+		}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
 	}
 
 	sigs := make(chan os.Signal, 4)

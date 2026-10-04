@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -182,11 +183,11 @@ func (r *execRunner) Run(ctx context.Context, c Cmd) (*Result, error) {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if c.As != nil {
-		cmd.SysProcAttr.Credential = &syscall.Credential{
-			Uid:    uint32(c.As.UID),
-			Gid:    uint32(c.As.GID),
-			Groups: toUint32(c.As.Groups),
+		cred, err := credentialFor(c.As)
+		if err != nil {
+			return nil, err
 		}
+		cmd.SysProcAttr.Credential = cred
 	}
 	// Kill the whole process group on timeout: build tools spawn children, and
 	// killing only the parent leaves them holding the site directory.
@@ -390,15 +391,42 @@ func ValidateArgv(args []string) error {
 	return nil
 }
 
-func toUint32(in []int) []uint32 {
-	if len(in) == 0 {
-		return nil
+// credentialFor is the credential a command drops to, with every id checked before it
+// is narrowed to the kernel's 32 bits.
+//
+// The check is not about tidiness. An id of -1 — the placeholder a --dry-run identity
+// carries for a user that does not exist yet — converts to 4294967295, and that is the
+// value setresuid(2) and setresgid(2) read as "leave this id unchanged". A command meant
+// to run as a tenant would keep running as root. Anything outside 0..4294967294 is
+// refused before the child starts.
+func credentialFor(id *Identity) (*syscall.Credential, error) {
+	uid, err := toID("uid", id.Name, id.UID)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]uint32, len(in))
-	for i, v := range in {
-		out[i] = uint32(v)
+	gid, err := toID("gid", id.Name, id.GID)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	var groups []uint32
+	for _, g := range id.Groups {
+		v, err := toID("supplementary gid", id.Name, g)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, v)
+	}
+	return &syscall.Credential{Uid: uid, Gid: gid, Groups: groups}, nil
+}
+
+// toID narrows one id, refusing the negative values and the all-ones "unchanged"
+// sentinel rather than letting them wrap.
+func toID(kind, name string, v int) (uint32, error) {
+	if v < 0 || int64(v) >= math.MaxUint32 {
+		return 0, rlerr.Genericf("internal error: %s %d for %q cannot be dropped to", kind, v, name).
+			WithHint("the account's ids did not resolve; nothing was run")
+	}
+	return uint32(v), nil
 }
 
 func containsInt(haystack []int, needle int) bool {
