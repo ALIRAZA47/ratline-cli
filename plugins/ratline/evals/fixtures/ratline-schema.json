@@ -1356,6 +1356,25 @@
       "needs_root": true
     },
     {
+      "path": "ratline journalctl",
+      "name": "journalctl",
+      "summary": "Read a site's or a unit's journal, from the namespace it actually logs into",
+      "description": "Every unit ratline runs for a site logs into the site's own journal namespace,\nso 'journalctl -u ratline-…' on its own reads the shared journal and finds\nnothing. This builds the filter ratline's own hints use: the site's unit, and\n--namespace=+<slug> when the unit on disk names one, which merges the site's\nnamespace with the shared journal so lines from before it moved still show.\n--no-pager is always passed.",
+      "args": [
+        "<domain|unit>",
+        "[args...]"
+      ],
+      "mutates": false,
+      "needs_root": true,
+      "examples": [
+        "ratline journalctl app.example.com",
+        "ratline journalctl app.example.com -- -n 200 -p warning",
+        "ratline journalctl app.example.com -- -f",
+        "ratline journalctl app.example.com -- --since '10 min ago' -o cat",
+        "ratline journalctl nginx.service -- -n 50"
+      ]
+    },
+    {
       "path": "ratline key",
       "name": "key",
       "summary": "Add, inspect and revoke SSH keys across the three scopes",
@@ -2181,6 +2200,24 @@
             "--build-command 'npm run build' --build-output dist"
           ]
         }
+      ]
+    },
+    {
+      "path": "ratline nginx",
+      "name": "nginx",
+      "summary": "Test nginx's configuration, or reload it through systemd",
+      "description": "The nginx binary, found where ratline finds it rather than on PATH, with the\nswitches that only read passed straight through: -t (test the configuration),\n-T (test it and print every file nginx loaded), -v and -V (the version and how\nit was built), and -q. Each goes as its own argument.",
+      "args": [
+        "<args>"
+      ],
+      "mutates": true,
+      "needs_root": true,
+      "examples": [
+        "ratline nginx -- -t",
+        "ratline nginx -- -T | less",
+        "ratline nginx -- -V",
+        "ratline nginx -- reload",
+        "ratline nginx --dry-run -- reload"
       ]
     },
     {
@@ -3553,6 +3590,27 @@
       "examples": [
         "ratline status",
         "ratline status --json | jq '.sites_detail[] | select(.needs_attention)'"
+      ]
+    },
+    {
+      "path": "ratline systemctl",
+      "name": "systemctl",
+      "summary": "Run systemctl with site names: read any unit, control ratline's own",
+      "description": "systemctl, found where ratline finds it, with two things added: a site's domain\nis accepted wherever a unit is, and becomes the site's unit — so 'restart\napp.example.com' needs nobody to remember a slug — and --no-pager is always\npassed, so the output pipes and nothing waits on a terminal.",
+      "args": [
+        "<verb>",
+        "[unit...]"
+      ],
+      "mutates": true,
+      "needs_root": true,
+      "examples": [
+        "ratline systemctl -- status app.example.com",
+        "ratline systemctl -- restart app.example.com",
+        "ratline systemctl -- list-units 'ratline-*' --all",
+        "ratline systemctl -- list-timers 'ratline-*'",
+        "ratline systemctl -- cat app.example.com",
+        "ratline systemctl -- reload nginx",
+        "ratline systemctl --dry-run -- restart app.example.com"
       ]
     },
     {

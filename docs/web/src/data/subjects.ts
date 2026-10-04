@@ -118,7 +118,7 @@ export const subjects: Subject[] = [
       '/concepts/filesystem',
       '/concepts/interactive',
     ],
-    topics: ['state', 'safety', 'diagnose', 'health', 'agents'],
+    topics: ['state', 'safety', 'diagnose', 'health', 'passthrough', 'agents'],
     guides: ['/guides/inherited-server'],
     settings: ['paths', 'logging', 'features', 'server'],
   },

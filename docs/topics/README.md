@@ -22,6 +22,7 @@ ratline explain node | less
 | [ssh](ssh.md) | The three key scopes |
 | [deploys](deploys.md) | What a deploy does, and what a failure leaves behind |
 | [diagnose](diagnose.md) | When a site is broken, in what order to check |
+| [passthrough](passthrough.md) | nginx, systemctl and journalctl through ratline, and what they refuse |
 | [limits](limits.md) | Resource ceilings and systemd hardening |
 | [safety](safety.md) | Idempotence, rollback, and the exit-code contract |
 | [state](state.md) | The database, the audit log, and backups |

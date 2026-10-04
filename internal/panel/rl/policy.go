@@ -274,6 +274,12 @@ var policies = map[string]Policy{
 	// the size of the machine.
 	"restore": {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupServer},
 	"import":  {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupServer},
+	// The system-tool passthroughs. Each takes a free-form argument line rather than
+	// named fields, and one form covers both a read and a mutation — `systemctl status`
+	// and `systemctl stop` — so they sit with the other server-wide controls, behind a
+	// super admin. The CLI does the refusing either way; the role is about who may ask.
+	"nginx":     {MinRole: store.RoleSuperAdmin, Group: GroupServer},
+	"systemctl": {MinRole: store.RoleSuperAdmin, Group: GroupServer},
 
 	// ── Not for a browser ──────────────────────────────────────────────────────
 	// config edit spawns $EDITOR and waits for it. Over HTTP that is a request
@@ -286,6 +292,9 @@ var policies = map[string]Policy{
 	"man":    {Denied: true, DeniedWhy: "it generates man pages for a terminal"},
 	"schema": {Denied: true, DeniedWhy: "the panel reads it already; it is how these forms are built"},
 	"logs":   {Denied: true, DeniedWhy: "the panel shows a site's logs on its own page; this is the same as 'site logs'"},
+	// journalctl -f runs until it is interrupted, and nothing in a request interrupts it;
+	// the journal a browser needs is already on a site's logs page.
+	"journalctl": {Denied: true, DeniedWhy: "the panel shows a site's journal on its logs page; following one never returns"},
 }
 
 // defaultPolicy is what an unclassified command gets.

@@ -148,6 +148,9 @@ OPERATIONS
   status       Show everything on this server on one screen
   troubleshoot Find why something is broken, in the order things depend on each other
   explain      Explain how part of ratline works
+  nginx        Test nginx's configuration, or reload it through systemd
+  systemctl    Run systemctl with site names: read any unit, control ratline's own
+  journalctl   Read a site's or a unit's journal, from the namespace it actually logs into
   reconcile    Report or repair drift between state and the system
   export       Dump the full state as JSON, for migration
   import       Rebuild tenants and sites on this server from an export
@@ -867,6 +870,160 @@ Examples:
   ratline explain
   ratline explain sockets
   ratline explain node | less
+```
+
+### `ratline nginx`
+
+```
+The nginx binary, found where ratline finds it rather than on PATH, with the
+switches that only read passed straight through: -t (test the configuration),
+-T (test it and print every file nginx loaded), -v and -V (the version and how
+it was built), and -q. Each goes as its own argument.
+
+'reload' (or -s reload) is not passed to nginx. It becomes what ratline itself
+does after changing a vhost: 'nginx -t', and only if that passes, 'systemctl
+reload nginx', waiting until no worker started under the old configuration is
+still accepting. 'nginx -s reload' signals the master behind systemd's back,
+and a reload of a configuration that does not test clean is how a typo in one
+vhost becomes an outage for all of them. The reload takes the server lock, so
+it never lands in the middle of a 'site add'; the read switches do not.
+
+Refused, each with the reason: -s stop and -s quit (ratline would have no web
+server), -s reopen, -c, -g, -p and -e (a configuration other than the one
+ratline manages), and anything else nginx accepts.
+
+nginx's own exit code is reported but not adopted: a failing test exits 4
+(external) and names the code. Under --json the output is captured into the
+envelope instead of printed.
+
+Usage:
+  ratline nginx -- <args> [flags]
+
+Flags:
+  -h, --help   help for nginx
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline nginx -- -t
+  ratline nginx -- -T | less
+  ratline nginx -- -V
+  ratline nginx -- reload
+  ratline nginx --dry-run -- reload
+```
+
+### `ratline systemctl`
+
+```
+systemctl, found where ratline finds it, with two things added: a site's domain
+is accepted wherever a unit is, and becomes the site's unit — so 'restart
+app.example.com' needs nobody to remember a slug — and --no-pager is always
+passed, so the output pipes and nothing waits on a terminal.
+
+Reads work on any unit or pattern: status, show, cat, is-active, is-enabled,
+is-failed, list-units, list-timers and list-unit-files, with --all, --full,
+--failed, --plain, --no-legend, --value, --quiet, --recursive, and --state=,
+--type=, --property=, --lines= and --output= (value in the same argument).
+A read never takes the server lock, so it answers in the middle of a deploy.
+
+Control — start, stop, restart, reload, try-restart, reload-or-restart and
+reset-failed — works only on the units ratline manages (ratline-*.service,
+ratline-*.timer, ratline.target, a site's systemd-journald@<slug>.service) and
+nginx, named one by one: no patterns, no switches. It takes the server lock,
+and starting, restarting or reloading nginx tests its configuration first.
+'ratline site restart' does more than this for a site — it prepares the socket
+directory and health-checks the result — and is the one to use after a change.
+
+Refused, each pointing at what does it properly: enable and disable ('site
+enable'/'site disable'), mask, edit and set-property ('site scale', 'reconcile
+--fix'), daemon-reload, kill, and anything that changes the whole machine.
+
+systemctl's own exit code is reported but not adopted: 'status' of a stopped
+unit exits 3, which ratline reports as exit 4 (external) naming the 3.
+
+Usage:
+  ratline systemctl -- <verb> [unit...] [flags]
+
+Flags:
+  -h, --help   help for systemctl
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline systemctl -- status app.example.com
+  ratline systemctl -- restart app.example.com
+  ratline systemctl -- list-units 'ratline-*' --all
+  ratline systemctl -- list-timers 'ratline-*'
+  ratline systemctl -- cat app.example.com
+  ratline systemctl -- reload nginx
+  ratline systemctl --dry-run -- restart app.example.com
+```
+
+### `ratline journalctl`
+
+```
+Every unit ratline runs for a site logs into the site's own journal namespace,
+so 'journalctl -u ratline-…' on its own reads the shared journal and finds
+nothing. This builds the filter ratline's own hints use: the site's unit, and
+--namespace=+<slug> when the unit on disk names one, which merges the site's
+namespace with the shared journal so lines from before it moved still show.
+--no-pager is always passed.
+
+The first argument is a site's domain (or alias), which reads the site's
+service, or a unit name such as nginx.service or a site's worker unit, which
+reads that unit — from its namespace, if its unit file names one. A static
+site has no unit; its logs are nginx's, under 'ratline logs --access'.
+
+journalctl's own options go after --: -n 200, --since '1 hour ago', -p err,
+-g <pattern>, -o json, -f to follow (which runs until Ctrl-C, with no
+timeout, and cannot be combined with --json). Refused, because they write,
+read some other journal, or replace the scope: --vacuum-*, --rotate, --flush,
+--sync, --relinquish-var, --smart-relinquish-var, --setup-keys,
+--update-catalog, --cursor-file, -D/--directory, -i/--file, --root, --image,
+--namespace, -M/--machine, -m/--merge and -u/--unit. An abbreviation of any
+of them is refused too, since journalctl would accept it.
+
+Read-only, so it never takes the server lock. Root only: a tenant reads their
+own site's journal with 'ratline logs <domain> --journal'.
+
+Usage:
+  ratline journalctl <domain|unit> -- [args...] [flags]
+
+Flags:
+  -h, --help   help for journalctl
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline journalctl app.example.com
+  ratline journalctl app.example.com -- -n 200 -p warning
+  ratline journalctl app.example.com -- -f
+  ratline journalctl app.example.com -- --since '10 min ago' -o cat
+  ratline journalctl nginx.service -- -n 50
 ```
 
 ### `ratline reconcile`

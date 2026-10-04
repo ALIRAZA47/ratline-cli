@@ -443,7 +443,27 @@ ratline reconcile [--fix]        Re-render all configs from state; report or rep
 ratline backup <user|domain> --out <dir>
 ratline export --json            Full state dump for migration
 ratline init                     First-run server setup wizard
+ratline nginx -- <args>          -t, -T, -v, -V, -q passed through; 'reload' (or
+                                 -s reload) becomes nginx -t then systemctl reload
+                                 nginx, under the lock. Refuses -s stop|quit|reopen,
+                                 -c, -g, -p, -e and anything else
+ratline systemctl -- <verb> [unit...]
+                                 A site's domain becomes its unit; --no-pager always.
+                                 Reads (status, show, cat, is-*, list-*) on any unit,
+                                 no lock. Control (start, stop, restart, reload,
+                                 try-restart, reload-or-restart, reset-failed) only
+                                 on ratline-*, ratline.target, a site's journald
+                                 instance and nginx, under the lock. Refuses enable,
+                                 disable, mask, edit, daemon-reload, kill, …
+ratline journalctl <domain|unit> -- [args...]
+                                 The unit's journal from its namespace
+                                 (--namespace=+<slug>); --no-pager always; -f
+                                 follows with no timeout. Refuses options that write,
+                                 read another journal or replace the unit
 ```
+
+The three tools' own exit codes are reported, not adopted: a non-zero exit is
+exit 4 naming the code, and under `--json` the output is in the envelope.
 
 ## INTERACTIVE MODE
 

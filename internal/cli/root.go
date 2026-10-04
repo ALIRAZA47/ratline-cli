@@ -39,6 +39,9 @@ const (
 	// AnnoProgramArgv marks a command that takes another program's argv as its
 	// positional arguments, so an unrecognised flag gets an answer that helps.
 	AnnoProgramArgv = "ratline_program_argv"
+	// AnnoProgramArgvExample is the invocation that flag error shows instead of site
+	// exec's, for a ProgramArgv command whose positionals are not a domain and a program.
+	AnnoProgramArgvExample = "ratline_program_argv_example"
 
 	// AnnoRequiredFlag marks a flag the command refuses to run without.
 	//
@@ -71,6 +74,15 @@ func SkipLock(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoSkip
 // argv, so that a flag cobra does not recognise is far more likely to be a missing --
 // than a typo. It changes nothing about parsing; it changes what the error says.
 func ProgramArgv(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoProgramArgv) }
+
+// ProgramArgvExample sets the invocation a ProgramArgv command's flag error points at.
+func ProgramArgvExample(cmd *cobra.Command, example string) *cobra.Command {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[AnnoProgramArgvExample] = example
+	return cmd
+}
 
 // OwnWizard marks a command that collects its own input under -i.
 func OwnWizard(cmd *cobra.Command) *cobra.Command { return annotate(cmd, AnnoOwnWizard) }
@@ -178,8 +190,11 @@ func NewRootCommand(g *Globals) *cobra.Command {
 			// the same line without the -- does not, because cobra reads
 			// --if-present as ratline's. Saying which flag is unknown is true and
 			// useless; saying where the boundary goes is the fix.
-			return e.WithHint("a flag meant for the program goes after --, as in "+
-				"'%s <domain> -- npm run build --if-present'", c.CommandPath())
+			example := c.Annotations[AnnoProgramArgvExample]
+			if example == "" {
+				example = c.CommandPath() + " <domain> -- npm run build --if-present"
+			}
+			return e.WithHint("a flag meant for the program goes after --, as in '%s'", example)
 		}
 		return e.WithHint("run '%s --help' for the accepted flags", c.CommandPath())
 	})
@@ -206,6 +221,9 @@ func NewRootCommand(g *Globals) *cobra.Command {
 		newStatusCommand(g),
 		newTroubleshootCommand(g),
 		newExplainCommand(g),
+		newNginxCommand(g),
+		newSystemctlCommand(g),
+		newJournalctlCommand(g),
 		newReconcileCommand(g),
 		newExportCommand(g),
 		newImportCommand(g),
