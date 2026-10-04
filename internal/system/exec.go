@@ -421,12 +421,17 @@ func credentialFor(id *Identity) (*syscall.Credential, error) {
 
 // toID narrows one id, refusing the negative values and the all-ones "unchanged"
 // sentinel rather than letting them wrap.
+//
+// Widened to int64 once and then checked and converted as that one value: the bound has
+// to sit on the very variable that is narrowed, or a reader — and CodeQL — cannot see that
+// it guards the conversion. int64 rather than int so the constant fits on a 32-bit build.
 func toID(kind, name string, v int) (uint32, error) {
-	if v < 0 || int64(v) >= math.MaxUint32 {
-		return 0, rlerr.Genericf("internal error: %s %d for %q cannot be dropped to", kind, v, name).
+	id := int64(v)
+	if id < 0 || id > math.MaxUint32-1 {
+		return 0, rlerr.Genericf("internal error: %s %d for %q cannot be dropped to", kind, id, name).
 			WithHint("the account's ids did not resolve; nothing was run")
 	}
-	return uint32(v), nil
+	return uint32(id), nil
 }
 
 func containsInt(haystack []int, needle int) bool {

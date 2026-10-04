@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -111,13 +112,20 @@ func TestCredentialRefusesIDsThatWouldWrap(t *testing.T) {
 	if err != nil || ok.Uid != 1001 || ok.Gid != 1001 || len(ok.Groups) != 1 || ok.Groups[0] != 33 {
 		t.Fatalf("credentialFor(valid) = %+v, %v", ok, err)
 	}
-	for _, id := range []*Identity{
+	bad := []*Identity{
 		{Name: "ghost", UID: -1, GID: 1001},
 		{Name: "ghost", UID: 1001, GID: -1},
 		{Name: "ghost", UID: 1001, GID: 1001, Groups: []int{-1}},
-		{Name: "big", UID: 1 << 32, GID: 1001},
-		{Name: "sentinel", UID: 1<<32 - 1, GID: 1001},
-	} {
+	}
+	// Ids past 32 bits only exist where int is 64 bits wide; a variable, not a constant,
+	// so this file still compiles where it is not.
+	if strconv.IntSize == 64 {
+		var big int64 = 1 << 32
+		bad = append(bad,
+			&Identity{Name: "big", UID: int(big), GID: 1001},
+			&Identity{Name: "sentinel", UID: int(big - 1), GID: 1001})
+	}
+	for _, id := range bad {
 		if c, err := credentialFor(id); err == nil {
 			t.Errorf("credentialFor(%+v) = %+v, want a refusal", id, c)
 		}
