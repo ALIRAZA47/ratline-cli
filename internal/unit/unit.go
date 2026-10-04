@@ -54,10 +54,16 @@ type Data struct {
 	ExecStop       string
 	Type           string
 	PIDFile        string
-	RestartSec     string
-	TimeoutStopSec string
-	StandardOutput string
-	StandardError  string
+	// BindsTo is the shared PM2 daemon a PM2-supervised site registers itself in.
+	BindsTo string
+	// RemainAfterExit marks the oneshot shape a PM2 site's unit has: it starts the
+	// application inside the tenant's daemon and stays active once that returns.
+	RemainAfterExit bool
+	TimeoutStartSec string
+	RestartSec      string
+	TimeoutStopSec  string
+	StandardOutput  string
+	StandardError   string
 	// LogNamespace is the journald namespace the unit logs into — the site's own, so its
 	// tenant can read it. Empty on a systemd that has no namespaces.
 	LogNamespace string
@@ -166,27 +172,32 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 	relaxed = append(relaxed, defaultRelaxed[site.Runtime]...)
 
 	d := &Data{
-		Domain:         site.Domain,
-		Owner:          site.Owner,
-		Group:          site.Owner,
-		Runtime:        site.Runtime,
-		Slug:           site.Slug,
-		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
-		WorkingDir:     opts.WorkingDir,
-		Environment:    opts.Environment,
-		RuntimeDirName: filepath.Join("ratline", site.Slug),
-		UMask:          m.Cfg.Defaults.Umask,
-		ExecStart:      m.wrapExec(filepath.Join(siteDir, ".env"), "", execStart),
-		ExecStartPost:  opts.ExecStartPost,
-		ExecReload:     opts.ExecReload,
-		ExecStop:       opts.ExecStop,
-		Type:           orDefault(opts.Type, "exec"),
-		PIDFile:        opts.PIDFile,
-		RestartSec:     m.Cfg.Defaults.RestartSec.D().String(),
-		TimeoutStopSec: m.Cfg.Defaults.StopTimeout.D().String(),
-		LogNamespace:   m.logNamespaceFor(site),
-		Relaxed:        len(relaxed) > 0,
-		RelaxedList:    strings.Join(relaxed, ", "),
+		Domain:          site.Domain,
+		Owner:           site.Owner,
+		Group:           site.Owner,
+		Runtime:         site.Runtime,
+		Slug:            site.Slug,
+		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
+		WorkingDir:      opts.WorkingDir,
+		Environment:     opts.Environment,
+		RuntimeDirName:  filepath.Join("ratline", site.Slug),
+		UMask:           m.Cfg.Defaults.Umask,
+		ExecStart:       m.wrapExec(filepath.Join(siteDir, ".env"), "", execStart),
+		ExecStartPost:   opts.ExecStartPost,
+		ExecReload:      opts.ExecReload,
+		ExecStop:        opts.ExecStop,
+		Type:            orDefault(opts.Type, "exec"),
+		PIDFile:         opts.PIDFile,
+		BindsTo:         opts.BindsTo,
+		RemainAfterExit: opts.RemainAfterExit,
+		// pm2 start returns once the daemon has launched the workers; the health
+		// check that follows is what waits for them to answer.
+		TimeoutStartSec: "2min",
+		RestartSec:      m.Cfg.Defaults.RestartSec.D().String(),
+		TimeoutStopSec:  m.Cfg.Defaults.StopTimeout.D().String(),
+		LogNamespace:    m.logNamespaceFor(site),
+		Relaxed:         len(relaxed) > 0,
+		RelaxedList:     strings.Join(relaxed, ", "),
 	}
 	if d.WorkingDir == "" {
 		d.WorkingDir = filepath.Join(siteDir, "app")
@@ -201,17 +212,14 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 		return nil, err
 	}
 	high := int64(float64(memBytes) * m.Cfg.Defaults.MemoryHighRatio)
-	d.Limits = []string{
-		"MemoryMax=" + memMax,
-		// MemoryHigh throttles and reclaims before MemoryMax kills, which turns
-		// a hard OOM into back pressure the application may survive.
-		"MemoryHigh=" + validate.FormatSize(high),
-		"MemoryAccounting=true",
-		"CPUQuota=" + orDefault(site.CPUQuota, m.Cfg.Defaults.CPUQuota),
-		"CPUAccounting=true",
-		fmt.Sprintf("TasksMax=%d", m.Cfg.Defaults.TasksMax),
-		fmt.Sprintf("LimitNOFILE=%d", m.Cfg.Defaults.LimitNOFILE),
-		"OOMPolicy=continue",
+	if opts.BindsTo != "" {
+		// The application's processes live in the PM2 daemon's cgroup, not this one, so a
+		// ceiling here would hold nothing. The site's MemoryMax and CPUQuota are summed
+		// into the daemon's unit instead, and its MemoryMax is also PM2's per-worker
+		// max_memory_restart: see unit.RenderPM2Daemon.
+		d.Limits = []string{"# Limits for this site are enforced by " + opts.BindsTo + "."}
+	} else {
+		d.Limits = limitLines(m.Cfg, memMax, high, orDefault(site.CPUQuota, m.Cfg.Defaults.CPUQuota), m.Cfg.Defaults.TasksMax)
 	}
 
 	skip := map[string]bool{}
@@ -236,6 +244,11 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 	if opts.ExtraReadWritePaths != "" {
 		d.Hardening = append(d.Hardening, "ReadWritePaths="+opts.ExtraReadWritePaths)
 	}
+	// ProtectHome=tmpfs hides everything under /home that is not bound back in, and the
+	// tenant's PM2 daemon keeps its socket outside the site directory.
+	for _, p := range opts.ExtraBindPaths {
+		d.Hardening = append(d.Hardening, "BindPaths="+p)
+	}
 	// A private /tmp is useless if the application still writes to the shared
 	// one, so point TMPDIR at the site's own directory.
 	d.Environment = append(d.Environment, "TMPDIR="+filepath.Join(siteDir, "tmp"))
@@ -251,6 +264,23 @@ func (m *Manager) Render(site *state.Site, execStart string, opts RenderOptions)
 	return buf.Bytes(), nil
 }
 
+// limitLines is the resource ceiling of a service: a site's own, or the sum of a tenant's
+// PM2 sites on their shared daemon.
+func limitLines(cfg *config.Config, memMax string, memHigh int64, cpuQuota string, tasksMax int) []string {
+	return []string{
+		"MemoryMax=" + memMax,
+		// MemoryHigh throttles and reclaims before MemoryMax kills, which turns
+		// a hard OOM into back pressure the application may survive.
+		"MemoryHigh=" + validate.FormatSize(memHigh),
+		"MemoryAccounting=true",
+		"CPUQuota=" + cpuQuota,
+		"CPUAccounting=true",
+		fmt.Sprintf("TasksMax=%d", tasksMax),
+		fmt.Sprintf("LimitNOFILE=%d", cfg.Defaults.LimitNOFILE),
+		"OOMPolicy=continue",
+	}
+}
+
 // RenderOptions carries the runtime-specific parts of a unit.
 type RenderOptions struct {
 	WorkingDir          string
@@ -260,10 +290,15 @@ type RenderOptions struct {
 	ExecStop            string
 	ExtraReadWritePaths string
 
-	// Type overrides the service type. PM2 daemonises, so a PM2-supervised site is
-	// Type=forking with a PIDFile; everything else stays Type=exec.
+	// Type overrides the service type. A PM2-supervised site is Type=oneshot with
+	// RemainAfterExit, bound to its tenant's daemon; everything else stays Type=exec.
 	Type    string
 	PIDFile string
+
+	// BindsTo names the tenant's PM2 daemon unit, for a PM2-supervised site.
+	BindsTo         string
+	RemainAfterExit bool
+	ExtraBindPaths  []string
 }
 
 // Install writes the unit, verifies it and enables it.

@@ -61,6 +61,16 @@ func UnitName(user, domain string) string {
 	return "ratline-" + Slug(user, domain) + ".service"
 }
 
+// PM2UnitName is the unit of a tenant's shared PM2 daemon for one Node version.
+//
+// The '@' is what keeps it apart from every site unit: a slug is built from
+// [a-z0-9_-] only, so no "ratline-<slug>.service" can ever spell this name, whatever
+// the tenant and domain. The key ("node22", "system") follows a '.', which a username
+// cannot contain, so two tenants cannot collide either.
+func PM2UnitName(user, key string) string {
+	return "ratline-pm2@" + user + "." + key + ".service"
+}
+
 // InstanceUnitName is the templated unit name used when --instances > 1.
 func InstanceUnitName(user, domain string, instance int) string {
 	return "ratline-" + Slug(user, domain) + "@" + strconv.Itoa(instance) + ".service"

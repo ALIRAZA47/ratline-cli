@@ -250,6 +250,11 @@ var policies = map[string]Policy{
 	"runtime list":    {MinRole: store.RoleAdmin, Group: GroupRuntimes},
 	"runtime install": {MinRole: store.RoleAdmin, Long: true, Group: GroupRuntimes},
 	"runtime default": {MinRole: store.RoleSuperAdmin, Group: GroupRuntimes},
+	// pm2 as a tenant, against the daemon every PM2 site of theirs runs in. Most of what
+	// gets through the allowlist only looks, but restart and reload act on live sites,
+	// and `logs`/`monit` follow until interrupted, which a request cannot. The same
+	// standing as `site exec`, which can do as much and more.
+	"pm2": {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupRuntimes},
 
 	// ── The server itself ──────────────────────────────────────────────────────
 	"status":           {MinRole: store.RoleAdmin, Group: GroupOverview},

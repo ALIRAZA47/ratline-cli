@@ -64,6 +64,11 @@ ratline site show app.example.com                    # runtime, socket, cert, la
 
 On a PM2 site the application log is `logs/app.log`, so `--journal` holds only PM2's own
 messages; on a Python site the import traceback is in the application log, not the journal.
+
+A tenant's PM2 sites all run in one daemon per Node version, `ratline-pm2@<user>.<node>.service`.
+If several of one tenant's node sites went down together, suspect the daemon before any one
+site: `troubleshoot` checks it first and names it. To see inside it, `ratline pm2 <domain> --
+describe` (or `-- logs`); a bare `pm2` as root talks to root's own `~/.pm2` and shows nothing.
 An **empty** application log is itself a finding: no request ever reached the app.
 
 ## The catalogue of causes

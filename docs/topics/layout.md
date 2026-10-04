@@ -19,8 +19,8 @@ another's files.
         .env                             0600 — secrets, never under a document root
         .ratline/                        generated per-site files
           ecosystem.config.json          the PM2 configuration, for a node site
-        .pm2/                            that site's own PM2 daemon state
         venv/                            the virtualenv, for a python site
+      .ratline/pm2/node22/               0700 — the tenant's shared PM2 daemon, one per Node version
 
 The home is `0750` and never `0755`. nginx reaches the document root because it is
 added to the tenant's group, not because the world can read it. `ratline doctor`
@@ -34,6 +34,7 @@ permission mistake available on a shared server.
     /etc/nginx/ratline/                          shared snippets
     /etc/nginx/ratline/custom/<domain>.conf      yours, never regenerated
     /etc/systemd/system/ratline-<slug>.service   one unit per dynamic site
+    /etc/systemd/system/ratline-pm2@<user>.<node>.service   a tenant's shared PM2 daemon
     /etc/systemd/journald@<slug>.conf            the site's journal namespace, and its size cap
     /var/log/nginx/ratline/<slug>/               access.log and error.log, root's, tenant-readable
     /var/log/journal/<machine-id>.<slug>/        the site's own journal, tenant-readable

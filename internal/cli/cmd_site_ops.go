@@ -200,10 +200,11 @@ func (g *Globals) rootLogTarget(ctx context.Context, name string) (*logTarget, e
 }
 
 // unitCapturesAppLog reads from a unit whether the application's output ends up in
-// logs/app.log rather than the journal: a PM2 service is Type=forking with a PIDFile, and a
-// gunicorn service names the file in its ExecStart (--error-logfile, with --capture-output).
+// logs/app.log rather than the journal: a PM2 site's unit is bound to its tenant's PM2
+// daemon (an older release's was Type=forking with a PIDFile of its own), and a gunicorn
+// service names the file in its ExecStart (--error-logfile, with --capture-output).
 func unitCapturesAppLog(body string) bool {
-	if unitHasDirective(body, "PIDFile=") {
+	if unitHasDirective(body, "PIDFile=") || unitHasDirective(body, "BindsTo=ratline-pm2@") {
 		return true
 	}
 	for _, line := range strings.Split(body, "\n") {

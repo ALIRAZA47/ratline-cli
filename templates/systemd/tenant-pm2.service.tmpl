@@ -1,0 +1,66 @@
+{{- /*
+One unit per tenant and Node version: the PM2 daemon every PM2-supervised site of
+that tenant runs inside. Regenerated whenever one of those sites is added, removed,
+enabled, disabled or reconfigured.
+*/ -}}
+# managed-by: ratline
+# pm2-daemon: {{ .Owner }} {{ .Key }}
+# generated: {{ .GeneratedAt }}
+[Unit]
+Description=ratline PM2 for {{ .Owner }} ({{ .Key }})
+Documentation=man:ratline(8)
+After=network-online.target
+Wants=network-online.target
+PartOf=ratline.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
+# Each enabled site's unit registers its application with this daemon and is bound to
+# it. Wanting them here is what brings every site back after the daemon itself was
+# restarted or crashed: a restart starts this unit, and starting it starts these.
+{{- range .Wants }}
+Wants={{ . }}
+{{- end }}
+
+[Service]
+# PM2 daemonises. `pm2 ping` launches the daemon when there is none and returns; the
+# daemon writes its pid file, which is how systemd knows what to supervise.
+Type=forking
+PIDFile={{ .Home }}/pm2.pid
+User={{ .Owner }}
+Group={{ .Owner }}
+WorkingDirectory={{ .Home }}
+# PATH is not optional: pm2 is a JavaScript file with a `#!/usr/bin/env node` shebang.
+Environment=PATH={{ .Path }}
+Environment=PM2_HOME={{ .Home }}
+# Workers inherit the daemon's umask, and nginx needs write permission on a socket to
+# connect(2) to it. The group is the tenant's own.
+UMask=0007
+# Every pm2 command launches a daemon when it cannot reach one. One started by
+# something outside this unit — a status query at the wrong moment — would hold the
+# socket and leave this unit's pid file pointing outside its cgroup, so it goes first.
+ExecStartPre=-{{ .PM2 }} kill
+ExecStart={{ .PM2 }} ping
+ExecStop={{ .PM2 }} kill
+Restart=on-failure
+RestartSec={{ .RestartSec }}
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec={{ .TimeoutStopSec }}
+SyslogIdentifier=ratline-pm2-{{ .Owner }}
+
+# The sum of the ceilings of the sites it holds. Every worker is a descendant of the
+# daemon, so this cgroup is where the kernel can enforce anything at all; each site's
+# own MemoryMax is also its workers' max_memory_restart in PM2.
+{{- range .Limits }}
+{{ . }}
+{{- end }}
+
+# The sandbox each of these sites would have had, shared: a directive any one of them
+# relaxed is relaxed here, because they are one process tree.
+{{- range .Hardening }}
+{{ . }}
+{{- end }}
+{{- if .Relaxed }}
+#
+# Relaxed for these sites: {{ .RelaxedList }}
+{{- end }}

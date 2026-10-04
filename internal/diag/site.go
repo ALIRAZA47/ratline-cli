@@ -160,6 +160,31 @@ func staticChecks(env *Env, s *state.Site, siteDir string) []Check {
 func dynamicChecks(env *Env, s *state.Site, socket string) []Check {
 	return []Check{
 		{
+			// Before the site's own unit, because a PM2 site's unit is bound to the
+			// tenant's daemon and goes down with it: the walk should name the daemon,
+			// not report every one of the tenant's sites as its own failure.
+			ID:    "pm2-daemon",
+			Title: "the tenant's PM2 daemon is running",
+			Needs: []string{"directories"},
+			Run: func(ctx context.Context) Result {
+				name := env.Site.PM2DaemonUnit(s)
+				if name == "" {
+					return Pass("not supervised by PM2")
+				}
+				if env.Site.RunsOwnPM2(s) {
+					return Warn("this site still runs its own PM2 daemon, from an earlier release").
+						WithFix("ratline reconcile --fix, then ratline site restart %s", s.Domain).
+						WithTopic("node")
+				}
+				if env.Unit != nil && !env.Unit.IsActive(ctx, name) {
+					return Fail("%s is not running, and this site's application runs inside it", name).
+						WithFix("journalctl -u %s, then ratline site start %s", name, s.Domain).
+						WithTopic("node")
+				}
+				return Pass("%s", name)
+			},
+		},
+		{
 			ID:    "unit",
 			Title: "the systemd unit is running",
 			Needs: []string{"directories"},

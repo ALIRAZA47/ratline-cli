@@ -44,7 +44,8 @@ supervising:
 
     ratline runtime install node 22 --with-pm2
 
-A bun site that says nothing still runs directly under systemd. `runtimes.node_process_manager`
+Under PM2 a bun site runs in its tenant's shared PM2 daemon, like a node site — see
+`ratline explain node`. A bun site that says nothing still runs directly under systemd. `runtimes.node_process_manager`
 is node's setting and a bun site does not inherit it.
 
 **`--instances` on bun needs `--listen port`, and needs your application's help.** Each

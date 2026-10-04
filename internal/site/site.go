@@ -872,6 +872,15 @@ func (m *Manager) applyUnit(ctx context.Context, site *state.Site, rt runtime.Ru
 	if err != nil {
 		return err
 	}
+	// The tenant's PM2 daemon before the unit bound to it: systemd resolves BindsTo when
+	// it reloads, and starting a site whose daemon has no unit fails. Run for every node
+	// and bun site rather than only PM2 ones, so a site switched to direct, or to another
+	// Node version, leaves the daemon it was in.
+	if usesPM2Daemon(site) {
+		if err := m.syncPM2Daemons(ctx, site.Owner, site, "", rb); err != nil {
+			return err
+		}
+	}
 	return m.Unit.Install(ctx, site, body, rb)
 }
 

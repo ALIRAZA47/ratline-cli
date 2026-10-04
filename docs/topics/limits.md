@@ -47,8 +47,12 @@ person to read it knows.
 
 ## PM2 and the cgroup
 
-A cgroup contains every descendant, so a PM2-supervised node site's limits still
-cover PM2 and all of its workers. The extra supervision layer does not weaken the
-ceiling. `ratline explain node` has the rest of that trade.
+A tenant's PM2 sites run in one daemon, and a cgroup contains every descendant, so the
+kernel's ceiling for them is the daemon's: the sum of their `MemoryMax` and `CPUQuota`,
+covering PM2 and every worker. Each site's own `MemoryMax` is also PM2's
+`max_memory_restart` for its workers, which restarts a worker that outgrows its site
+rather than letting the kernel kill the daemon. One site can take a sibling's share of
+the tenant's ceiling; it cannot take another tenant's. `ratline explain node` has the
+rest of that trade.
 
 See also: `ratline explain node`, `ratline explain safety`.

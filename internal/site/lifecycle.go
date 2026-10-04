@@ -101,6 +101,12 @@ func (m *Manager) Enable(ctx context.Context, name string) (err error) {
 			return err
 		}
 	}
+	// So the tenant's PM2 daemon starts this site again whenever it comes back up.
+	if usesPM2Daemon(site) {
+		if err := m.syncPM2Daemons(ctx, site.Owner, site, "", rb); err != nil {
+			return err
+		}
+	}
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	if err := m.Nginx.Apply(ctx, site, cert, rb); err != nil {
 		return err
@@ -139,6 +145,13 @@ func (m *Manager) Disable(ctx context.Context, name string) (err error) {
 	}
 	rb := system.NewRollback(m.Log)
 	defer rb.UnwindOn(ctx, &err)
+	// Out of the tenant's PM2 daemon's Wants=, or the daemon's next restart would start
+	// a site that was switched off — and its ceiling would stop counting this one.
+	if usesPM2Daemon(site) {
+		if err := m.syncPM2Daemons(ctx, site.Owner, site, "", rb); err != nil {
+			return err
+		}
+	}
 	cert, _ := m.State.CertificateForSite(ctx, site.Domain)
 	// Re-rendered with the disabled branch, which serves 503 for everything
 	// except the ACME challenge.
@@ -504,6 +517,13 @@ func (m *Manager) Delete(ctx context.Context, name string, purge bool, backupDir
 
 	if site.Dynamic() {
 		if err := m.Unit.Remove(ctx, site); err != nil {
+			return err
+		}
+	}
+	// After the site's unit, whose ExecStop took its application out of the daemon. The
+	// daemon goes too when this was the last site in it.
+	if usesPM2Daemon(site) {
+		if err := m.syncPM2Daemons(ctx, site.Owner, nil, site.Domain, nil); err != nil {
 			return err
 		}
 	}

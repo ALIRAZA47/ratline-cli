@@ -137,6 +137,7 @@ CERTIFICATES
 
 RUNTIMES
   runtime      Install and select managed Node, Bun and Python versions
+  pm2          Run pm2 against a tenant's shared PM2 daemon
 
 OPERATIONS
   init         Set up this server: configuration, directories and defaults
@@ -485,6 +486,52 @@ Global Flags:
   -y, --yes             Assume yes; required for destructive operations without a terminal
 
 Use "ratline runtime [command] --help" for more information about a command.
+```
+
+### `ratline pm2`
+
+```
+Every tenant's PM2-supervised sites share one PM2 daemon per Node version, run by
+systemd as that tenant (ratline-pm2@<user>.<node>.service). This runs pm2 against
+it as the tenant, with the daemon's own PM2_HOME and node — a bare 'pm2' as root
+talks to root's ~/.pm2 instead, and starts an empty daemon there.
+
+With a domain, the daemon that site runs in; and a verb that takes an application
+name (logs, describe, restart, reload, reset, flush) is given the site's own when
+none follows. With a user, that tenant's daemon (--node picks one when they have
+sites on more than one Node version). With neither, a listing verb — list, status,
+jlist, prettylist — runs against every daemon on the server in turn.
+
+The verbs that would fight ratline's own units are refused, each with the command
+that does it properly: kill, delete, stop, start, scale, save, resurrect, startup,
+update, install and their relatives. A daemon that is not running is not asked at
+all, because every pm2 command that cannot reach a daemon starts one.
+
+Nothing is interpreted by a shell; everything after -- is pm2's argv.
+
+Usage:
+  ratline pm2 [<domain>|<user>] -- <pm2 arguments> [flags]
+
+Flags:
+  -h, --help          help for pm2
+      --node string   With a user: the daemon for this Node version
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline pm2 -- list
+  ratline pm2 app.example.com -- logs --lines 200
+  ratline pm2 app.example.com -- describe
+  ratline pm2 acme -- monit
+  ratline pm2 acme --node 18 -- list
 ```
 
 ### `ratline init`

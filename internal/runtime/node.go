@@ -380,12 +380,12 @@ func (n Node) Reload(ctx context.Context, c *Context) error {
 			"      the trade-off is in: ratline explain node", c.Site.Domain, c.Site.Domain)
 }
 
-// Teardown removes node_modules, and stops the site's PM2 daemon so it does not
-// outlive the site it was supervising.
+// Teardown removes node_modules, and takes the site's application out of its tenant's
+// PM2 daemon so it does not outlive the site.
 func (n Node) Teardown(ctx context.Context, c *Context) error {
 	if ProcessManagerFor(c) == ProcessManagerPM2 && !c.DryRun {
-		if kerr := n.pm2Kill(ctx, c); kerr != nil {
-			c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)
+		if kerr := n.pm2Remove(ctx, c); kerr != nil {
+			c.Log.Debug("the site could not be taken out of its PM2 daemon", "err", kerr)
 		}
 	}
 	modules := filepath.Join(c.AppDir, "node_modules")
