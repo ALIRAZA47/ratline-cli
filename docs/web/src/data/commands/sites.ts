@@ -183,7 +183,7 @@ export const sites: CommandGroup = {
               type: 'enum',
               default: 'pm2',
               description: 'How the site is supervised.',
-              note: 'PM2 in cluster mode is the default because it is the only way this site can reload without dropping requests: pm2 reload starts a replacement worker, waits for it, and only then retires the old one. systemd cannot do that for node, which is why a site running without PM2 refuses to reload rather than pretend. systemd still owns the cgroup, so MemoryMax and CPUQuota stay kernel-enforced across PM2 and all of its workers. Use direct for a single-process app that is never reloaded in place — one fewer moving part, and systemd sees the application itself.',
+              note: 'PM2 in cluster mode is the default because it is the only way this site can reload without dropping requests: pm2 reload starts a replacement worker, waits for it, and only then retires the old one. systemd cannot do that for node, which is why a site running without PM2 refuses to reload rather than pretend. The site runs in its tenant’s shared PM2 daemon, one per Node version, whose cgroup carries the sum of the tenant’s sites’ MemoryMax and CPUQuota — still kernel-enforced across PM2 and every worker — while the site’s own MemoryMax becomes PM2’s max_memory_restart for its workers. Use direct for a single-process app that is never reloaded in place — one fewer moving part, and systemd sees the application itself.',
             },
             {
               name: '--install-command',
@@ -205,7 +205,7 @@ export const sites: CommandGroup = {
               type: 'int',
               default: '1',
               description: 'Number of application processes.',
-              note: 'PM2 cluster workers, all sharing the one socket inside the one unit and the one cgroup. Refused on a node site running --daemon direct (a single process) and on a python site (which scales with --workers), rather than accepted and silently ignored.',
+              note: 'PM2 cluster workers, all sharing the one socket inside the tenant’s PM2 daemon, with the site’s memory ceiling divided between them. Refused on a node site running --daemon direct (a single process) and on a python site (which scales with --workers), rather than accepted and silently ignored.',
             },
             {
               name: '--public',
@@ -950,8 +950,9 @@ ratline cert issue example.com   # aliases become SANs`,
       summary: 'Move a site onto a different managed Node or Python version, or a different process manager.',
       description: [
         'The unit’s ExecStart is re-rendered against the new absolute interpreter path, the venv is rebuilt for a Python change, and the app is restarted and health-checked. The version must already be installed — see `ratline runtime install`.',
-        '`--daemon` moves a node site between PM2 and direct systemd supervision. The change is not only a restart: the unit changes shape, because a PM2 unit is Type=forking with a PIDFile and an ExecStop that a direct unit does not have.',
-        'The old supervisor is stopped first, using the unit that is still on disk. Only the PM2 unit carries ExecStop=pm2 kill, so re-rendering before stopping would leave the PM2 daemon and its workers alive until the kill timeout — still holding the socket the replacement is about to bind.',
+        '`--daemon` moves a node site between PM2 and direct systemd supervision. The change is not only a restart: the unit changes shape. A PM2 site’s unit is a oneshot bound to its tenant’s PM2 daemon (ratline-pm2@<user>.<node>.service), which puts the application into that daemon with `pm2 start` and takes it out with `pm2 delete`; a direct unit runs the process itself.',
+        '`--node` on a PM2 site moves it to a different daemon as well as a different node, because a tenant has one daemon per Node version — cluster workers are forked from the daemon’s own node, so a site cannot stay in a Node 18 daemon and run on 22.',
+        'Whenever the daemon changes — with `--daemon` or with `--node` — the site is stopped first, using the unit that is still on disk. Only a PM2 site’s unit carries ExecStop=pm2 delete, and it names the daemon the application is in, so re-rendering before stopping would send the delete to the new daemon and leave the workers alive in the old one, still holding the socket the replacement is about to bind.',
       ],
       flags: [
         { name: '--node', arg: '<version>', type: 'version', description: 'Target Node version.' },

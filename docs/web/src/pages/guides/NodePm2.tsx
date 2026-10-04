@@ -6,16 +6,20 @@ import { Callout, H2, H3, TableScroll } from '../../components/ui';
 
 const survives = [
   {
-    property: 'The resource ceiling is still kernel-enforced',
-    how: 'systemd owns the cgroup and a cgroup contains every descendant, so MemoryMax, CPUQuota and TasksMax cover PM2 and all of its workers. PM2’s own max_memory_restart is deliberately not set — it would fire first and mask the limit that actually holds.',
+    property: 'The resource ceiling is still kernel-enforced, per tenant',
+    how: 'systemd owns the daemon’s cgroup and a cgroup contains every descendant, so MemoryMax, CPUQuota and TasksMax — the sum of the tenant’s running PM2 sites — cover PM2 and every worker. One site can take a sibling’s share of that ceiling; no site can take another tenant’s.',
   },
   {
-    property: 'There is no shared daemon',
-    how: 'PM2_HOME is inside the site directory, so each site has its own daemon, its own socket and its own process list. Nothing outlives the site it was supervising, and nothing leaks between tenants.',
+    property: 'Each site still has its own memory ceiling',
+    how: 'A site’s MemoryMax is PM2’s max_memory_restart for its workers, divided between them. A worker that grows past it is restarted on its own, rather than the kernel killing the whole daemon and every site in it.',
+  },
+  {
+    property: 'Nothing leaks between tenants',
+    how: 'The daemon runs as its tenant, with PM2_HOME in their home, sandboxed like a site and with every other tenant’s home hidden. A daemon shared between tenants would have to run as root to start each one’s workers as them, so there is never one for the whole server.',
   },
   {
     property: 'Nothing is orphaned on stop',
-    how: 'ExecStop runs pm2 kill, which stops the daemon as well as the workers. systemctl stop leaves no process behind.',
+    how: 'Stopping a site’s unit runs pm2 delete for that site, so nothing of it is left in the daemon. Stopping the daemon’s unit runs pm2 kill. Deleting a tenant’s last PM2 site removes the daemon.',
   },
   {
     property: 'The configuration is data, not code',
@@ -34,8 +38,9 @@ export function GuideNodePm2() {
 
       <div className="prose">
         <p>
-          A node site is one systemd unit running as the tenant behind a Unix socket. Between systemd
-          and your server sits PM2 in cluster mode.
+          A node site runs as the tenant behind a Unix socket. Between systemd and your server sits PM2
+          in cluster mode — and the PM2 is the tenant’s, shared by every PM2 site they have on that Node
+          version, not a daemon of the site’s own.
         </p>
       </div>
 
@@ -115,12 +120,79 @@ ratline site add app.example.com --user acme --runtime node --entry server.js --
       </Callout>
 
       <div className="prose">
+        <H2 id="daemon">One daemon per tenant</H2>
+        <p>
+          Ten node sites are not ten PM2 daemons. Each tenant has one per Node version, run by systemd
+          as the tenant:
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="text"
+        code={`ratline-pm2@acme.node22.service       PM2_HOME=/home/acme/.ratline/pm2/node22`}
+      />
+
+      <div className="prose">
+        <p>
+          Each site keeps its own unit, <code>ratline-&lt;slug&gt;.service</code>, but it is a oneshot
+          bound to the daemon: starting it runs <code>pm2 start</code> on the site’s ecosystem file,
+          stopping it runs <code>pm2 delete</code> for that site alone, and reloading it is{' '}
+          <code>pm2 reload</code>. <code>ratline site start</code>, <code>stop</code>,{' '}
+          <code>restart</code> and <code>reload</code> work exactly as they always have. When the daemon
+          restarts or crashes, systemd stops the sites bound to it and starts them again with it.
+        </p>
+        <p>
+          Why per tenant and never one for the whole server: a daemon shared between tenants would have
+          to run as root to start each tenant’s workers as them, which means root reading every
+          tenant’s configuration and opening paths in every tenant’s home. Why per Node version:
+          cluster workers are forked from the daemon’s own <code>node</code>, so a Node 18 site on a
+          Node 22 daemon would quietly run on 22. A tenant whose sites all use one version has one
+          daemon.
+        </p>
+        <p>
+          Adding, removing, enabling or disabling a site rewrites the daemon’s unit without restarting
+          it, so the tenant’s other sites keep serving. A change that cannot reach a running daemon — a{' '}
+          <code>--relax</code>ed directive, a new PM2 — restarts it, and the restart takes each of that
+          tenant’s PM2 sites down and up with it. ratline says so first.
+        </p>
+
+        <H3>Running pm2 yourself</H3>
+        <p>
+          A bare <code>pm2 list</code> as root talks to root’s own <code>~/.pm2</code> and, finding
+          nothing, starts an empty daemon there — the worst possible answer to “what is running”.{' '}
+          <Link to="/reference/runtime/pm2">
+            <code>ratline pm2</code>
+          </Link>{' '}
+          runs pm2 as the tenant, against their daemon, with its own <code>PM2_HOME</code> and node:
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        prompt
+        code={`ratline pm2 -- list                          # every tenant's daemon in turn
+ratline pm2 app.example.com -- logs          # that site's application
+ratline pm2 app.example.com -- describe
+ratline pm2 acme -- monit                    # the tenant's daemon`}
+      />
+
+      <div className="prose">
+        <p>
+          The verbs that would fight the units ratline owns — <code>kill</code>, <code>delete</code>,{' '}
+          <code>stop</code>, <code>start</code>, <code>scale</code>, <code>save</code>,{' '}
+          <code>resurrect</code>, <code>startup</code>, <code>update</code>, <code>install</code> — are
+          refused, each with the ratline command that does it properly. A <code>pm2 stop</code> would
+          take the application away while its unit still said active, which is how a site comes to be
+          down with nothing reporting it.
+        </p>
+
         <H2 id="logs">Where the logs went</H2>
         <p>
           PM2 captures its workers’ stdout into <code>logs/app.log</code>, so the journal holds PM2’s
           own messages and not your application’s. <code>ratline site logs</code> knows this and reads
           the file; <code>--journal</code> is there for questions about the <em>unit</em>, such as a
-          failed start or an OOM kill.
+          failed start. The daemon’s own messages, and an OOM kill, are the daemon unit’s:{' '}
+          <code>journalctl -u ratline-pm2@acme.node22.service</code>.
         </p>
       </div>
 
@@ -129,7 +201,7 @@ ratline site add app.example.com --user acme --runtime node --entry server.js --
         prompt
         code={`ratline site logs app.example.com              # the application, from logs/app.log
 ratline site logs app.example.com --follow
-ratline site logs app.example.com --journal    # the unit: failed starts, OOM kills
+ratline site logs app.example.com --journal    # the site's unit: failed starts
 ratline site logs app.example.com --error      # nginx, not the app`}
       />
 
@@ -151,8 +223,9 @@ ratline site logs app.example.com --error      # nginx, not the app`}
         <H2 id="instances">Instances are cluster workers, not units</H2>
         <p>
           <code>--instances</code> sets PM2’s cluster worker count. All the workers share the one
-          listening socket, inside one cgroup and under one memory ceiling — that is what cluster mode
-          is for.
+          listening socket, inside the tenant’s daemon, with the site’s memory ceiling divided between
+          them — that is what cluster mode is for, and what lets <code>pm2 reload</code> retire one
+          worker at a time.
         </p>
       </div>
 
@@ -221,6 +294,13 @@ http.createServer(app).listen(process.env.PORT, () => {
           the site changes. You do not edit it; <code>ratline site scale</code> and{' '}
           <code>ratline site runtime</code> do.
         </p>
+        <p>
+          <code>max_memory_restart</code> is the site’s <code>MemoryMax</code> divided by its
+          instances — 512M across four workers here. The kernel’s ceiling is the daemon’s, the sum of
+          the tenant’s sites, so without it one site could grow into its siblings’ share. PM2 restarts
+          a worker that passes it, one at a time, where the kernel would have killed the daemon and
+          every site in it.
+        </p>
       </div>
 
       <CodeBlock
@@ -251,37 +331,80 @@ http.createServer(app).listen(process.env.PORT, () => {
       "max_restarts": 10,
       "min_uptime": "5s",
       "restart_delay": 1000,
-      "autorestart": true
+      "autorestart": true,
+      "max_memory_restart": "131072K"
     }
   ]
 }`}
       />
 
       <div className="prose">
-        <H2 id="unit">And the unit around it</H2>
+        <H2 id="unit">And the units around it</H2>
         <p>
-          A PM2 site’s unit differs from every other in three lines, all of which follow from PM2
-          daemonising: <code>Type=forking</code>, a <code>PIDFile</code> so systemd follows the right
-          process after the fork, and an <code>ExecStop</code> that kills the daemon. The full unit is
-          on <Link to="/concepts/supervision">the supervision page</Link>.
+          A PM2 site’s own unit is a oneshot that never runs the application itself.{' '}
+          <code>RemainAfterExit</code> keeps it active once <code>pm2 start</code> has handed the
+          application to the daemon, <code>BindsTo=</code> ties it to the daemon, and it carries no
+          memory or CPU ceiling of its own, because its processes are in the daemon’s cgroup. Both full
+          units are on <Link to="/concepts/supervision">the supervision page</Link>.
         </p>
       </div>
 
       <CodeBlock
         lang="systemd"
         filename="/etc/systemd/system/ratline-acme-app_example_com.service (the PM2-specific lines)"
-        code={`Type=forking
-PIDFile=/home/acme/app.example.com/.pm2/pm2.pid
-Environment=PM2_HOME=/home/acme/app.example.com/.pm2
+        code={`BindsTo=ratline-pm2@acme.node22.service
+After=ratline-pm2@acme.node22.service
 
-ExecStart=/opt/ratline/runtimes/node/22/bin/pm2 start /home/acme/app.example.com/.ratline/ecosystem.config.json
+Type=oneshot
+RemainAfterExit=yes
+Environment=PM2_HOME=/home/acme/.ratline/pm2/node22
+
+ExecStart=/usr/local/lib/ratline/ratline-shell exec --env-file /home/acme/app.example.com/.env -- /opt/ratline/runtimes/node/22/bin/pm2 start /home/acme/app.example.com/.ratline/ecosystem.config.json --update-env
 ExecReload=/opt/ratline/runtimes/node/22/bin/pm2 reload /home/acme/app.example.com/.ratline/ecosystem.config.json --update-env
-ExecStop=/opt/ratline/runtimes/node/22/bin/pm2 kill
+ExecStop=-/opt/ratline/runtimes/node/22/bin/pm2 delete acme-app_example_com
 
-ReadWritePaths=/home/acme/app.example.com/.pm2`}
+# Limits for this site are enforced by ratline-pm2@acme.node22.service.
+
+BindPaths=/home/acme/.ratline/pm2/node22`}
       />
 
       <div className="prose">
+        <p>
+          The daemon’s unit is the one shaped by PM2 daemonising: <code>Type=forking</code> and a{' '}
+          <code>PIDFile</code> so systemd follows the right process after the fork. It wants every
+          enabled site, which is what brings them all back after the daemon restarts, and its ceiling
+          is what those sites add up to.
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="systemd"
+        filename="/etc/systemd/system/ratline-pm2@acme.node22.service (the lines that matter)"
+        code={`Wants=ratline-acme-api_example_com.service
+Wants=ratline-acme-app_example_com.service
+
+Type=forking
+PIDFile=/home/acme/.ratline/pm2/node22/pm2.pid
+User=acme
+Environment=PM2_HOME=/home/acme/.ratline/pm2/node22
+ExecStartPre=-/opt/ratline/runtimes/node/22/bin/pm2 kill
+ExecStart=/opt/ratline/runtimes/node/22/bin/pm2 ping
+ExecStop=/opt/ratline/runtimes/node/22/bin/pm2 kill
+Restart=on-failure
+
+MemoryMax=768M
+CPUQuota=150%
+
+BindPaths=/home/acme`}
+      />
+
+      <div className="prose">
+        <p>
+          <code>--update-env</code> is on the start as well as the reload. A <code>pm2 start</code> on
+          a name the daemon already holds — after the daemon came back and started every site it
+          wants — restarts it, and a restart that kept the old environment would quietly ignore a
+          changed <code>.env</code>.
+        </p>
         <p>
           <code>--update-env</code> on the reload is not optional: without it the replacement workers
           would inherit the old environment, which would make{' '}
@@ -320,13 +443,39 @@ ratline site runtime app.example.com --daemon direct`}
 
       <Callout tone="ok" title="Switching stops the old supervisor first">
         <p>
-          Only the PM2 unit carries <code>ExecStop=pm2 kill</code>. So{' '}
-          <code>site runtime --daemon</code> stops the site using the unit that is{' '}
-          <em>still on disk</em>, and re-renders afterwards. Re-rendering first would leave the PM2
-          daemon and its workers alive until the kill timeout — still holding the socket the
-          replacement is about to bind.
+          Only a PM2 site’s unit carries <code>ExecStop=pm2 delete</code>, and it names the daemon the
+          application is in. So <code>site runtime</code> stops the site using the unit that is{' '}
+          <em>still on disk</em>, and re-renders afterwards — whenever the daemon changes, not only the
+          supervisor. A node site moving from Node 18 to 22 moves from one daemon to another;
+          re-rendering first would send the delete to the Node 22 daemon and leave the workers alive in
+          the Node 18 one, still holding the socket the replacement is about to bind.
         </p>
       </Callout>
+
+      <div className="prose">
+        <H2 id="upgrade">Upgrading from per-site daemons</H2>
+        <p>
+          Releases before this one started a PM2 daemon per site, with <code>PM2_HOME</code> at{' '}
+          <code>&lt;site&gt;/.pm2</code>. A site keeps that daemon, and keeps working, until its unit is
+          re-rendered and it restarts:
+        </p>
+      </div>
+
+      <CodeBlock
+        lang="shell"
+        prompt
+        code={`ratline reconcile --fix
+ratline site restart app.example.com`}
+      />
+
+      <div className="prose">
+        <p>
+          The restart is when the site moves into its tenant’s daemon. <code>ratline doctor</code> and{' '}
+          <code>ratline troubleshoot</code> name every site still on a daemon of its own, and a tenant
+          daemon that is down. The old <code>&lt;site&gt;/.pm2</code> directory is left behind and can be
+          removed once the site has moved.
+        </p>
+      </div>
 
       <div className="prose">
         <H2 id="install">Installing PM2</H2>

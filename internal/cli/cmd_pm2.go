@@ -159,7 +159,7 @@ func newPM2Command(g *Globals) *cobra.Command {
 	// Mutating so the audit log records it and the panel treats it as one; no lock,
 	// because `pm2 logs` can run for hours and the lock would stop every renewal on
 	// the box for as long as somebody watched.
-	return ProgramArgv(SkipLock(Mutating(cmd)))
+	return ProgramArgvExample(ProgramArgv(SkipLock(Mutating(cmd))), "ratline pm2 app.example.com -- logs --lines 100")
 }
 
 // pm2Argv checks pm2's arguments against the allowlist and fills in the site's

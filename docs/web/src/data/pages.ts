@@ -213,6 +213,7 @@ export const pageMeta: Record<string, PageMeta> = {
     keywords: [
       'systemd', 'unit', 'hardening', 'protecthome', 'protectsystem', 'systemcallfilter',
       'memorymax', 'cpuquota', 'instances', 'workers', 'template unit', 'ratline.target', 'relax',
+      'type=oneshot', 'remainafterexit', 'bindsto', 'ratline-pm2', 'pm2 daemon',
       'health check',
     ],
   },
@@ -275,7 +276,8 @@ export const pageMeta: Record<string, PageMeta> = {
     blurb: 'Why PM2 supervises by default, what it costs, and how to turn it off.',
     keywords: [
       'pm2', 'cluster mode', 'graceful reload', 'zero downtime', 'daemon', 'direct', 'ecosystem',
-      'pm2_home', 'wait_ready', 'instances', 'restart count', 'node_env', 'type=forking',
+      'pm2_home', 'wait_ready', 'instances', 'restart count', 'node_env', 'type=oneshot',
+      'tenant daemon', 'ratline-pm2', 'max_memory_restart', 'per-site daemon', 'ratline pm2',
       'memorydenywriteexecute', 'jit', 'with-pm2', 'app.log',
     ],
   },
