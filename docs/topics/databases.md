@@ -285,6 +285,39 @@ its first argument, and `/proc/PID/cmdline` is world-readable — so any local a
 read the admin password for every database on the box. `--nodb` starts it unconnected and
 the script connects using the environment, which only the process owner can read.
 
+## Opening a shell
+
+    ratline db shell                                  # mongosh, as the admin
+    ratline db shell shop                             # ...with shop selected
+    ratline db shell shop --eval 'db.orders.countDocuments()'
+    ratline db shell shop --engine mysql
+    ratline db shell shop --engine mysql --eval 'SHOW TABLES'
+    ratline db shell --engine redis
+    ratline db shell --engine redis -- GET shop:counter
+
+The engine's own client, already logged in, so there is no connection string to find and
+nothing to paste. The credentials are the admin ones ratline stores — the only ones it has,
+since a database user's password is shown once and never kept — so the session sees every
+database on the server and can change anything in it.
+
+None of them reaches the client through `argv`. mongosh gets the URI in its environment,
+starts with `--nodb` and connects from inside, then deletes the variable from the session.
+mysql reads the same 0600 file every other MySQL operation uses, through
+`--defaults-extra-file`. redis-cli gets host and port as flags and the password in
+`REDISCLI_AUTH`. A one-off SQL statement or Redis command is written to the client's stdin,
+not passed as an argument; a mongosh `--eval` is an argument, so keep passwords out of it.
+
+A database name has to be one ratline created — a typo is refused rather than opening an
+empty database — unless `--unmanaged` is given. Redis takes no name: a keyspace is a key
+prefix enforced by an ACL user, and the admin session sees all of them. The client's own
+connection flags (`--host`, `-u`, `--defaults-file`, `-a` …) are refused; changing what the
+session connects to is `db connect`'s job.
+
+Without `--eval` or a command, standard input must be a terminal (`ssh -t` if it is not).
+The session does not hold ratline's lock, so renewals and deploys carry on while a prompt
+is open. `--dry-run` prints the command line and the names of the variables it would set,
+never their values, and starts nothing. The web panel does not offer it.
+
 ## When something is wrong
 
     ratline doctor

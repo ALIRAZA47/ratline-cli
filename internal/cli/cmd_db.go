@@ -78,6 +78,7 @@ func newDBCommand(g *Globals) *cobra.Command {
 		newDBUserCommand(g),
 		newDBRolesCommand(g),
 		newDBAccessCommand(g),
+		newDBShellCommand(g),
 	)
 	return cmd
 }
