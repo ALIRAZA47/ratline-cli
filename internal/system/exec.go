@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,14 @@ type Cmd struct {
 
 	// Label names the step in logs; defaults to the binary's base name.
 	Label string
+
+	// Attach hands the child the terminal: Stdin, Stdout and Stderr (ratline's own
+	// when unset) are passed straight through rather than captured, the child stays in
+	// the terminal's foreground process group so it can read the keyboard and receive
+	// its own Ctrl-C, and neither Timeout nor the context's cancellation ends it —
+	// a person at a prompt decides when it is over. For interactive sessions such as
+	// `db shell`; see runAttached.
+	Attach bool
 }
 
 // Result is the outcome of one command.
@@ -150,6 +159,9 @@ func (r *execRunner) Run(ctx context.Context, c Cmd) (*Result, error) {
 		r.log.Info("would run", "cmd", log.ArgvString(append([]string{path}, c.Args...)))
 		return &Result{Path: path, Args: c.Args, Skipped: true}, nil
 	}
+	if c.Attach {
+		return r.runAttached(ctx, path, c, label)
+	}
 
 	timeout := c.Timeout
 	if timeout <= 0 {
@@ -171,11 +183,11 @@ func (r *execRunner) Run(ctx context.Context, c Cmd) (*Result, error) {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if c.As != nil {
-		cmd.SysProcAttr.Credential = &syscall.Credential{
-			Uid:    uint32(c.As.UID),
-			Gid:    uint32(c.As.GID),
-			Groups: toUint32(c.As.Groups),
+		cred, err := credentialFor(c.As)
+		if err != nil {
+			return nil, err
 		}
+		cmd.SysProcAttr.Credential = cred
 	}
 	// Kill the whole process group on timeout: build tools spawn children, and
 	// killing only the parent leaves them holding the site directory.
@@ -379,15 +391,47 @@ func ValidateArgv(args []string) error {
 	return nil
 }
 
-func toUint32(in []int) []uint32 {
-	if len(in) == 0 {
-		return nil
+// credentialFor is the credential a command drops to, with every id checked before it
+// is narrowed to the kernel's 32 bits.
+//
+// The check is not about tidiness. An id of -1 — the placeholder a --dry-run identity
+// carries for a user that does not exist yet — converts to 4294967295, and that is the
+// value setresuid(2) and setresgid(2) read as "leave this id unchanged". A command meant
+// to run as a tenant would keep running as root. Anything outside 0..4294967294 is
+// refused before the child starts.
+func credentialFor(id *Identity) (*syscall.Credential, error) {
+	uid, err := toID("uid", id.Name, id.UID)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]uint32, len(in))
-	for i, v := range in {
-		out[i] = uint32(v)
+	gid, err := toID("gid", id.Name, id.GID)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	var groups []uint32
+	for _, g := range id.Groups {
+		v, err := toID("supplementary gid", id.Name, g)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, v)
+	}
+	return &syscall.Credential{Uid: uid, Gid: gid, Groups: groups}, nil
+}
+
+// toID narrows one id, refusing the negative values and the all-ones "unchanged"
+// sentinel rather than letting them wrap.
+//
+// Widened to int64 once and then checked and converted as that one value: the bound has
+// to sit on the very variable that is narrowed, or a reader — and CodeQL — cannot see that
+// it guards the conversion. int64 rather than int so the constant fits on a 32-bit build.
+func toID(kind, name string, v int) (uint32, error) {
+	id := int64(v)
+	if id < 0 || id > math.MaxUint32-1 {
+		return 0, rlerr.Genericf("internal error: %s %d for %q cannot be dropped to", kind, id, name).
+			WithHint("the account's ids did not resolve; nothing was run")
+	}
+	return uint32(id), nil
 }
 
 func containsInt(haystack []int, needle int) bool {

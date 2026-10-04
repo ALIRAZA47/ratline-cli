@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -27,13 +28,16 @@ import (
 // the application, so there are two layers. The important properties survive
 // because of how it is wired:
 //
-//   - PM2 runs with PM2_HOME inside the site directory, so each site has its own
-//     daemon, its own socket and its own process list. There is no shared global
-//     daemon that outlives a site or leaks state between tenants.
-//   - systemd still owns the cgroup, and a cgroup contains every descendant, so
-//     MemoryMax, CPUQuota and TasksMax remain kernel-enforced across PM2 and all
-//     of its workers. The ceiling is not weakened by the extra layer.
-//   - ExecStop runs `pm2 kill`, so stopping the unit leaves no orphan daemon.
+//   - One daemon per tenant and Node version (unit.PM2Daemon), run by systemd as the
+//     tenant, with PM2_HOME in the tenant's home. Never one shared between tenants:
+//     that daemon would have to be root. A site's own unit is a oneshot that
+//     registers the application with it and takes it out again.
+//   - systemd still owns the cgroup — the daemon's — and a cgroup contains every
+//     descendant, so the tenant's MemoryMax, CPUQuota and TasksMax remain
+//     kernel-enforced across PM2 and all of its workers. Each site's own MemoryMax
+//     becomes PM2's max_memory_restart for its workers.
+//   - Stopping a site's unit runs `pm2 delete <site>`, so nothing of it is left in the
+//     daemon; stopping the daemon's unit runs `pm2 kill`.
 //
 // What genuinely changes: systemd's own restart counter stays at zero because PM2
 // does the restarting, so `doctor` reads PM2's counter instead. That is handled in
@@ -71,11 +75,58 @@ func (n Node) pm2Env(c *Context) ([]string, error) {
 	), nil
 }
 
-// pm2Home is where a site's PM2 daemon keeps its socket, pid file and logs.
+// pm2Home is where the tenant's PM2 daemon for this site's Node version keeps its
+// socket, pid file and logs.
 //
-// Inside the site directory rather than the tenant's home, so it is removed with
-// the site and covered by the unit's BindPaths.
-func pm2Home(c *Context) string { return filepath.Join(c.SiteDir, ".pm2") }
+// In the tenant's home rather than any one site's directory, because the daemon
+// outlives each of the sites it holds. Under .ratline/ so that a tenant running their
+// own `pm2` by hand, with the default ~/.pm2, never collides with it.
+func pm2Home(c *Context) string { return PM2HomeFor(c.Cfg.HomeDir(c.Site.Owner), pm2DaemonKey(c)) }
+
+// PM2HomeFor is a tenant daemon's PM2_HOME, given the tenant's home and its key.
+func PM2HomeFor(home, key string) string { return filepath.Join(home, ".ratline", "pm2", key) }
+
+// legacyPM2Home is where a site's own daemon lived before daemons were shared. A site
+// created by an earlier release still has one running there until its unit restarts.
+func legacyPM2Home(c *Context) string { return filepath.Join(c.SiteDir, ".pm2") }
+
+// pm2DaemonKey names the Node version a site's PM2 runs on, which picks its daemon:
+// PM2's cluster workers are forked from the daemon's own node, so sites on different
+// versions cannot share one.
+func pm2DaemonKey(c *Context) string {
+	version := c.Site.NodeVersion
+	if version == "" {
+		version = c.Cfg.Runtimes.NodeDefault
+	}
+	version = strings.TrimPrefix(version, "v")
+	if version == "" || validate.NodeVersion(version) != nil {
+		return "system"
+	}
+	return "node" + version
+}
+
+// PM2Daemon describes the tenant daemon a PM2-supervised site belongs to. Sites is
+// left for the caller, which is the one that can see the tenant's other sites.
+func (n Node) PM2Daemon(c *Context) (*unit.PM2Daemon, error) {
+	pm2, err := n.pm2Binary(c)
+	if err != nil {
+		return nil, err
+	}
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return nil, err
+	}
+	return &unit.PM2Daemon{
+		Owner:   c.Site.Owner,
+		Key:     pm2DaemonKey(c),
+		Home:    pm2Home(c),
+		NodeBin: nodeBin,
+		PM2:     pm2,
+	}, nil
+}
+
+// PM2DaemonUnit is the unit of the daemon a site's PM2 belongs to.
+func PM2DaemonUnit(c *Context) string { return validate.PM2UnitName(c.Site.Owner, pm2DaemonKey(c)) }
 
 // ecosystemPath is where the generated PM2 configuration lives.
 func ecosystemPath(c *Context) string { return filepath.Join(c.SiteDir, ".ratline", ecosystemFile) }
@@ -151,9 +202,13 @@ type ecosystemApp struct {
 	MaxRestarts   int    `json:"max_restarts"`
 	MinUptime     string `json:"min_uptime"`
 	RestartDelay  int    `json:"restart_delay"`
-	// Left to systemd: MemoryMax kills the whole cgroup, which is the ceiling that
-	// actually holds. A PM2-level limit here would fire first and mask it.
-	Autorestart bool `json:"autorestart"`
+	Autorestart   bool   `json:"autorestart"`
+
+	// The site's own memory ceiling, per worker. The kernel's ceiling is the tenant
+	// daemon's — the sum of its sites' — so without this one site could grow into its
+	// siblings' share. PM2 restarts a worker that passes it, one at a time, where the
+	// kernel would have killed the daemon and every site in it.
+	MaxMemoryRestart string `json:"max_memory_restart,omitempty"`
 }
 
 // RenderEcosystem produces the PM2 configuration for a site.
@@ -244,19 +299,25 @@ func (n Node) RenderEcosystem(c *Context) ([]byte, error) {
 			"advice", "point --entry at the file that calls listen() to get a zero-downtime reload")
 	}
 
+	maxMemory := ""
+	if limit, err := validate.Size(orDefault(c.Site.MemoryMax, c.Cfg.Defaults.MemoryMax)); err == nil && limit > 0 {
+		maxMemory = fmt.Sprintf("%dK", limit/int64(instances)/1024)
+	}
+
 	app := ecosystemApp{
-		Name:        c.Site.Slug,
-		Script:      script,
-		Args:        args,
-		Cwd:         c.AppDir,
-		Instances:   instances,
-		ExecMode:    execMode,
-		Env:         env,
-		Interpreter: interpreter,
-		OutFile:     filepath.Join(c.LogDir, "app.log"),
-		ErrFile:     filepath.Join(c.LogDir, "app.log"),
-		MergeLogs:   true,
-		Time:        true,
+		MaxMemoryRestart: maxMemory,
+		Name:             c.Site.Slug,
+		Script:           script,
+		Args:             args,
+		Cwd:              c.AppDir,
+		Instances:        instances,
+		ExecMode:         execMode,
+		Env:              env,
+		Interpreter:      interpreter,
+		OutFile:          filepath.Join(c.LogDir, "app.log"),
+		ErrFile:          filepath.Join(c.LogDir, "app.log"),
+		MergeLogs:        true,
+		Time:             true,
 		// wait_ready is off unless the application opts in by calling
 		// process.send('ready'). With it on and an app that never signals, every
 		// reload would stall for listen_timeout and then be reported as a failure.
@@ -343,13 +404,38 @@ func (n Node) WriteEcosystem(ctx context.Context, c *Context) error {
 	if _, err := system.EnsureDir(filepath.Dir(path), 0o750, c.Identity.UID, c.Identity.GID); err != nil {
 		return err
 	}
-	if _, err := system.EnsureDir(pm2Home(c), 0o750, c.Identity.UID, c.Identity.GID); err != nil {
+	if err := ensurePM2Home(c); err != nil {
 		return err
 	}
 	return system.WriteFileAtomic(path, body, 0o640, c.Identity.UID, c.Identity.GID)
 }
 
+// ensurePM2Home creates the tenant daemon's PM2_HOME, one component at a time: each
+// EnsureDir refuses a symlink where the directory should be, and the home above them is
+// root's own boundary. 0700 at the end, because PM2's RPC socket in it accepts any
+// command from whoever can connect.
+func ensurePM2Home(c *Context) error {
+	home := c.Cfg.HomeDir(c.Site.Owner)
+	for _, d := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(home, ".ratline"), 0o750},
+		{filepath.Join(home, ".ratline", "pm2"), 0o750},
+		{pm2Home(c), 0o700},
+	} {
+		if _, err := system.EnsureDir(d.path, d.mode, c.Identity.UID, c.Identity.GID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // pm2StartCommand builds the unit for a PM2-supervised site.
+//
+// A oneshot bound to the tenant's daemon: starting it registers the application with
+// the daemon, stopping it takes the application out, reloading it is `pm2 reload`. The
+// daemon itself is unit.PM2Daemon, installed by the site lifecycle beside this one.
 func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.RenderOptions, error) {
 	var opts unit.RenderOptions
 	pm2, err := n.pm2Binary(c)
@@ -367,33 +453,32 @@ func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.Ren
 	home := pm2Home(c)
 	config := ecosystemPath(c)
 
-	// Type=forking, because PM2 daemonises and the daemon is what holds the
-	// workers. systemd tracks the cgroup rather than the pid, so the resource
-	// limits still cover every worker.
-	opts.Type = "forking"
+	opts.Type = "oneshot"
+	opts.RemainAfterExit = true
+	opts.BindsTo = PM2DaemonUnit(c)
 	opts.Environment = []string{
 		// PATH first, and it is not optional. `pm2` is a JavaScript file whose
 		// shebang is `#!/usr/bin/env node`, so systemd executing it runs env, which
 		// searches PATH — and a unit has no PATH beyond systemd's minimal default.
 		// Without this every PM2-supervised site failed to start with
-		// "/usr/bin/env: 'node': No such file or directory" and status 127. Direct
-		// supervision never hit it, because there ExecStart is the node binary
-		// itself.
+		// "/usr/bin/env: 'node': No such file or directory" and status 127.
 		"PATH=" + filepath.Dir(nodeBin) + ":" + system.DefaultPath,
 		"PM2_HOME=" + home,
 		"NODE_ENV=production",
 		"PM2_DISCRETE_MODE=true",
 	}
-	// PM2 writes its own pid file; naming it lets systemd follow the right process
-	// rather than guessing after the fork.
-	opts.PIDFile = filepath.Join(home, "pm2.pid")
 
-	// `pm2 reload` is the whole point: it brings up a replacement worker, waits,
-	// and only then retires the old one.
+	// The application's environment is this process's: PM2 hands the client's
+	// environment to what it starts, which is how the site's .env — loaded by
+	// ratline-shell in ExecStart, as the tenant — reaches the workers and not the
+	// daemon, which every other site of the tenant shares.
+	//
+	// --update-env, because `pm2 start` on a name the daemon already holds — after the
+	// daemon came back and started every site it wants — restarts it, and a restart
+	// that kept the old environment would quietly ignore a changed .env.
 	opts.ExecReload = shellSafeJoin(pm2, []string{"reload", config, "--update-env"})
-	// `pm2 kill` stops the daemon as well as the workers, so nothing is orphaned
-	// when the unit stops.
-	opts.ExecStop = shellSafeJoin(pm2, []string{"kill"})
+	// '-': a daemon that is already gone has nothing of this site left to delete.
+	opts.ExecStop = "-" + shellSafeJoin(pm2, []string{"delete", c.Site.Slug})
 
 	if c.Site.Listen != "port" {
 		socket := c.Cfg.SocketPath(c.Site.Owner, c.Site.Domain)
@@ -406,24 +491,24 @@ func (n Node) pm2StartCommand(ctx context.Context, c *Context) (string, unit.Ren
 				"; exit 0; fi; sleep 0.1; done; exit 0'",
 		}
 	}
-	// PM2's own directory has to be writable, on top of logs and tmp.
-	opts.ExtraReadWritePaths = home
+	// The client reaches the daemon through the RPC socket in its PM2_HOME, which is in
+	// the tenant's home and outside the site directory the sandbox binds back in.
+	opts.ExtraBindPaths = []string{home}
 
-	// No --no-daemon: PM2 is meant to fork here, which is what Type=forking and
-	// the PIDFile above are for.
-	return shellSafeJoin(pm2, []string{"start", config}), opts, nil
+	return shellSafeJoin(pm2, []string{"start", config, "--update-env"}), opts, nil
 }
 
-// pm2Kill stops a site's PM2 daemon along with every worker it holds.
+// pm2Remove takes a site's application out of its tenant's daemon, and stops the
+// per-site daemon an earlier release gave it if one is still running.
 //
-// Extracted because a bun site under PM2 has exactly the same orphan to clean up:
-// the daemon is per-site, lives in the site directory, and would otherwise outlive
-// the site it was supervising and keep holding the socket.
+// Only when the daemon is up: every pm2 command launches a daemon when it cannot reach
+// one, and one launched from here would sit outside the daemon unit's cgroup holding its
+// socket. A daemon that is down holds nothing to remove.
 //
-// Exit 1 and 2 are accepted: "no daemon running" is the expected answer when the
+// Exit 1 is accepted: "process or namespace not found" is the expected answer when the
 // unit has already stopped, and a teardown that fails because there was nothing to
 // tear down is not a failure.
-func (n Node) pm2Kill(ctx context.Context, c *Context) error {
+func (n Node) pm2Remove(ctx context.Context, c *Context) error {
 	pm2, err := n.pm2Binary(c)
 	if err != nil {
 		return err
@@ -432,12 +517,57 @@ func (n Node) pm2Kill(ctx context.Context, c *Context) error {
 	if err != nil {
 		return err
 	}
+	if daemonActive(ctx, c) {
+		if _, err := c.Runner.Run(ctx, system.Cmd{
+			Path: pm2, Args: []string{"delete", c.Site.Slug}, As: c.Identity,
+			Env:     env,
+			Mutates: true, OKExit: []int{1},
+		}); err != nil {
+			return err
+		}
+	}
+	return n.killLegacyPM2(ctx, c)
+}
+
+// killLegacyPM2 stops a site's own PM2 daemon, from before daemons were shared.
+//
+// Asked by its pid file, which only a daemon ever wrote: without one there is nothing
+// to stop, and running `pm2 kill` against an empty PM2_HOME would launch a daemon there
+// just to kill it.
+func (n Node) killLegacyPM2(ctx context.Context, c *Context) error {
+	legacy := legacyPM2Home(c)
+	if !system.Exists(filepath.Join(legacy, "pm2.pid")) || c.DryRun {
+		return nil
+	}
+	pm2, err := n.pm2Binary(c)
+	if err != nil {
+		return err
+	}
+	nodeBin, err := n.binary(c, "node")
+	if err != nil {
+		return err
+	}
 	_, err = c.Runner.Run(ctx, system.Cmd{
 		Path: pm2, Args: []string{"kill"}, As: c.Identity,
-		Env:     env,
+		Env: system.UserEnv(c.Identity,
+			"PATH="+filepath.Dir(nodeBin)+":"+system.DefaultPath,
+			"PM2_HOME="+legacy,
+		),
 		Mutates: true, OKExit: []int{1, 2},
 	})
+	if err == nil {
+		c.Log.Info("stopped the site's own PM2 daemon from an earlier release", "pm2_home", legacy)
+	}
 	return err
+}
+
+// daemonActive reports whether the tenant daemon a site belongs to is running.
+func daemonActive(ctx context.Context, c *Context) bool {
+	res, err := c.Runner.Run(ctx, system.Cmd{
+		Name: "systemctl", Args: []string{"is-active", "--quiet", PM2DaemonUnit(c)},
+		OKExit: []int{1, 3, 4},
+	})
+	return err == nil && res != nil && res.ExitCode == 0
 }
 
 // PM2Status is what PM2 reports about a site's workers.
@@ -467,7 +597,7 @@ type pm2ListEntry struct {
 	} `json:"monit"`
 }
 
-// PM2Report asks a site's PM2 daemon what it is running.
+// PM2Report asks the tenant's PM2 daemon what it is running for a site.
 //
 // This is what makes PM2 supervision visible to `doctor` and `site status`. Without
 // it, systemd's restart counter would read zero for a crash-looping app, because
@@ -480,6 +610,11 @@ func (n Node) PM2Report(ctx context.Context, c *Context) (*PM2Status, error) {
 	env, err := n.pm2Env(c)
 	if err != nil {
 		return nil, err
+	}
+	// A daemon that is down is running nothing, and asking it would start one outside
+	// its unit — see pm2Remove.
+	if !daemonActive(ctx, c) {
+		return &PM2Status{Name: c.Site.Slug}, nil
 	}
 	res, err := c.Runner.Run(ctx, system.Cmd{
 		Path: pm2, Args: []string{"jlist"},

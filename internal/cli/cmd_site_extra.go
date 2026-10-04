@@ -48,6 +48,7 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 				return err
 			}
 			previousManager := site.ProcessManager
+			before := *site
 
 			switch {
 			case nodeVersion != "":
@@ -116,11 +117,13 @@ func newSiteRuntimeCommand(g *Globals) *cobra.Command {
 
 			// The old supervisor has to be told to let go before the unit is
 			// replaced, and it has to be told using the unit that is still on disk:
-			// only the PM2 unit carries ExecStop=pm2 kill. Re-render first and
-			// systemd would stop the daemon with the new unit's rules, leaving the
-			// PM2 daemon and its workers alive until the kill timeout — still holding
-			// the socket the replacement is about to bind.
-			if supervisorChanged {
+			// only a PM2 site's unit carries ExecStop=pm2 delete, and it names the
+			// daemon the application is in. Re-render first and systemd would stop it
+			// with the new unit's rules — for a node site moving from Node 18 to 22,
+			// a delete sent to the Node 22 daemon, leaving the workers alive in the
+			// Node 18 one and still holding the socket the replacement is about to bind.
+			daemonChanged := mgr.PM2DaemonUnit(&before) != mgr.PM2DaemonUnit(site)
+			if supervisorChanged || daemonChanged {
 				if _, err := mgr.Control(cmd.Context(), site.Domain, "stop"); err != nil {
 					return rlerr.Wrap(err, rlerr.CodeExternal, "stopping the site under its current supervisor").
 						WithHint("nothing has changed yet; the site is still configured for %s",

@@ -140,7 +140,7 @@ func TestEcosystemFallsBackToForkForANonJavaScriptCommand(t *testing.T) {
 	}
 }
 
-func TestEcosystemPassesTheSocketAndNeverALimit(t *testing.T) {
+func TestEcosystemPassesTheSocketAndTheSitesOwnCeiling(t *testing.T) {
 	c := nodeContext(t, nil)
 	app := decodeEcosystem(t, c)
 	socket := c.Cfg.SocketPath("alice", "app.example.com")
@@ -149,11 +149,12 @@ func TestEcosystemPassesTheSocketAndNeverALimit(t *testing.T) {
 			t.Errorf("env[%s] = %q, want %q", key, app.Env[key], socket)
 		}
 	}
-	// A PM2-level memory limit would fire before MemoryMax and mask the ceiling
-	// that is actually kernel-enforced.
-	body, _ := (Node{}).RenderEcosystem(c)
-	if strings.Contains(string(body), "max_memory_restart") {
-		t.Error("the memory ceiling belongs to systemd's cgroup, not to PM2")
+	// The kernel's ceiling is the tenant daemon's, the sum of its sites, so the site's
+	// own MemoryMax has to reach PM2 or one site can grow into a sibling's share. Per
+	// worker: four workers on a 1G site get 256M each.
+	four := nodeContext(t, func(s *state.Site) { s.MemoryMax, s.Instances = "1G", 4 })
+	if got := decodeEcosystem(t, four).MaxMemoryRestart; got != "262144K" {
+		t.Errorf("max_memory_restart = %q, want 262144K (1G over 4 workers)", got)
 	}
 	// Logs must land where `ratline site logs` and logrotate already look.
 	if !strings.HasSuffix(app.OutFile, "/logs/app.log") || app.OutFile != app.ErrFile {
@@ -229,47 +230,53 @@ func TestEcosystemUsesPortForAPortSite(t *testing.T) {
 	}
 }
 
-func TestPM2UnitIsForkingWithAPIDFileAndAReload(t *testing.T) {
+func TestPM2UnitIsAOneshotBoundToTheTenantDaemon(t *testing.T) {
 	c := nodeContext(t, nil)
 	exec, opts, err := (Node{}).pm2StartCommand(context.Background(), c)
 	if err != nil {
 		t.Fatalf("pm2StartCommand = %v", err)
 	}
-	// Type=forking with a PIDFile, because PM2 daemonises. Without the PIDFile
-	// systemd would guess at the main process after the fork.
-	if opts.Type != "forking" {
-		t.Errorf("Type = %q, want forking", opts.Type)
+	// The application lives in the tenant's daemon; the site's unit only registers it.
+	if opts.Type != "oneshot" || !opts.RemainAfterExit {
+		t.Errorf("Type = %q, RemainAfterExit = %v, want a oneshot that stays active", opts.Type, opts.RemainAfterExit)
 	}
-	if !strings.HasPrefix(opts.PIDFile, c.SiteDir) || !strings.HasSuffix(opts.PIDFile, "pm2.pid") {
-		t.Errorf("PIDFile = %q, want PM2's pid file inside the site directory", opts.PIDFile)
+	if opts.PIDFile != "" {
+		t.Errorf("PIDFile = %q: a oneshot has no daemon of its own to follow", opts.PIDFile)
+	}
+	if opts.BindsTo != "ratline-pm2@alice.node22.service" {
+		t.Errorf("BindsTo = %q, want the tenant's Node 22 daemon", opts.BindsTo)
 	}
 	// The reload is the entire reason PM2 is the default.
 	if !strings.Contains(opts.ExecReload, " reload ") {
 		t.Errorf("ExecReload = %q, want a pm2 reload", opts.ExecReload)
 	}
-	// Without ExecStop the daemon outlives the unit.
-	if !strings.HasSuffix(opts.ExecStop, " kill") {
-		t.Errorf("ExecStop = %q, want pm2 kill", opts.ExecStop)
+	// Stopping one site must take out that site and nothing else: `pm2 kill` here
+	// would stop every site of the tenant.
+	if !strings.HasSuffix(opts.ExecStop, " delete "+c.Site.Slug) || strings.Contains(opts.ExecStop, " kill") {
+		t.Errorf("ExecStop = %q, want pm2 delete %s", opts.ExecStop, c.Site.Slug)
 	}
-	if !strings.Contains(exec, " start ") {
-		t.Errorf("ExecStart = %q, want pm2 start", exec)
+	if !strings.HasPrefix(opts.ExecStop, "-") {
+		t.Errorf("ExecStop = %q, want it to tolerate a daemon that is already gone", opts.ExecStop)
 	}
-	if strings.Contains(exec, "--no-daemon") {
-		t.Errorf("ExecStart = %q must let PM2 fork, which is what Type=forking expects", exec)
+	if !strings.Contains(exec, " start ") || !strings.Contains(exec, "--update-env") {
+		t.Errorf("ExecStart = %q, want pm2 start with --update-env", exec)
 	}
 }
 
-func TestPM2HomeIsPerSiteAndWritable(t *testing.T) {
+func TestPM2HomeIsTheTenantsAndBoundIntoTheSandbox(t *testing.T) {
 	c := nodeContext(t, nil)
 	_, opts, err := (Node{}).pm2StartCommand(context.Background(), c)
 	if err != nil {
 		t.Fatalf("pm2StartCommand = %v", err)
 	}
 	home := pm2Home(c)
-	// Per site, so one tenant's daemon is never another's, and so it is removed
-	// with the site rather than left behind in a shared location.
-	if !strings.HasPrefix(home, c.SiteDir) {
-		t.Errorf("PM2_HOME = %q, want it inside %q", home, c.SiteDir)
+	// In the tenant's home, shared by their sites, never inside one site's directory
+	// and never anywhere another tenant's daemon could be.
+	if want := "/home/alice/.ratline/pm2/node22"; home != want {
+		t.Errorf("PM2_HOME = %q, want %q", home, want)
+	}
+	if strings.HasPrefix(home, c.SiteDir) {
+		t.Errorf("PM2_HOME = %q is inside one site's directory", home)
 	}
 	var found bool
 	for _, e := range opts.Environment {
@@ -280,10 +287,50 @@ func TestPM2HomeIsPerSiteAndWritable(t *testing.T) {
 	if !found {
 		t.Errorf("Environment = %v, want PM2_HOME=%s", opts.Environment, home)
 	}
-	// ProtectSystem=strict makes the whole filesystem read-only, so PM2's own
-	// directory has to be named or the daemon cannot write its socket.
-	if opts.ExtraReadWritePaths != home {
-		t.Errorf("ExtraReadWritePaths = %q, want %q", opts.ExtraReadWritePaths, home)
+	// ProtectHome=tmpfs hides it unless it is bound back in, and the client has to
+	// reach the daemon's socket there.
+	if len(opts.ExtraBindPaths) != 1 || opts.ExtraBindPaths[0] != home {
+		t.Errorf("ExtraBindPaths = %v, want [%s]", opts.ExtraBindPaths, home)
+	}
+}
+
+// Sites on different Node versions cannot share a daemon: cluster workers are forked
+// from the daemon's own node.
+func TestPM2DaemonKeyFollowsTheNodeVersion(t *testing.T) {
+	for _, tc := range []struct{ site, def, want string }{
+		{"", "22", "node22"},
+		{"18", "22", "node18"},
+		{"v20.11.0", "22", "node20.11.0"},
+		{"", "", "system"},
+	} {
+		c := nodeContext(t, func(s *state.Site) { s.NodeVersion = tc.site })
+		c.Cfg.Runtimes.NodeDefault = tc.def
+		if got := pm2DaemonKey(c); got != tc.want {
+			t.Errorf("site %q, default %q: key = %q, want %q", tc.site, tc.def, got, tc.want)
+		}
+	}
+}
+
+// Every pm2 command launches a daemon when it cannot reach one. Asking a daemon that is
+// down would start a stray outside its unit, so the report must not ask.
+func TestPM2ReportDoesNotWakeADaemonThatIsDown(t *testing.T) {
+	c := nodeContext(t, nil)
+	r := &stubRunner{exit: 3} // systemctl is-active: inactive
+	c.Runner = r
+	st, err := (Node{}).PM2Report(context.Background(), c)
+	if err != nil {
+		t.Fatalf("PM2Report = %v", err)
+	}
+	if st.Instances != 0 {
+		t.Errorf("Instances = %d, want 0 for a daemon that is down", st.Instances)
+	}
+	for _, call := range r.calls {
+		if strings.HasSuffix(call[0], "/pm2") {
+			t.Errorf("ran %v against a daemon that is down", call)
+		}
+	}
+	if len(r.calls) == 0 || r.calls[0][0] != "systemctl" {
+		t.Errorf("calls = %v, want the daemon's state asked of systemd first", r.calls)
 	}
 }
 
@@ -607,11 +654,8 @@ func TestABunSiteOnPM2GetsThePM2Unit(t *testing.T) {
 	if !strings.Contains(execStart, "pm2") {
 		t.Errorf("ExecStart = %q, want pm2", execStart)
 	}
-	if opts.Type != "forking" {
-		t.Errorf("unit Type = %q, want forking", opts.Type)
-	}
-	if opts.PIDFile == "" {
-		t.Error("a forking unit needs a PIDFile or systemd follows the wrong process")
+	if opts.Type != "oneshot" || opts.BindsTo == "" {
+		t.Errorf("unit Type = %q, BindsTo = %q, want the oneshot bound to the tenant's PM2", opts.Type, opts.BindsTo)
 	}
 
 	// The negative: without PM2 it is still bun straight under systemd.
@@ -626,7 +670,7 @@ func TestABunSiteOnPM2GetsThePM2Unit(t *testing.T) {
 	if !strings.HasSuffix(strings.Fields(execStart)[0], "/bun") {
 		t.Errorf("ExecStart = %q, want the bun binary as the main process", execStart)
 	}
-	if opts.Type == "forking" {
-		t.Error("direct supervision should not be a forking unit")
+	if opts.Type == "oneshot" || opts.BindsTo != "" {
+		t.Error("direct supervision should be bun itself, not a unit bound to PM2")
 	}
 }

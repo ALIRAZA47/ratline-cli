@@ -111,6 +111,21 @@ ratline db user list --database acmeshop
 
 No command prints a password. `--json` never contains one either.
 
+To look inside the data, do not hunt for the admin credentials or build a `mongosh`/`mysql`/
+`redis-cli` command line — that is how a password ends up in argv and shell history. Use the
+client ratline opens already logged in:
+
+```bash
+ratline db shell acmeshop --eval 'db.orders.countDocuments()'      # one query, then exit
+ratline db shell acmeshop --engine mysql --eval 'SHOW TABLES'
+ratline db shell --engine redis -- GET acmeshop:counter
+ssh -t "$RATLINE_HOST" ratline db shell acmeshop                   # an interactive prompt needs a terminal
+```
+
+It is the **admin** session — every database, full write access — so prefer `db show` for
+anything it answers, run read-only queries unless the human asked for a change, and confirm
+before anything that writes or drops.
+
 ## Users
 
 ```bash

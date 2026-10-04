@@ -325,12 +325,12 @@ func (Bun) Reload(ctx context.Context, c *Context) error {
 // Teardown removes node_modules. Bun installs into the same directory npm does, so
 // there is nothing bun-specific outside the site directory to clean up.
 func (Bun) Teardown(ctx context.Context, c *Context) error {
-	// A PM2-supervised bun site has a daemon of its own, and removing the site
-	// without stopping it leaves an orphan holding the socket. The node path does
-	// the same thing for the same reason.
+	// A PM2-supervised bun site lives in its tenant's PM2 daemon, and removing the site
+	// without taking it out leaves its workers there holding the socket. The node path
+	// does the same thing for the same reason.
 	if ProcessManagerFor(c) == ProcessManagerPM2 && !c.DryRun {
-		if kerr := (Node{}).pm2Kill(ctx, c); kerr != nil {
-			c.Log.Debug("the PM2 daemon did not stop cleanly", "err", kerr)
+		if kerr := (Node{}).pm2Remove(ctx, c); kerr != nil {
+			c.Log.Debug("the site could not be taken out of its PM2 daemon", "err", kerr)
 		}
 	}
 	modules := filepath.Join(c.AppDir, "node_modules")

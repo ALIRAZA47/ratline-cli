@@ -250,6 +250,11 @@ var policies = map[string]Policy{
 	"runtime list":    {MinRole: store.RoleAdmin, Group: GroupRuntimes},
 	"runtime install": {MinRole: store.RoleAdmin, Long: true, Group: GroupRuntimes},
 	"runtime default": {MinRole: store.RoleSuperAdmin, Group: GroupRuntimes},
+	// pm2 as a tenant, against the daemon every PM2 site of theirs runs in. Most of what
+	// gets through the allowlist only looks, but restart and reload act on live sites,
+	// and `logs`/`monit` follow until interrupted, which a request cannot. The same
+	// standing as `site exec`, which can do as much and more.
+	"pm2": {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupRuntimes},
 
 	// ── The server itself ──────────────────────────────────────────────────────
 	"status":           {MinRole: store.RoleAdmin, Group: GroupOverview},
@@ -274,6 +279,12 @@ var policies = map[string]Policy{
 	// the size of the machine.
 	"restore": {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupServer},
 	"import":  {MinRole: store.RoleSuperAdmin, Destructive: true, Long: true, Group: GroupServer},
+	// The system-tool passthroughs. Each takes a free-form argument line rather than
+	// named fields, and one form covers both a read and a mutation — `systemctl status`
+	// and `systemctl stop` — so they sit with the other server-wide controls, behind a
+	// super admin. The CLI does the refusing either way; the role is about who may ask.
+	"nginx":     {MinRole: store.RoleSuperAdmin, Group: GroupServer},
+	"systemctl": {MinRole: store.RoleSuperAdmin, Group: GroupServer},
 
 	// ── Not for a browser ──────────────────────────────────────────────────────
 	// config edit spawns $EDITOR and waits for it. Over HTTP that is a request
@@ -286,6 +297,13 @@ var policies = map[string]Policy{
 	"man":    {Denied: true, DeniedWhy: "it generates man pages for a terminal"},
 	"schema": {Denied: true, DeniedWhy: "the panel reads it already; it is how these forms are built"},
 	"logs":   {Denied: true, DeniedWhy: "the panel shows a site's logs on its own page; this is the same as 'site logs'"},
+	// An interactive client on a terminal, logged in as the database admin. A web
+	// request has no terminal to give it, and its one-off form (--eval) would be
+	// arbitrary queries against every tenant's data as the admin, from a form.
+	"db shell": {Denied: true, DeniedWhy: "it opens an interactive database client as the admin; use it over SSH"},
+	// journalctl -f runs until it is interrupted, and nothing in a request interrupts it;
+	// the journal a browser needs is already on a site's logs page.
+	"journalctl": {Denied: true, DeniedWhy: "the panel shows a site's journal on its logs page; following one never returns"},
 }
 
 // defaultPolicy is what an unclassified command gets.

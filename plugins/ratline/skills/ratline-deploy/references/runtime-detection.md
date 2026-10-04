@@ -139,7 +139,7 @@ that points nowhere near the cause.
 ## 7. Ceilings and hardening
 
 Defaults suit a small application. Raise deliberately: `--memory-max 1G`, `--cpu-quota 200%`,
-`--instances 4` (PM2 workers sharing one socket, one unit, one ceiling), `--workers 4`
+`--instances 4` (PM2 workers sharing one socket and the site's one ceiling), `--workers 4`
 (Gunicorn). Four workers at 200M each is 800M against a 512M ceiling, which is how a site
 that was fine starts being OOM-killed under load. `--client-max-body-size 100M` for uploads;
 the default 20M is the commonest cause of a mystery 413.

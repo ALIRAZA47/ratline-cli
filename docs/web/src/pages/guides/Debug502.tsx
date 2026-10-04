@@ -106,7 +106,7 @@ ratline site logs api.example.com --journal      # the unit itself, not the app
 
 # Then, once you know why:
 ratline site restart api.example.com`,
-            note: 'On a node site under PM2 — the default — the two log flags are not the same thing. PM2 captures worker output into logs/app.log, so the journal holds only PM2\u2019s own messages: --app is the application, --journal is a failed start or an OOM kill. And systemd\u2019s restart counter reads zero on such a site because PM2 does the restarting, which is why site status shows PM2\u2019s count instead.',
+            note: 'On a node site under PM2 — the default — the two log flags are not the same thing. PM2 captures worker output into logs/app.log, so the journal holds only PM2\u2019s own messages: --app is the application, --journal is a failed start, and an OOM kill is in the tenant\u2019s PM2 daemon\u2019s journal (journalctl -u ratline-pm2@<user>.<node>.service). And systemd\u2019s restart counter reads zero on such a site because PM2 does the restarting, which is why site status shows PM2\u2019s count instead.',
           },
           {
             n: 2,

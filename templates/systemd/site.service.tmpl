@@ -10,6 +10,14 @@ Documentation=man:ratline(8)
 After=network-online.target
 Wants=network-online.target
 PartOf=ratline.target
+{{- if .BindsTo }}
+# The application runs inside {{ .BindsTo }}, the PM2 daemon this tenant's sites share.
+# This unit only registers it there and takes it out again, so it cannot be up while
+# the daemon is down: BindsTo stops it when the daemon goes, and the daemon's own
+# Wants= starts it again when the daemon comes back.
+BindsTo={{ .BindsTo }}
+After={{ .BindsTo }}
+{{- end }}
 # StartLimit* live in [Unit], not [Service]. systemd moved them here and ignores
 # them there with "Unknown key name", so a copy in [Service] silently left a
 # crash-looping service restarting for ever instead of being put into a failed
@@ -24,6 +32,13 @@ StartLimitIntervalSec=60
 # making an HTTP request through its socket after start — see the health wait in
 # `ratline site start`, which is a stronger check than a readiness ping anyway.
 Type={{ .Type }}
+{{- if .RemainAfterExit }}
+# `pm2 start` returns once the daemon has the application, so the unit stays active
+# after it exits. Restart= is left at its default: systemd refuses Restart=always on a
+# oneshot, and restarting the application is PM2's job here.
+RemainAfterExit=yes
+TimeoutStartSec={{ .TimeoutStartSec }}
+{{- end }}
 {{- if .PIDFile }}
 # PM2 daemonises, so systemd is told which process to follow after the fork. The
 # cgroup still contains every worker, which is what keeps MemoryMax enforceable.
@@ -64,8 +79,10 @@ ExecReload={{ .ExecReload }}
 {{- if .ExecStop }}
 ExecStop={{ .ExecStop }}
 {{- end }}
+{{- if not .RemainAfterExit }}
 Restart=always
 RestartSec={{ .RestartSec }}
+{{- end }}
 KillSignal=SIGTERM
 KillMode=mixed
 TimeoutStopSec={{ .TimeoutStopSec }}

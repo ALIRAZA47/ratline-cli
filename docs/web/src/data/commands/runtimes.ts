@@ -103,5 +103,60 @@ ratline runtime default python 3.12` },
       ],
       seeAlso: [{ label: 'site runtime', to: '/reference/site/runtime' }],
     },
+    {
+      id: 'pm2',
+      name: 'ratline pm2',
+      args: '[<domain>|<user>] -- <pm2 arguments>',
+      status: 'built',
+      summary: 'Run pm2 against a tenant’s shared PM2 daemon, as the tenant.',
+      description: [
+        'Every tenant’s PM2-supervised sites share one PM2 daemon per Node version, run by systemd as that tenant (ratline-pm2@<user>.<node>.service, with PM2_HOME at /home/<user>/.ratline/pm2/<node>). This runs pm2 against it as the tenant, with the daemon’s own PM2_HOME and node. A bare `pm2` as root talks to root’s ~/.pm2 instead — and, finding no daemon there, starts an empty one, which is the worst possible answer to “what is running”.',
+        'With a domain, the daemon that site runs in; and a verb that takes an application name (logs, describe, restart, reload, reset, flush) is given the site’s own when none follows. With a user, that tenant’s daemon — `--node` picks one when they have sites on more than one Node version. With neither, a listing verb (list, status, jlist, prettylist) runs against every daemon on the server in turn.',
+        'The daemon is read from its unit file, which is root’s and carries ratline’s header, so nothing about which user or which pm2 to run is taken from the tenant’s tree. A daemon that is not running is not asked at all, because every pm2 command that cannot reach a daemon starts one — outside the unit’s cgroup, holding its socket.',
+        'Nothing is interpreted by a shell; everything after -- is pm2’s argv. It takes no lock, because `pm2 logs` can run for hours and holding the lock would stop every other ratline command on the box for as long as somebody watched.',
+      ],
+      flags: [
+        {
+          name: '--node',
+          arg: '<version>',
+          type: 'version',
+          description: 'With a user: the daemon for this Node version. Refused with a domain, whose daemon follows its Node version, and without a target.',
+        },
+      ],
+      refuses: [
+        'kill — it stops the tenant’s daemon behind systemd’s back. Restart its unit instead, `ratline systemctl -- restart ratline-pm2@<user>.<node>.service`, which brings every site in it back.',
+        'delete and stop — the site’s unit would still say active. Use `ratline site disable` or `ratline site delete`.',
+        'start — an application started here is not a site, and is gone on the daemon’s next restart. Use `ratline site add` or `ratline site worker add`.',
+        'scale — the site’s configuration would disagree with what is running. Use `ratline site scale <domain> --instances N`.',
+        'save, dump, resurrect, cleardump — systemd brings the applications back from each site’s unit; a dump is a second, stale copy.',
+        'startup and unstartup — the daemon is already a systemd unit; a second boot unit would start a second daemon.',
+        'update — upgrade PM2 with `ratline runtime install node <version> --with-pm2`, then restart the daemon.',
+        'install, uninstall, set and the other module verbs — a PM2 module is code run inside the daemon of every site of the tenant, and not something ratline manages.',
+        'link and plus — PM2 Plus sends the daemon’s process data to a third party.',
+        'deploy, serve, ecosystem, init, attach — each has a ratline equivalent, which the refusal names.',
+        'A site still on its own per-site daemon from an earlier release — `ratline reconcile --fix` then `ratline site restart <domain>` moves it into its tenant’s.',
+      ],
+      exits: [
+        { code: 2, reason: 'No pm2 arguments, a verb that is refused or not passed through, a verb that needs one daemon given several, or --node in the wrong place.' },
+        { code: 3, reason: 'No PM2 daemon to ask: the site is not supervised by PM2 or still runs its own, the user has none (or none for that Node version), or the daemon is not running.' },
+        { code: 4, reason: 'pm2 itself failed against a daemon.' },
+      ],
+      examples: [
+        {
+          lang: 'shell',
+          code: `ratline pm2 -- list                                # every tenant's daemon in turn
+ratline pm2 app.example.com -- logs --lines 200    # that site's application
+ratline pm2 app.example.com -- describe
+ratline pm2 acme -- monit                          # the tenant's daemon
+ratline pm2 acme --node 18 -- list                 # one of several`,
+        },
+      ],
+      seeAlso: [
+        { label: 'Node sites and PM2', to: '/guides/node' },
+        { label: 'site runtime', to: '/reference/site/runtime' },
+        { label: 'ratline systemctl', to: '/reference/ops/systemctl' },
+      ],
+      keywords: ['pm2', 'pm2_home', 'pm2 list', 'pm2 logs', 'pm2 monit', 'daemon', 'ratline-pm2', 'tenant daemon'],
+    },
   ],
 };

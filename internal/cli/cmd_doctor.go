@@ -17,6 +17,7 @@ import (
 	"github.com/ALIRAZA47/ratline-cli/internal/mysqld"
 	"github.com/ALIRAZA47/ratline-cli/internal/nginx"
 	"github.com/ALIRAZA47/ratline-cli/internal/redisd"
+	"github.com/ALIRAZA47/ratline-cli/internal/site"
 	"github.com/ALIRAZA47/ratline-cli/internal/sitepath"
 	"github.com/ALIRAZA47/ratline-cli/internal/sshkey"
 	"github.com/ALIRAZA47/ratline-cli/internal/state"
@@ -318,6 +319,15 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 			}
 		}
 
+		// A PM2 site still on the daemon of its own an earlier release gave it. It works;
+		// it is also exactly the per-site daemon sharing was meant to remove, and it stays
+		// until the unit is re-rendered and the site restarted.
+		if mgr.RunsOwnPM2(s) {
+			add("warning", "service", s.Domain,
+				"runs its own PM2 daemon rather than its tenant's shared one",
+				"ratline reconcile --fix, then ratline site restart "+s.Domain)
+		}
+
 		// A socket file left behind by a crashed process still exists, so the
 		// only meaningful check is whether it accepts a connection.
 		if s.Enabled && status.Active == "active" {
@@ -513,6 +523,21 @@ func (g *Globals) diagnose(ctx context.Context, opts doctorOptions) ([]Finding, 
 		known := map[string]bool{}
 		for _, s := range sites {
 			known[validate.UnitName(s.Owner, s.Domain)] = true
+		}
+		// A tenant's shared PM2 daemon belongs to the sites that run in it. One that is
+		// down takes every one of them with it, which each site reports as its own
+		// failure — so the daemon is named here as the cause. One no site needs is an
+		// orphan like any other.
+		wantedPM2 := mgr.WantedPM2Daemons(sites)
+		for name := range wantedPM2 {
+			known[name] = true
+			if !mgr.Unit.IsActive(ctx, name) {
+				if served := g.enabledSitesIn(mgr, sites, name); len(served) > 0 {
+					add("problem", "service", name,
+						"the tenant's PM2 daemon is not running, so neither is "+strings.Join(served, ", "),
+						"journalctl -u "+name+", then ratline site start "+served[0])
+				}
+			}
 		}
 		// A job or worker unit belongs to a site; it is simply not that site's own
 		// service. Without this every one of them is reported as an orphan, with a fix
@@ -853,7 +878,8 @@ func newReconcileCommand(g *Globals) *cobra.Command {
 			}
 			if restart > 0 && !g.DryRun {
 				g.Log.Info("service units were re-rendered; each takes effect on its next restart",
-					"count", restart, "apply_with", "ratline site restart <domain>")
+					"count", restart, "apply_with", "ratline site restart <domain>",
+					"note", "a PM2 site moves into its tenant's shared PM2 daemon on that restart")
 			}
 			// Release port allocations no site uses any more.
 			ports, err := st.ListPorts(cmd.Context())
@@ -1081,4 +1107,15 @@ func revokedKeysNamedIn(dropIn string) string {
 		}
 	}
 	return ""
+}
+
+// enabledSitesIn lists the enabled sites whose application runs in a tenant PM2 daemon.
+func (g *Globals) enabledSitesIn(mgr *site.Manager, sites []*state.Site, daemon string) []string {
+	var out []string
+	for _, s := range sites {
+		if s.Enabled && mgr.PM2DaemonUnit(s) == daemon {
+			out = append(out, s.Domain)
+		}
+	}
+	return out
 }

@@ -459,6 +459,63 @@ if "$RATLINE" runtime install node 22 --with-pm2 >/dev/null 2>&1; then
         contains "site status reports PM2's own worker count" "pm2" \
             "$("$RATLINE" site status app.test 2>&1)"
 
+        # One PM2 daemon per tenant, not per site. A second PM2 site of bob's joins the
+        # daemon app.test already runs in, without restarting it — a tenant's other
+        # sites must not bounce because a site was added.
+        daemon=ratline-pm2@bob.node22.service
+        check "the tenant's PM2 daemon is a unit of its own" systemctl is-active --quiet "$daemon"
+        contains "app.test's unit is a oneshot bound to it" "BindsTo=$daemon" \
+            "$(cat /etc/systemd/system/ratline-bob-app_test.service)"
+        god_before=$(systemctl show -p MainPID --value "$daemon")
+        mkdir -p /home/bob/pm2b.test/app
+        cp /home/bob/app.test/app/server.js /home/bob/pm2b.test/app/server.js
+        cp /home/bob/app.test/app/package.json /home/bob/pm2b.test/app/package.json
+        chown -R bob:bob /home/bob/pm2b.test
+        check "a second PM2 site for the same tenant" "$RATLINE" site add pm2b.test --user bob \
+            --runtime node --entry server.js --ssl none
+        contains "the second PM2 site answers" '"ok":true' \
+            "$(curl -sS -H 'Host: pm2b.test' http://127.0.0.1/ 2>&1)"
+        gods=$(pgrep -u bob -fc 'PM2 .*God Daemon' || true)
+        [ "$gods" = "1" ] && ok "two PM2 sites, one PM2 daemon" \
+            || bad "two PM2 sites, one PM2 daemon" "bob runs $gods God daemons"
+        [ "$(systemctl show -p MainPID --value "$daemon")" = "$god_before" ] \
+            && ok "adding a site did not restart the tenant's daemon" \
+            || bad "adding a site did not restart the tenant's daemon" "its pid changed"
+        contains "the daemon wants the new site" "ratline-bob-pm2b_test.service" \
+            "$(systemctl show -p Wants --value "$daemon")"
+        [ ! -e /home/bob/app.test/.pm2 ] && ok "no per-site PM2_HOME" \
+            || bad "no per-site PM2_HOME" "/home/bob/app.test/.pm2 exists"
+
+        # ratline pm2 talks to that daemon as bob; bare root pm2 would not.
+        jl=$("$RATLINE" pm2 app.test -- jlist 2>&1)
+        contains "ratline pm2 sees app.test in the shared daemon" "bob-app_test" "$jl"
+        contains "and pm2b.test beside it" "bob-pm2b_test" "$jl"
+        refute "ratline pm2 refuses kill" "$RATLINE" pm2 app.test -- kill
+        [ ! -e /root/.pm2 ] && ok "ratline pm2 did not start a daemon of root's" \
+            || bad "ratline pm2 did not start a daemon of root's" "/root/.pm2 exists"
+
+        # A restarted daemon brings every site in it back, via its Wants=.
+        systemctl restart "$daemon"
+        for _ in $(seq 1 50); do
+            curl -fsS -o /dev/null -H 'Host: pm2b.test' http://127.0.0.1/ 2>/dev/null && break
+            sleep 0.2
+        done
+        contains "app.test answers after the daemon restarted" '"ok":true' \
+            "$(curl -sS -H 'Host: app.test' http://127.0.0.1/ 2>&1)"
+        contains "pm2b.test answers after the daemon restarted" '"ok":true' \
+            "$(curl -sS -H 'Host: pm2b.test' http://127.0.0.1/ 2>&1)"
+
+        # Deleting one site takes it out of the daemon and leaves the other serving.
+        check "delete the second PM2 site" "$RATLINE" site delete pm2b.test --purge --yes
+        contains "app.test still answers after its sibling was deleted" '"ok":true' \
+            "$(curl -sS -H 'Host: app.test' http://127.0.0.1/ 2>&1)"
+        case "$("$RATLINE" pm2 app.test -- jlist 2>&1)" in
+            *bob-pm2b_test*) bad "the deleted site left the daemon" "it is still in pm2's list" ;;
+            *) ok "the deleted site left the daemon" ;;
+        esac
+        check "doctor is clean about the tenant's daemon" bash -c \
+            "! '$RATLINE' doctor 2>&1 | grep -q 'PM2 daemon'"
+
         # And the other supervision mode, since --daemon direct is a documented
         # choice and nothing else here exercises it.
         mkdir -p /home/bob/direct.test/app
