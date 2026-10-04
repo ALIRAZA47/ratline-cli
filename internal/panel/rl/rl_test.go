@@ -443,6 +443,9 @@ func TestDeniedCommandsAreAbsentForEveryRole(t *testing.T) {
 		if _, _, found := Lookup(cat, "config.edit", role); found {
 			t.Errorf("config edit is reachable by %s, and it would hang holding the lock", role)
 		}
+		if _, _, found := Lookup(cat, "db.shell", role); found {
+			t.Errorf("db shell is reachable by %s: an admin database client has no place in a form", role)
+		}
 	}
 }
 

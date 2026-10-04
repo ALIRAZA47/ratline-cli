@@ -78,6 +78,14 @@ type Cmd struct {
 
 	// Label names the step in logs; defaults to the binary's base name.
 	Label string
+
+	// Attach hands the child the terminal: Stdin, Stdout and Stderr (ratline's own
+	// when unset) are passed straight through rather than captured, the child stays in
+	// the terminal's foreground process group so it can read the keyboard and receive
+	// its own Ctrl-C, and neither Timeout nor the context's cancellation ends it —
+	// a person at a prompt decides when it is over. For interactive sessions such as
+	// `db shell`; see runAttached.
+	Attach bool
 }
 
 // Result is the outcome of one command.
@@ -149,6 +157,9 @@ func (r *execRunner) Run(ctx context.Context, c Cmd) (*Result, error) {
 	if r.dryRun && c.Mutates {
 		r.log.Info("would run", "cmd", log.ArgvString(append([]string{path}, c.Args...)))
 		return &Result{Path: path, Args: c.Args, Skipped: true}, nil
+	}
+	if c.Attach {
+		return r.runAttached(ctx, path, c, label)
 	}
 
 	timeout := c.Timeout

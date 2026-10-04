@@ -683,6 +683,7 @@ Available Commands:
   user        Add, inspect, re-role and remove MongoDB users
   roles       List the roles ratline will grant, and what each allows
   access      Control which addresses can reach this host's MongoDB
+  shell       Open mongosh, mysql or redis-cli logged in with ratline's admin credentials
 
 Flags:
       --engine string   Database engine: mongo, mysql or redis (default "mongo")
@@ -3655,6 +3656,75 @@ Examples:
   ratline db access revoke 203.0.113.19
 
 Use "ratline db access [command] --help" for more information about a command.
+```
+
+#### `ratline db shell`
+
+```
+Starts the engine's own interactive client, connected to the server ratline
+manages and authenticated with the admin credentials it already holds, so there
+is nothing to look up and nothing to paste.
+
+Those are the only credentials ratline has. It never stores a database user's
+password — MongoDB and MySQL keep a hash, and ratline shows a new password once —
+so this session is the admin, not the application's user: every database on
+the server is reachable from it, and it can change anything. Per engine:
+
+    mongo   the URI in paths.mongo_uri_file, handed to mongosh in its
+            environment; mongosh starts with --nodb and connects from inside
+    mysql   the [client] file at paths.mysql_defaults_file, read by the client
+            through --defaults-extra-file — the file, never the password
+    redis   the URI in paths.redis_uri_file: host and port as flags, the
+            password in REDISCLI_AUTH
+
+No password, and no URI that contains one, appears in any process's argv,
+which every account on the server can read in /proc.
+
+A database name selects it for the session, and has to be one ratline created —
+a typo is refused rather than silently opening an empty database. --unmanaged
+allows one ratline has no record of. Redis takes no name: a ratline keyspace is
+a key prefix guarded by an ACL user, not something a session can select.
+
+--eval runs one thing and exits instead of opening a prompt — JavaScript for
+mongosh, SQL for mysql (written to the client's stdin). For Redis the command
+goes after --, and is written to redis-cli's stdin too. An --eval for mongosh is
+an argument, visible in the process table while it runs, so a password does not
+belong in one; use the prompt for that. Without --eval or a command, standard
+input has to be a terminal.
+
+There is no flag to point the session at a different server or user, and the
+client's own connection flags are refused: that is what 'ratline db connect' is
+for. The session does not hold ratline's lock, so certificate renewals and
+deploys carry on while it is open. --dry-run prints the command and the names of
+the environment variables it would set, and starts nothing.
+
+Usage:
+  ratline db shell [<database>] [flags]
+
+Flags:
+  -e, --eval string   Run this and exit instead of opening a prompt (JavaScript for mongo, SQL for mysql)
+  -h, --help          help for shell
+      --unmanaged     Allow a database ratline has no record of
+
+Global Flags:
+      --config string   Configuration file (default /etc/ratline/config.yaml)
+      --dry-run         Print every mutation without making it
+      --engine string   Database engine: mongo, mysql or redis (default "mongo")
+  -i, --interactive     Ask which options to set before running (arguments are still required)
+      --json            Machine-readable output on stdout; logs on stderr
+      --no-input        Never prompt; fail instead (implied when stdout is not a terminal)
+  -q, --quiet           Errors only
+  -v, --verbose         Debug logging
+  -y, --yes             Assume yes; required for destructive operations without a terminal
+
+Examples:
+  ratline db shell
+  ratline db shell shop
+  ratline db shell shop --eval 'db.orders.countDocuments()'
+  ratline db shell shop --engine mysql
+  ratline db shell shop --engine mysql --eval 'SHOW TABLES'
+  ratline db shell --engine redis
+  ratline db shell --engine redis -- GET shop:counter
 ```
 
 #### `ratline config show`

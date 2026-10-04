@@ -291,6 +291,10 @@ var policies = map[string]Policy{
 	"man":    {Denied: true, DeniedWhy: "it generates man pages for a terminal"},
 	"schema": {Denied: true, DeniedWhy: "the panel reads it already; it is how these forms are built"},
 	"logs":   {Denied: true, DeniedWhy: "the panel shows a site's logs on its own page; this is the same as 'site logs'"},
+	// An interactive client on a terminal, logged in as the database admin. A web
+	// request has no terminal to give it, and its one-off form (--eval) would be
+	// arbitrary queries against every tenant's data as the admin, from a form.
+	"db shell": {Denied: true, DeniedWhy: "it opens an interactive database client as the admin; use it over SSH"},
 }
 
 // defaultPolicy is what an unclassified command gets.
