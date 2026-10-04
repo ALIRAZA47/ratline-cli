@@ -384,6 +384,12 @@ func parsePM2Unit(name, body string) *pm2Daemon {
 func (g *Globals) runPM2(ctx context.Context, daemons []*pm2Daemon, argv []string) error {
 	timeout := 2 * time.Minute
 	if pm2Streaming[argv[0]] {
+		// One envelope at the end of a stream that never ends is no envelope at all,
+		// and the panel — which always asks for --json — would hold a job open for a day.
+		if g.JSON {
+			return rlerr.Usagef("'pm2 %s' follows until interrupted, so it has no --json form", argv[0]).
+				WithHint("use 'pm2 jlist' or 'pm2 describe' for something to parse")
+		}
 		timeout = 24 * time.Hour
 	}
 	if g.DryRun {

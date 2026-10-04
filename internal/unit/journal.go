@@ -338,6 +338,11 @@ func (m *Manager) journalArgs(unitName string) []string {
 	return args
 }
 
+// JournalFilter is the journalctl filter for a unit's log as root reads it — the unit, and
+// the namespace it logs into when the unit on disk names one — for a caller that builds
+// the rest of the command line itself (`ratline journalctl`).
+func (m *Manager) JournalFilter(unitName string) []string { return m.journalArgs(unitName) }
+
 // JournalHint is the journalctl command an operator would type to read a unit's recent
 // output, for error hints.
 func (m *Manager) JournalHint(unitName string) string {

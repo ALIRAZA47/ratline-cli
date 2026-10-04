@@ -175,6 +175,11 @@ func closestTopic(want string, names []string) string {
 		"hooks":       "deploys",
 		"clone":       "deploys",
 		"staging":     "deploys",
+		"nginx":       "passthrough",
+		"systemctl":   "passthrough",
+		"systemd":     "passthrough",
+		"journalctl":  "passthrough",
+		"journal":     "passthrough",
 	} {
 		if want == alias {
 			return topic

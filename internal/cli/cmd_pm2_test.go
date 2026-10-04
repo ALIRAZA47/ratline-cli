@@ -192,3 +192,18 @@ func TestPM2DaemonUnitsListsOnlyDaemons(t *testing.T) {
 		t.Errorf("acme's daemons = %v", acme)
 	}
 }
+
+// A stream has no end for an envelope to follow, and the panel always asks for --json.
+func TestPM2RefusesAStreamUnderJSON(t *testing.T) {
+	runner := systest.NewFakeRunner()
+	g := &Globals{Cfg: config.Default(), Log: log.Discard(), Runner: runner, JSON: true,
+		Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	for _, verb := range []string{"logs", "monit"} {
+		if err := g.runPM2(context.Background(), onePM2Daemon(""), []string{verb}); err == nil {
+			t.Errorf("pm2 %s under --json was not refused", verb)
+		}
+	}
+	if len(runner.Keys()) != 0 {
+		t.Errorf("a refused stream still ran %v", runner.Keys())
+	}
+}
