@@ -213,6 +213,28 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127
 code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/.env)
 [ "$code" = "404" ] && ok ".env is not servable" || bad ".env is not servable" "got $code"
 
+# /.well-known/ is the one dotted path a site must answer (OAuth discovery,
+# security.txt). A hidden file inside it is still refused.
+mkdir -p /home/alice/static.test/public/.well-known
+echo 'Contact: mailto:security@static.test' > /home/alice/static.test/public/.well-known/security.txt
+echo 'SECRET=nope' > /home/alice/static.test/public/.well-known/.env
+chown -R alice:alice /home/alice/static.test/public/.well-known
+body=$(curl -sS -H 'Host: static.test' http://127.0.0.1/.well-known/security.txt 2>&1)
+contains "/.well-known/ is served" "Contact: mailto:security@static.test" "$body"
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/.well-known/.env)
+[ "$code" = "404" ] && ok "a hidden file under /.well-known/ is not servable" \
+    || bad "a hidden file under /.well-known/ is not servable" "got $code"
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/.well-knownx/security.txt)
+[ "$code" = "404" ] && ok "a lookalike of /.well-known/ is not servable" \
+    || bad "a lookalike of /.well-known/ is not servable" "got $code"
+mkdir -p /home/alice/static.test/public/assets/.well-known
+echo nested > /home/alice/static.test/public/assets/.well-known/security.txt
+chown -R alice:alice /home/alice/static.test/public/assets
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: static.test' http://127.0.0.1/assets/.well-known/security.txt)
+[ "$code" = "404" ] && ok "a nested .well-known is not servable" \
+    || bad "a nested .well-known is not servable" "got $code"
+rm -rf /home/alice/static.test/public/.well-known /home/alice/static.test/public/assets
+
 hdr=$(curl -sSI -H 'Host: static.test' http://127.0.0.1/index.html)
 contains "the index is not cached" "no-cache" "$hdr"
 contains "the security headers are set" "X-Content-Type-Options" "$hdr"
