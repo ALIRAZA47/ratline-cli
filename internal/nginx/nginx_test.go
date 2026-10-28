@@ -315,6 +315,23 @@ func TestDenyHiddenCoversTheFilesThatMatter(t *testing.T) {
 	}
 }
 
+// A bare `location ~ /\.` also catches /.well-known/, so it 404s OAuth
+// discovery for every site and nginx logs nothing. Go's regexp has no
+// lookahead, so this pins the pattern itself. The integration suite checks what
+// nginx actually serves.
+func TestDenyHiddenLeavesWellKnownToTheSite(t *testing.T) {
+	body, err := testManager().readSnippet("deny-hidden.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `location ~ /\.(?!well-known/)|^/.+/\.well-known/ {`) {
+		t.Error("deny-hidden.conf's dotfile rule no longer exempts /.well-known/ at the root, and only there")
+	}
+	if strings.Contains(body, `location ~ /\. {`) {
+		t.Error(`deny-hidden.conf has a bare "location ~ /\." rule, which also refuses /.well-known/`)
+	}
+}
+
 // readSnippet exposes an embedded snippet for assertions.
 func (m *Manager) readSnippet(name string) (string, error) {
 	b, err := templatesRead("nginx/snippets/" + name)
